@@ -54,6 +54,14 @@ destination="$1"
 ref="${2:-HEAD}"
 repo_root="$(git rev-parse --show-toplevel)"
 
+# Release branches intentionally share their name with immutable tags. Prefer a
+# local branch when the caller uses the shorthand so an active version lane is
+# never silently exported from an older tag.
+archive_ref="$ref"
+if [[ "$ref" != refs/* ]] && git -C "$repo_root" show-ref --verify --quiet "refs/heads/$ref"; then
+  archive_ref="refs/heads/$ref"
+fi
+
 if [[ -z "$target_branch" ]]; then
   if [[ "$ref" =~ ^v[0-9] ]]; then
     target_branch="$ref"
@@ -87,7 +95,7 @@ mkdir -p "$destination"
 stage_dir="$(mktemp -d "${TMPDIR:-/tmp}/starlanenotes-github-export.XXXXXX")"
 trap 'rm -rf "$stage_dir"' EXIT
 
-git -C "$repo_root" archive --format=tar "$ref" | tar -xf - -C "$stage_dir"
+git -C "$repo_root" archive --format=tar "$archive_ref" | tar -xf - -C "$stage_dir"
 
 rm -rf \
   "$stage_dir/.claude" \
