@@ -1586,7 +1586,7 @@ pub fn openapi_spec() -> Value {
                 "NotificationPreference": {
                     "type": "object",
                     "properties": {
-                        "notification_type": { "type": "string", "enum": ["workflow_approval", "workflow_handoff", "mention", "comment", "comment_reply", "doc_shared", "space_invite", "doc_subscription", "doc_locked", "doc_unlocked"] },
+                        "notification_type": { "type": "string", "enum": ["workflow_approval", "workflow_handoff", "workflow_delegate", "workflow_escalate", "mention", "comment", "comment_reply", "doc_shared", "space_invite", "doc_subscription", "doc_locked", "doc_unlocked", "system"] },
                         "label": { "type": "string" },
                         "channel": { "type": "string", "enum": ["both", "in_app", "email", "none"] }
                     },
@@ -1600,7 +1600,7 @@ pub fn openapi_spec() -> Value {
                             "items": {
                                 "type": "object",
                                 "properties": {
-                                    "notification_type": { "type": "string", "enum": ["workflow_approval", "workflow_handoff", "mention", "comment", "comment_reply", "doc_shared", "space_invite", "doc_subscription", "doc_locked", "doc_unlocked"] },
+                                    "notification_type": { "type": "string", "enum": ["workflow_approval", "workflow_handoff", "workflow_delegate", "workflow_escalate", "mention", "comment", "comment_reply", "doc_shared", "space_invite", "doc_subscription", "doc_locked", "doc_unlocked", "system"] },
                                     "channel": { "type": "string", "enum": ["both", "in_app", "email", "none"] }
                                 },
                                 "required": ["notification_type", "channel"]
@@ -4914,6 +4914,11 @@ fn build_paths() -> Value {
     );
     add_path(
         &mut paths,
+        "/notifications/system",
+        [("post", "Notifications", "Record authenticated system activity", true)],
+    );
+    add_path(
+        &mut paths,
         "/notifications/{notification_id}/read",
         [("post", "Notifications", "Mark notification read", true)],
     );
@@ -4953,6 +4958,26 @@ fn build_paths() -> Value {
         "post",
         "204",
         "All current-user notifications marked read.",
+    );
+    set_json_response(
+        &mut paths,
+        "/notifications/system",
+        "post",
+        "201",
+        json!({ "$ref": "#/components/schemas/Notification" }),
+    );
+    set_request_body(
+        &mut paths,
+        "/notifications/system",
+        "post",
+        json!({
+            "type": "object",
+            "properties": {
+                "title": { "type": "string", "minLength": 1, "maxLength": 160 },
+                "body": { "type": "string", "maxLength": 1000 }
+            },
+            "required": ["title"]
+        }),
     );
     set_empty_response(
         &mut paths,
@@ -6610,8 +6635,8 @@ mod tests {
         );
         assert_eq!(
             spec["components"]["schemas"]["NotificationPreferencesUpdateRequest"]["properties"]
-                ["preferences"]["items"]["properties"]["notification_type"]["enum"][9],
-            "doc_unlocked"
+                ["preferences"]["items"]["properties"]["notification_type"]["enum"][12],
+            "system"
         );
         assert_eq!(
             spec["paths"]["/notifications/preferences"]["put"]["responses"]["200"]["content"]

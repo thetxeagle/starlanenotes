@@ -6495,6 +6495,19 @@ export const dataClient = {
     }
   },
 
+  async createSystemNotification(input: {
+    title: string;
+    body?: string;
+  }): Promise<NotificationRecord | null> {
+    if (!inLocalMode()) {
+      return api.fetch<NotificationRecord | null>("/notifications/system", {
+        method: "POST",
+        body: input,
+      });
+    }
+    return null;
+  },
+
   async listNotificationPreferences(): Promise<NotificationPreferenceRecord[]> {
     if (!inLocalMode()) {
       return api.fetch<NotificationPreferenceRecord[]>("/notifications/preferences");

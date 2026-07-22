@@ -3,6 +3,7 @@ mod desktop;
 
 mod background_replay;
 mod local_database;
+mod native_notifications;
 mod vault;
 
 #[cfg(desktop)]
@@ -57,6 +58,7 @@ pub fn run() {
             local_database::upsert_native_local_database_record,
             local_database::delete_native_local_database_record,
             local_database::reset_native_local_database,
+            native_notifications::send_native_notification,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Starlane Notes")

@@ -101,6 +101,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useRuntimePlatform } from "@/hooks/useRuntimePlatform";
 import type { RuntimePlatform } from "@/hooks/useRuntimePlatform";
 import { getPersonalSpaceOwnerLabel } from "@/lib/spaceLabels";
+import { recordSystemNotification } from "@/lib/systemNotifications";
 import { getSwipeAction, sortRecentItems } from "./mobileRecentUtils";
 
 interface Space {
@@ -2658,9 +2659,21 @@ export function MobileProfileScreen({ scope = "all" }: { scope?: "all" | "app" |
   const [passkeyName, setPasskeyName] = useState("");
   const [passkeyDeleteTarget, setPasskeyDeleteTarget] = useState<PasskeyRecord | null>(null);
   const [passkeysLoading, setPasskeysLoading] = useState(false);
-  const [status, setStatus] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [status, setStatusState] = useState<string | null>(null);
+  const [error, setErrorState] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
+  const setStatus = useCallback((message: string | null) => {
+    setStatusState(message);
+    if (message) {
+      void recordSystemNotification({ title: "Starlane Notes", body: message }).catch(() => undefined);
+    }
+  }, []);
+  const setError = useCallback((message: string | null) => {
+    setErrorState(message);
+    if (message) {
+      void recordSystemNotification({ title: "Action needs attention", body: message }).catch(() => undefined);
+    }
+  }, []);
   const totpSetupDisabledReason = getMobileTotpSetupDisabledReason(
     totpEnabled,
     totpSetupUrl,
@@ -2816,7 +2829,7 @@ export function MobileProfileScreen({ scope = "all" }: { scope?: "all" | "app" |
         setBusyAction(null);
       }
     },
-    [],
+    [setError, setStatus],
   );
 
   const handleCreateVault = useCallback(() => {

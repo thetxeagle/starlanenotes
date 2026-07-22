@@ -2,6 +2,8 @@
 
 Notification endpoints expose the current user's inbox, read state, and delivery preferences. All notification endpoints require user authentication.
 
+The authenticated web, desktop, and mobile apps also record their system confirmations and errors in this inbox. Those records immediately show a temporary in-app banner, but dismissing or waiting out a banner never clears its inbox entry.
+
 ## List Notifications
 
 ```http
@@ -49,6 +51,14 @@ POST /api/v1/notifications/{notification_id}/read
 ```
 
 Marks one current-user notification as read. Returns `204 No Content` on success. Returns `404 Not Found` if the notification does not exist or does not belong to the authenticated user.
+
+## Record System Activity
+
+```http
+POST /api/v1/notifications/system
+```
+
+The authenticated app uses this endpoint to retain user-visible system activity in the inbox. It accepts a `title` (1–160 characters) and optional `body` (up to 1000 characters), creates an unread `system` notification, and returns it with `201 Created`. System activity defaults to in-app delivery only, so it does not send confirmation emails unless the user explicitly changes that preference.
 
 ## Mark All Notifications Read
 

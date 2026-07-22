@@ -152,34 +152,37 @@ export function TopBar({
           </button>
         </div>
 
-        <div ref={searchRef} className="relative flex w-[min(38rem,48vw)] min-w-0 justify-center">
-          <SearchInput
-            ref={searchInputRef}
-            value={searchQuery}
-            onChange={(event) => {
-              setSearchPreset(undefined);
-              setSearchQuery(event.target.value);
-              setSearchOpen(true);
-            }}
-            onFocus={() => setSearchOpen(true)}
-            aria-label="Search Starlane Notes with SNQL"
-            aria-haspopup="dialog"
-            aria-expanded={searchOpen}
-            placeholder={'Search SNQL: "notes" tag:work folder:project has:attachment'}
-            containerClassName="w-full"
-            className="h-8 bg-bg pr-12 text-sm"
-          />
-          <kbd className="border-border text-text-muted pointer-events-none absolute right-2 top-1/2 hidden -translate-y-1/2 rounded border px-1 font-mono text-[10px] leading-4 lg:inline">
-            ⌘K
-          </kbd>
-          <SearchModal
-            open={searchOpen}
-            onClose={() => setSearchOpen(false)}
-            preset={searchPreset}
-            presentation="popover"
-            query={searchQuery}
-            onQueryChange={setSearchQuery}
-          />
+        <div className="flex w-[min(40rem,52vw)] min-w-0 items-center justify-center gap-1">
+          <div ref={searchRef} className="relative min-w-0 flex-1">
+            <SearchInput
+              ref={searchInputRef}
+              value={searchQuery}
+              onChange={(event) => {
+                setSearchPreset(undefined);
+                setSearchQuery(event.target.value);
+                setSearchOpen(true);
+              }}
+              onFocus={() => setSearchOpen(true)}
+              aria-label="Search Starlane Notes with SNQL"
+              aria-haspopup="dialog"
+              aria-expanded={searchOpen}
+              placeholder={'Search SNQL: "notes" tag:work folder:project has:attachment'}
+              containerClassName="w-full"
+              className="h-8 bg-bg pr-12 text-sm"
+            />
+            <kbd className="border-border text-text-muted pointer-events-none absolute right-2 top-1/2 hidden -translate-y-1/2 rounded border px-1 font-mono text-[10px] leading-4 lg:inline">
+              ⌘K
+            </kbd>
+            <SearchModal
+              open={searchOpen}
+              onClose={() => setSearchOpen(false)}
+              preset={searchPreset}
+              presentation="popover"
+              query={searchQuery}
+              onQueryChange={setSearchQuery}
+            />
+          </div>
+          {!localMode && <NotificationBell />}
         </div>
 
         {/* Right section */}
@@ -194,8 +197,6 @@ export function TopBar({
               <div className="bg-border mx-1 hidden h-4 w-px sm:block" />
             </>
           )}
-
-          {!localMode && <NotificationBell />}
 
           {/* Theme toggle */}
           <button

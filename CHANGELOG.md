@@ -11,6 +11,8 @@
 
 - Added a clean public GitHub export path with a GitHub-specific README and GHCR application/documentation image workflow.
 - Added a reusable fictional-content screenshot gallery for the public README and documentation.
+- Fixed public GitHub exports so tracked server paths that are locally ignored, including the storage module, are retained for GHCR builds; the exporter can now make normal history-preserving refresh commits.
+- Added authenticated system activity records to the notification inbox, immediate dismissible web/mobile banners, top-right desktop banner placement, search-adjacent app bells, and native notification IPC parity for desktop and mobile shells.
 
 ## [1.3.0] - 2026-07-21
 

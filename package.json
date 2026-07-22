@@ -13,6 +13,7 @@
     "build": "npm run build --workspace=apps/web",
     "lint": "npm run lint --workspace=apps/web",
     "validate:design": "node scripts/validate-starlane-design.mjs",
+    "validate:notifications": "node scripts/validate-notification-contract.mjs",
     "typecheck": "npm run typecheck --workspace=apps/web",
     "test": "npm run test --workspace=apps/web",
     "desktop:dev": "cd apps/desktop/src-tauri && cargo tauri dev",

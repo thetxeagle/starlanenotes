@@ -27,6 +27,10 @@ pub fn router() -> Router<AppState> {
             axum::routing::post(mark_all_read),
         )
         .route(
+            "/notifications/system",
+            axum::routing::post(create_system_notification),
+        )
+        .route(
             "/notifications/{notification_id}/read",
             axum::routing::post(mark_read),
         )
@@ -35,6 +39,8 @@ pub fn router() -> Router<AppState> {
 const NOTIFICATION_TYPES: &[(&str, &str)] = &[
     ("workflow_approval", "Workflow approvals"),
     ("workflow_handoff", "Workflow handoffs"),
+    ("workflow_delegate", "Workflow delegations"),
+    ("workflow_escalate", "Workflow escalations"),
     ("mention", "Mentions"),
     ("comment", "Comments"),
     ("comment_reply", "Comment replies"),
@@ -43,6 +49,7 @@ const NOTIFICATION_TYPES: &[(&str, &str)] = &[
     ("doc_subscription", "Document subscriptions"),
     ("doc_locked", "Document locks"),
     ("doc_unlocked", "Document unlocks"),
+    ("system", "System activity"),
 ];
 
 const NOTIFICATION_CHANNELS: &[&str] = &["both", "in_app", "email", "none"];
@@ -82,6 +89,12 @@ struct NotificationPreferenceUpdate {
 #[derive(Deserialize)]
 struct UpdateNotificationPreferencesRequest {
     preferences: Vec<NotificationPreferenceUpdate>,
+}
+
+#[derive(Deserialize)]
+struct CreateSystemNotificationRequest {
+    title: String,
+    body: Option<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -148,6 +161,15 @@ fn notification_delivery_plan(channel: Option<&str>) -> NotificationDeliveryPlan
             in_app: true,
             email: true,
         },
+    }
+}
+
+fn default_notification_channel(notification_type: &str) -> &'static str {
+    // App-local confirmation messages belong in the inbox/banner, never email.
+    if notification_type == "system" {
+        "in_app"
+    } else {
+        "both"
     }
 }
 
@@ -373,12 +395,67 @@ async fn get_notification_preferences(
                 channel: configured
                     .get(*notification_type)
                     .cloned()
-                    .unwrap_or_else(|| "both".to_string()),
+                    .unwrap_or_else(|| default_notification_channel(notification_type).to_string()),
             },
         )
         .collect();
 
     Ok(Json(result))
+}
+
+async fn create_system_notification(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Json(req): Json<CreateSystemNotificationRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let title = req.title.trim();
+    if title.is_empty() || title.len() > 160 {
+        return Err(AppError::BadRequest(
+            "Notification title must be between 1 and 160 characters".into(),
+        ));
+    }
+    let body = req.body.as_deref().map(str::trim).filter(|value| !value.is_empty());
+    if body.is_some_and(|value| value.len() > 1_000) {
+        return Err(AppError::BadRequest(
+            "Notification body must be at most 1000 characters".into(),
+        ));
+    }
+
+    let channel = notification_channel(&state.db, &auth.claims.sub, "system")
+        .await
+        .map_err(AppError::internal)?;
+    if !notification_delivery_plan(channel.as_deref().or(Some("in_app"))).in_app {
+        return Ok((StatusCode::OK, Json(None::<NotificationResponse>)));
+    }
+
+    let id = uuid::Uuid::new_v4().to_string();
+    let created_at = chrono::Utc::now().to_rfc3339();
+    sqlx::query(
+        "INSERT INTO notifications (id, user_id, type, title, body, created_at) VALUES (?1, ?2, 'system', ?3, ?4, ?5)",
+    )
+    .bind(&id)
+    .bind(&auth.claims.sub)
+    .bind(title)
+    .bind(body)
+    .bind(&created_at)
+    .execute(&state.db)
+    .await
+    .map_err(AppError::internal)?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(Some(NotificationResponse {
+            id,
+            notification_type: "system".to_string(),
+            title: title.to_string(),
+            body: body.map(str::to_string),
+            source_user: None,
+            target_type: None,
+            target_id: None,
+            read: false,
+            created_at,
+        })),
+    ))
 }
 
 async fn update_notification_preferences(

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Bell } from "lucide-react";
 import { isTauri } from "@/lib/api";
 import { dataClient, type NotificationRecord } from "@/lib/dataClient";
+import { SYSTEM_NOTIFICATION_EVENT } from "@/lib/systemNotifications";
 
 interface TauriCoreModule {
   invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
@@ -52,8 +53,20 @@ export function NotificationBell() {
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [banner, setBanner] = useState<NotificationRecord | null>(null);
   const prevIdsRef = useRef<Set<string>>(new Set());
+  const hasLoadedRef = useRef(false);
+  const bannerQueueRef = useRef<NotificationRecord[]>([]);
 
   const unreadCount = getUnreadNotificationCount(notifications);
+
+  const dismissBanner = useCallback(() => {
+    setBanner(bannerQueueRef.current.shift() ?? null);
+  }, []);
+
+  const enqueueBanners = useCallback((records: NotificationRecord[]) => {
+    if (records.length === 0) return;
+    bannerQueueRef.current.push(...records);
+    setBanner((current) => current ?? bannerQueueRef.current.shift() ?? null);
+  }, []);
 
   const fetchNotifications = useCallback(async () => {
     setLoading(true);
@@ -63,15 +76,18 @@ export function NotificationBell() {
 
       // Detect newly arrived unread notifications and trigger native notification
       // only when the window is not focused (i.e., app is in background)
-      const newUnread = data.filter((n) => !n.read && !prevIdsRef.current.has(n.id));
+      const newUnread = hasLoadedRef.current
+        ? data.filter((n) => !n.read && !prevIdsRef.current.has(n.id))
+        : [];
       for (const n of newUnread) {
-        setBanner(n);
         if (!document.hasFocus()) {
           await sendNativeNotification(n.title, n.body ?? "");
         }
       }
 
+      enqueueBanners(newUnread);
       prevIdsRef.current = new Set(data.map((n) => n.id));
+      hasLoadedRef.current = true;
       setNotifications(data);
     } catch {
       const failureState = createNotificationFetchFailureState();
@@ -81,19 +97,40 @@ export function NotificationBell() {
     } finally {
       setLoading(false);
     }
-  }, [unreadOnly]);
+  }, [enqueueBanners, unreadOnly]);
 
   useEffect(() => {
     if (!banner) return;
-    const timeout = window.setTimeout(() => setBanner(null), 6000);
+    const timeout = window.setTimeout(dismissBanner, 6000);
     return () => window.clearTimeout(timeout);
-  }, [banner]);
+  }, [banner, dismissBanner]);
 
   useEffect(() => {
     fetchNotifications();
-    const interval = setInterval(fetchNotifications, 30000);
-    return () => clearInterval(interval);
+    const refreshOnFocus = () => {
+      if (document.visibilityState === "visible") void fetchNotifications();
+    };
+    const interval = setInterval(fetchNotifications, 15_000);
+    window.addEventListener("focus", refreshOnFocus);
+    document.addEventListener("visibilitychange", refreshOnFocus);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("focus", refreshOnFocus);
+      document.removeEventListener("visibilitychange", refreshOnFocus);
+    };
   }, [fetchNotifications]);
+
+  useEffect(() => {
+    const onSystemNotification = (event: Event) => {
+      const notification = (event as CustomEvent<NotificationRecord>).detail;
+      if (!notification?.id) return;
+      prevIdsRef.current.add(notification.id);
+      setNotifications((current) => [notification, ...current.filter((item) => item.id !== notification.id)]);
+      enqueueBanners([notification]);
+    };
+    window.addEventListener(SYSTEM_NOTIFICATION_EVENT, onSystemNotification);
+    return () => window.removeEventListener(SYSTEM_NOTIFICATION_EVENT, onSystemNotification);
+  }, [enqueueBanners]);
 
   const markAllRead = async () => {
     await dataClient.markAllNotificationsRead();
@@ -115,8 +152,8 @@ export function NotificationBell() {
       {banner && (
         <button
           type="button"
-          onClick={() => setBanner(null)}
-          className="fixed left-3 right-3 top-[max(0.75rem,env(safe-area-inset-top))] z-[60] mx-auto max-w-md rounded-card border border-accent/60 bg-surface px-3 py-2 text-left shadow-card"
+          onClick={dismissBanner}
+          className="fixed left-3 right-3 top-[max(0.75rem,env(safe-area-inset-top))] z-[60] max-w-md rounded-button border border-accent/60 bg-surface px-3 py-2 text-left shadow-card md:left-auto md:right-4 md:w-96"
           aria-label="Dismiss notification banner"
         >
           <p className="text-sm font-medium text-text">{banner.title}</p>

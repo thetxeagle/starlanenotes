@@ -8,7 +8,6 @@ use tauri::{
     Emitter, Manager, RunEvent, WindowEvent,
 };
 use tauri_plugin_deep_link::DeepLinkExt;
-use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_store::StoreExt;
 use tauri_plugin_updater::UpdaterExt;
 
@@ -105,24 +104,6 @@ fn open_new_window(app: tauri::AppHandle) -> Result<(), String> {
         .map_err(|e: tauri::Error| e.to_string())?;
 
     Ok(())
-}
-
-// ============================================================
-// IPC Commands — Native Notifications
-// ============================================================
-
-#[tauri::command]
-fn send_native_notification(
-    app: tauri::AppHandle,
-    title: String,
-    body: String,
-) -> Result<(), String> {
-    app.notification()
-        .builder()
-        .title(&title)
-        .body(&body)
-        .show()
-        .map_err(|e| e.to_string())
 }
 
 // ============================================================
@@ -657,7 +638,7 @@ pub fn run() {
             save_window_state,
             consume_pending_deep_link,
             open_new_window,
-            send_native_notification,
+            crate::native_notifications::send_native_notification,
             check_for_update,
             install_update,
             vault::get_vault_location,
