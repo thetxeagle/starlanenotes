@@ -33,8 +33,21 @@ pub fn create_token_pair(
     role: &str,
     secret: &str,
 ) -> Result<TokenPair, jsonwebtoken::errors::Error> {
+    create_token_pair_for_session(user_id, email, role, secret, None, 30)
+}
+
+pub fn create_token_pair_for_session(
+    user_id: &str,
+    email: &str,
+    role: &str,
+    secret: &str,
+    session_id: Option<&str>,
+    refresh_lifetime_days: i64,
+) -> Result<TokenPair, jsonwebtoken::errors::Error> {
     let now = Utc::now();
-    let session_id = uuid::Uuid::new_v4().to_string();
+    let session_id = session_id
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
     // Access token: 15 minutes
     let access_claims = Claims {
@@ -53,13 +66,13 @@ pub fn create_token_pair(
         &EncodingKey::from_secret(secret.as_bytes()),
     )?;
 
-    // Refresh token: 30 days
+    // Refresh token lifetime matches the server-side inactivity window.
     let refresh_claims = Claims {
         sub: user_id.to_string(),
         sid: session_id.clone(),
         email: email.to_string(),
         role: role.to_string(),
-        exp: (now + Duration::days(30)).timestamp(),
+        exp: (now + Duration::days(refresh_lifetime_days)).timestamp(),
         iat: now.timestamp(),
         token_type: TokenType::Refresh,
     };
@@ -143,6 +156,26 @@ mod tests {
         let result = validate_token(&tokens.refresh_token, TEST_SECRET, TokenType::Access);
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn preserves_a_session_id_for_refresh_rotation_and_uses_requested_lifetime() {
+        let now = Utc::now().timestamp();
+        let tokens = create_token_pair_for_session(
+            "user-1",
+            "user@example.com",
+            "admin",
+            TEST_SECRET,
+            Some("stable-session-id"),
+            180,
+        )
+        .expect("tokens should be created");
+
+        let refresh_claims = validate_token(&tokens.refresh_token, TEST_SECRET, TokenType::Refresh)
+            .expect("refresh token should validate");
+        assert_eq!(tokens.session_id, "stable-session-id");
+        assert_eq!(refresh_claims.sid, "stable-session-id");
+        assert!(refresh_claims.exp >= now + Duration::days(179).num_seconds());
     }
 
     #[test]

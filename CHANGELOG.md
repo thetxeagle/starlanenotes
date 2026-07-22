@@ -4,11 +4,14 @@
 
 ### Fixed
 
+- Active sessions now retain a stable record as refresh tokens rotate, expire after 30 days of browser inactivity or 180 days of native-app inactivity, use readable default names, and can be renamed from Profile.
 - Site Administration now uses its own single desktop navigation rail, removing the duplicate workspace/document sidebar while retaining a direct route back to Notes.
 - Native passkey and SSO sign-in now describe opening the system browser rather than naming Safari, so the same copy is accurate on macOS and mobile apps.
 
 ### Added
 
+- GitHub now builds `main` and every `v*` release branch; the public export tool can preserve those branches instead of flattening development directly into `main`.
+- Replaced the MIT license with PolyForm Noncommercial 1.0.0 and added a separate Starlane trademark policy for product names and logos.
 - Added a clean public GitHub export path with a GitHub-specific README and GHCR application/documentation image workflow.
 - Added a reusable fictional-content screenshot gallery for the public README and documentation.
 - Fixed public GitHub exports so tracked server paths that are locally ignored, including the storage module, are retained for GHCR builds; the exporter can now make normal history-preserving refresh commits.

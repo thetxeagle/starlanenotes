@@ -25,6 +25,40 @@ function getApiBase(): string {
 
 export { isTauri, getApiBase };
 
+export interface SessionClientDetails {
+  session_kind: "browser" | "app";
+  device_name: string;
+}
+
+export function getSessionClientDetails(): SessionClientDetails {
+  const userAgent = typeof navigator === "undefined" ? "" : navigator.userAgent;
+  const isMobile = /android|iphone|ipad|ipod/i.test(userAgent);
+  if (isTauri()) {
+    return {
+      session_kind: "app",
+      device_name: isMobile ? "Starlane Notes on mobile" : "Starlane Notes desktop app",
+    };
+  }
+
+  const browser = /firefox/i.test(userAgent)
+    ? "Firefox"
+    : /edg/i.test(userAgent)
+      ? "Microsoft Edge"
+      : /chrome|crios/i.test(userAgent)
+        ? "Chrome"
+        : /safari/i.test(userAgent)
+          ? "Safari"
+          : "Browser";
+  const device = /iphone/i.test(userAgent)
+    ? "iPhone"
+    : /ipad/i.test(userAgent)
+      ? "iPad"
+      : /android/i.test(userAgent)
+        ? "Android device"
+        : "desktop";
+  return { session_kind: "browser", device_name: `${browser} on ${device}` };
+}
+
 interface ApiOptions {
   method?: string;
   body?: unknown;

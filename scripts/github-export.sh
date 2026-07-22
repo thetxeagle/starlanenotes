@@ -8,7 +8,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: scripts/github-export.sh [--update] <destination> [git-ref]
+Usage: scripts/github-export.sh [--update] [--branch <name>] <destination> [git-ref]
 
 Creates an independent Git repository on branch main at <destination>. The
 destination must be empty or not exist. The default git-ref is HEAD.
@@ -18,21 +18,32 @@ rewriting its history. This replaces its tracked public files with the
 sanitized export and creates a normal follow-up commit when content changed.
 
 Example:
-  scripts/github-export.sh /tmp/starlanenotes-github v1.3.0
+  scripts/github-export.sh --branch v1.3.0 /tmp/starlanenotes-github v1.3.0
   git -C /tmp/starlanenotes-github remote add origin https://github.com/hbftechnologies/starlanenotes.git
   git -C /tmp/starlanenotes-github push -u origin main
 
   git clone https://github.com/hbftechnologies/starlanenotes.git /tmp/starlanenotes-github
-  scripts/github-export.sh --update /tmp/starlanenotes-github v1.3.0
-  git -C /tmp/starlanenotes-github push
+  scripts/github-export.sh --update --branch v1.3.0 /tmp/starlanenotes-github v1.3.0
+  git -C /tmp/starlanenotes-github push -u origin v1.3.0
+
+After GitHub validates a version branch, merge it into public main as the
+release promotion. Do not export a development branch directly over main.
 EOF
 }
 
 update_existing=false
-if [[ "${1:-}" == "--update" ]]; then
-  update_existing=true
-  shift
-fi
+target_branch=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --update) update_existing=true; shift ;;
+    --branch)
+      target_branch="${2:-}"
+      [[ -n "$target_branch" ]] || { echo "--branch requires a name" >&2; exit 64; }
+      shift 2
+      ;;
+    *) break ;;
+  esac
+done
 
 if [[ $# -lt 1 || $# -gt 2 ]]; then
   usage >&2
@@ -42,6 +53,14 @@ fi
 destination="$1"
 ref="${2:-HEAD}"
 repo_root="$(git rev-parse --show-toplevel)"
+
+if [[ -z "$target_branch" ]]; then
+  if [[ "$ref" =~ ^v[0-9] ]]; then
+    target_branch="$ref"
+  else
+    target_branch="main"
+  fi
+fi
 
 if [[ "$update_existing" == false ]] && [[ -e "$destination" ]] && [[ -n "$(find "$destination" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
   echo "Refusing to overwrite non-empty destination: $destination" >&2
@@ -56,6 +75,11 @@ if [[ "$update_existing" == true ]]; then
   if [[ -n "$(git -C "$destination" status --porcelain)" ]]; then
     echo "Refusing to update a dirty export checkout: $destination" >&2
     exit 65
+  fi
+  if git -C "$destination" show-ref --verify --quiet "refs/heads/$target_branch"; then
+    git -C "$destination" switch --quiet "$target_branch"
+  else
+    git -C "$destination" switch --quiet -c "$target_branch"
   fi
 fi
 
@@ -107,7 +131,7 @@ if [[ "$update_existing" == true ]]; then
   fi
 else
   cp -R "$stage_dir"/. "$destination"/
-  git -C "$destination" init -b main --quiet
+  git -C "$destination" init -b "$target_branch" --quiet
   # The private checkout intentionally ignores data directories such as
   # server/src/storage. The archive is authoritative, so force-add it.
   git -C "$destination" add --all --force
@@ -116,5 +140,5 @@ else
 
   echo "Public GitHub export created at: $destination"
   echo "Next: git -C '$destination' remote add origin https://github.com/hbftechnologies/starlanenotes.git"
-  echo "Then: git -C '$destination' push -u origin main"
+  echo "Then: git -C '$destination' push -u origin '$target_branch'"
 fi

@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/hbftechnologies/starlanenotes/actions/workflows/docker-publish.yml"><img alt="Docker build" src="https://github.com/hbftechnologies/starlanenotes/actions/workflows/docker-publish.yml/badge.svg"></a>
-  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-22c55e"></a>
+  <a href="LICENSE"><img alt="License: PolyForm Noncommercial 1.0.0" src="https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-2563eb"></a>
   <img alt="Docker ready" src="https://img.shields.io/badge/docker-ready-2496ed?logo=docker&logoColor=white">
   <img alt="Offline-first" src="https://img.shields.io/badge/offline--first-self--hosted-2563eb">
 </p>
@@ -23,7 +23,7 @@
   <a href="#contributing">Contributing</a>
 </p>
 
-**Starlane Notes is a fully open-source, self-hosted, offline-first document management platform.** It brings Markdown editing, spaces and folders, full-text search, collaboration foundations, optional AI workflows, and desktop/mobile shells into one deployable app.
+**Starlane Notes is a source-available, self-hosted, offline-first document management platform.** It brings Markdown editing, spaces and folders, full-text search, collaboration foundations, optional AI workflows, and desktop/mobile shells into one deployable app.
 
 Free forever. No paywalls. No vendor lock-in.
 
@@ -109,6 +109,10 @@ docker compose -f docker/docker-compose.dev.yml up --build
 
 Issues and pull requests are welcome on [GitHub](https://github.com/hbftechnologies/starlanenotes). Please include the deployment method, Starlane Notes version, and relevant redacted logs with bug reports.
 
+## Release lanes
+
+GitHub `main` is the latest promoted release. Development and release candidates live on version branches such as `v1.3.0`; GitHub Actions builds both `main` and every `v*` branch. After a version branch is validated, it is merged into `main` and publishes the rolling `latest` container tag. Version branches publish their matching immutable version tag.
+
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Free for noncommercial use under the [PolyForm Noncommercial License 1.0.0](LICENSE). Starlane names and logos are covered by the [trademark and branding policy](TRADEMARKS.md).

@@ -169,4 +169,4 @@ npm run docs:wiki
 
 ## License
 
-MIT -- no paywalled features, no vendor lock-in.
+PolyForm Noncommercial 1.0.0 -- no paywalled features, no vendor lock-in. Contributions must remain compatible with the repository license and the Starlane trademark policy.

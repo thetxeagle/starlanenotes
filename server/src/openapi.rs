@@ -756,11 +756,17 @@ pub fn openapi_spec() -> Value {
                         "device_name": { "type": "string", "nullable": true },
                         "ip_address": { "type": "string", "nullable": true },
                         "user_agent": { "type": "string", "nullable": true },
+                        "session_kind": { "type": "string", "enum": ["browser", "app"] },
                         "last_seen_at": { "type": "string", "format": "date-time" },
                         "expires_at": { "type": "string", "format": "date-time" },
                         "created_at": { "type": "string", "format": "date-time" }
                     },
-                    "required": ["id", "device_name", "ip_address", "user_agent", "last_seen_at", "expires_at", "created_at"]
+                    "required": ["id", "device_name", "ip_address", "user_agent", "session_kind", "last_seen_at", "expires_at", "created_at"]
+                },
+                "SessionUpdateRequest": {
+                    "type": "object",
+                    "properties": { "device_name": { "type": "string", "minLength": 1, "maxLength": 80 } },
+                    "required": ["device_name"]
                 },
                 "ApiKey": {
                     "type": "object",
@@ -2194,12 +2200,10 @@ fn build_paths() -> Value {
     add_path(
         &mut paths,
         "/auth/sessions/{session_id}",
-        [(
-            "delete",
-            "Authentication",
-            "Revoke a current user session",
-            true,
-        )],
+        [
+            ("put", "Authentication", "Rename a current user session", true),
+            ("delete", "Authentication", "Revoke a current user session", true),
+        ],
     );
     set_uuid_path_parameters(
         &mut paths,
@@ -2212,6 +2216,19 @@ fn build_paths() -> Value {
         "delete",
         "204",
         "Session revoked.",
+    );
+    set_request_body(
+        &mut paths,
+        "/auth/sessions/{session_id}",
+        "put",
+        json!({ "$ref": "#/components/schemas/SessionUpdateRequest" }),
+    );
+    set_json_response(
+        &mut paths,
+        "/auth/sessions/{session_id}",
+        "put",
+        "200",
+        json!({ "type": "array", "items": { "$ref": "#/components/schemas/UserSession" } }),
     );
     add_path(
         &mut paths,

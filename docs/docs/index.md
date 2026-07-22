@@ -4,7 +4,7 @@ Welcome to the Starlane Notes documentation.
 
 ## What is Starlane Notes?
 
-Starlane Notes is a fully open-source, self-hosted document management system. It is offline-first, free forever, and designed for individuals and teams who want full ownership of their data.
+Starlane Notes is a source-available, self-hosted document management system. It is offline-first, free for noncommercial use, and designed for individuals and teams who want full ownership of their data. See the repository [license](../../../LICENSE) and [trademark policy](../../../TRADEMARKS.md).
 
 ## Quick Start
 

@@ -183,7 +183,7 @@ pub fn router() -> Router<AppState> {
         .route("/auth/sessions", get(list_sessions))
         .route(
             "/auth/sessions/{session_id}",
-            axum::routing::delete(revoke_session),
+            axum::routing::put(rename_session).delete(revoke_session),
         )
         .route("/auth/api-keys", get(list_api_keys).post(create_api_key))
         .route(
@@ -205,6 +205,8 @@ pub struct RegisterRequest {
     pub email: String,
     pub display_name: String,
     pub password: String,
+    #[serde(flatten)]
+    pub session: SessionMetadata,
 }
 
 #[derive(Deserialize)]
@@ -212,6 +214,8 @@ pub struct LoginRequest {
     pub email: String,
     pub password: String,
     pub totp_code: Option<String>,
+    #[serde(flatten)]
+    pub session: SessionMetadata,
 }
 
 #[derive(Deserialize)]
@@ -378,6 +382,8 @@ pub struct PasskeyLoginStartRequest {
 pub struct PasskeyLoginFinishRequest {
     pub challenge_id: String,
     pub credential: Value,
+    #[serde(flatten)]
+    pub session: SessionMetadata,
 }
 
 #[derive(Deserialize)]
@@ -389,7 +395,24 @@ pub struct NativeHandoffCompleteRequest { pub handoff_id: String }
 #[derive(Serialize)]
 pub struct NativeHandoffCompleteResponse { pub handoff_id: String, pub code: String }
 #[derive(Deserialize)]
-pub struct NativeHandoffExchangeRequest { pub handoff_id: String, pub code: String, pub code_verifier: String }
+pub struct NativeHandoffExchangeRequest { pub handoff_id: String, pub code: String, pub code_verifier: String, #[serde(flatten)] pub session: SessionMetadata }
+
+#[derive(Clone, Deserialize)]
+pub struct SessionMetadata {
+    pub session_kind: Option<String>,
+    pub device_name: Option<String>,
+}
+
+impl Default for SessionMetadata {
+    fn default() -> Self {
+        Self { session_kind: None, device_name: None }
+    }
+}
+
+#[derive(Deserialize)]
+pub struct SessionUpdateRequest {
+    pub device_name: String,
+}
 
 #[derive(Serialize)]
 pub struct PasskeyResponse {
@@ -416,6 +439,7 @@ pub struct SessionResponse {
     pub device_name: Option<String>,
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
+    pub session_kind: String,
     pub last_seen_at: String,
     pub expires_at: String,
     pub created_at: String,
@@ -486,22 +510,81 @@ fn hash_refresh_token(token: &str) -> String {
     hex::encode(hasher.finalize())
 }
 
+const BROWSER_SESSION_INACTIVITY_DAYS: i64 = 30;
+const APP_SESSION_INACTIVITY_DAYS: i64 = 180;
+
 async fn persist_session(
     state: &AppState,
     user_id: &str,
     tokens: &jwt::TokenPair,
+    metadata: &SessionMetadata,
 ) -> Result<(), AppError> {
-    let expires_at = (chrono::Utc::now() + chrono::Duration::days(30)).to_rfc3339();
+    let session_kind = normalized_session_kind(metadata.session_kind.as_deref());
+    let expires_at = session_expiry_at(&session_kind);
+    let device_name = normalized_device_name(metadata.device_name.as_deref())?;
     sqlx::query(
-        "INSERT INTO sessions (id, user_id, refresh_token_hash, expires_at) VALUES (?1, ?2, ?3, ?4)",
+        "INSERT INTO sessions (id, user_id, refresh_token_hash, device_name, session_kind, expires_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
     )
     .bind(&tokens.session_id)
     .bind(user_id)
     .bind(hash_refresh_token(&tokens.refresh_token))
+    .bind(device_name)
+    .bind(session_kind)
     .bind(expires_at)
     .execute(&state.db)
     .await
     .map_err(AppError::internal)?;
+    Ok(())
+}
+
+pub(crate) fn normalized_session_kind(value: Option<&str>) -> String {
+    match value.map(str::trim) {
+        Some("app") => "app".to_string(),
+        _ => "browser".to_string(),
+    }
+}
+
+pub(crate) fn session_inactivity_days(session_kind: &str) -> i64 {
+    if session_kind == "app" { APP_SESSION_INACTIVITY_DAYS } else { BROWSER_SESSION_INACTIVITY_DAYS }
+}
+
+pub(crate) fn session_expiry_at(session_kind: &str) -> String {
+    (chrono::Utc::now() + chrono::Duration::days(session_inactivity_days(session_kind))).to_rfc3339()
+}
+
+fn normalized_device_name(value: Option<&str>) -> Result<Option<String>, AppError> {
+    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else { return Ok(None); };
+    if value.chars().count() > 80 {
+        return Err(AppError::BadRequest("Session name must be at most 80 characters".into()));
+    }
+    Ok(Some(value.to_string()))
+}
+
+fn create_session_tokens(
+    user_id: &str,
+    email: &str,
+    role: &str,
+    secret: &str,
+    metadata: &SessionMetadata,
+) -> Result<jwt::TokenPair, AppError> {
+    let session_kind = normalized_session_kind(metadata.session_kind.as_deref());
+    jwt::create_token_pair_for_session(
+        user_id,
+        email,
+        role,
+        secret,
+        None,
+        session_inactivity_days(&session_kind),
+    )
+    .map_err(|error| AppError::Internal(error.to_string()))
+}
+
+async fn remove_expired_sessions(state: &AppState) -> Result<(), AppError> {
+    sqlx::query("DELETE FROM sessions WHERE expires_at <= ?1")
+        .bind(chrono::Utc::now().to_rfc3339())
+        .execute(&state.db)
+        .await
+        .map_err(AppError::internal)?;
     Ok(())
 }
 
@@ -815,9 +898,8 @@ async fn register(
     }
 
     // Generate tokens
-    let tokens = jwt::create_token_pair(&user_id, &req.email, role, &state.jwt_secret)
-        .map_err(|e| AppError::Internal(e.to_string()))?;
-    persist_session(&state, &user_id, &tokens).await?;
+    let tokens = create_session_tokens(&user_id, &req.email, role, &state.jwt_secret, &req.session)?;
+    persist_session(&state, &user_id, &tokens, &req.session).await?;
 
     Ok((
         StatusCode::CREATED,
@@ -902,9 +984,8 @@ async fn login(
     }
 
     // Generate tokens
-    let tokens = jwt::create_token_pair(&user_id, &email, &role, &state.jwt_secret)
-        .map_err(|e| AppError::Internal(e.to_string()))?;
-    persist_session(&state, &user_id, &tokens).await?;
+    let tokens = create_session_tokens(&user_id, &email, &role, &state.jwt_secret, &req.session)?;
+    persist_session(&state, &user_id, &tokens, &req.session).await?;
 
     Ok(Json(AuthResponse {
         access_token: tokens.access_token,
@@ -935,7 +1016,7 @@ async fn refresh_token(
     .map_err(|_| AppError::Unauthorized("Invalid refresh token".into()))?;
 
     let existing_session: Option<(String,)> = sqlx::query_as(
-        "SELECT id FROM sessions WHERE id = ?1 AND user_id = ?2 AND refresh_token_hash = ?3 AND expires_at > ?4",
+        "SELECT session_kind FROM sessions WHERE id = ?1 AND user_id = ?2 AND refresh_token_hash = ?3 AND expires_at > ?4",
     )
     .bind(&claims.sid)
     .bind(&claims.sub)
@@ -944,11 +1025,11 @@ async fn refresh_token(
     .fetch_optional(&state.db)
     .await
     .map_err(AppError::internal)?;
-    if existing_session.is_none() {
+    let Some((session_kind,)) = existing_session else {
         return Err(AppError::Unauthorized(
             "Refresh session is no longer active".into(),
         ));
-    }
+    };
 
     // Verify user still exists and is active
     let user: Option<(String, String, String)> =
@@ -961,14 +1042,23 @@ async fn refresh_token(
     let (user_id, email, role) =
         user.ok_or_else(|| AppError::Unauthorized("User no longer active".into()))?;
 
-    let tokens = jwt::create_token_pair(&user_id, &email, &role, &state.jwt_secret)
-        .map_err(|e| AppError::Internal(e.to_string()))?;
-    sqlx::query("DELETE FROM sessions WHERE id = ?1")
+    let tokens = jwt::create_token_pair_for_session(
+        &user_id,
+        &email,
+        &role,
+        &state.jwt_secret,
+        Some(&claims.sid),
+        session_inactivity_days(&session_kind),
+    )
+    .map_err(|error| AppError::Internal(error.to_string()))?;
+    sqlx::query("UPDATE sessions SET refresh_token_hash = ?1, last_seen_at = ?2, expires_at = ?3 WHERE id = ?4")
+        .bind(hash_refresh_token(&tokens.refresh_token))
+        .bind(chrono::Utc::now().to_rfc3339())
+        .bind(session_expiry_at(&session_kind))
         .bind(&claims.sid)
         .execute(&state.db)
         .await
         .map_err(AppError::internal)?;
-    persist_session(&state, &user_id, &tokens).await?;
 
     Ok(Json(json!({
         "access_token": tokens.access_token,
@@ -1242,7 +1332,7 @@ async fn oauth_callback(
 
     let tokens = jwt::create_token_pair(&user_id, &user_info.email, &role, &state.jwt_secret)
         .map_err(|e| AppError::Internal(e.to_string()))?;
-    persist_session(&state, &user_id, &tokens).await?;
+    persist_session(&state, &user_id, &tokens, &SessionMetadata::default()).await?;
 
     // Redirect to frontend with tokens in URL fragment (not query string)
     // Fragment is not sent to the server in subsequent requests, not logged in access logs
@@ -1308,7 +1398,7 @@ async fn oidc_callback(
     let tokens =
         jwt::create_token_pair(&user_id, &oauth_info.email, &final_role, &state.jwt_secret)
             .map_err(|e| AppError::Internal(e.to_string()))?;
-    persist_session(&state, &user_id, &tokens).await?;
+    persist_session(&state, &user_id, &tokens, &SessionMetadata::default()).await?;
 
     let redirect_url = format!(
         "{}/#access_token={}&refresh_token={}",
@@ -1530,8 +1620,8 @@ async fn native_handoff_exchange(
     if challenge != verifier_challenge || code_hash != hash_password_reset_token(&req.code) { return Err(AppError::Unauthorized("Native sign-in handoff is invalid.".into())); }
     sqlx::query("UPDATE native_auth_handoffs SET consumed_at = ?1 WHERE id = ?2").bind(chrono::Utc::now().to_rfc3339()).bind(&req.handoff_id).execute(&state.db).await.map_err(AppError::internal)?;
     let user: (String, Option<String>, String, Option<String>, String, i32) = sqlx::query_as("SELECT email, username, display_name, avatar_url, role, totp_enabled FROM users WHERE id = ?1 AND is_active = 1").bind(&user_id).fetch_one(&state.db).await.map_err(AppError::internal)?;
-    let tokens = jwt::create_token_pair(&user_id, &user.0, &user.4, &state.jwt_secret).map_err(|e| AppError::internal(e.to_string()))?;
-    persist_session(&state, &user_id, &tokens).await?;
+    let tokens = create_session_tokens(&user_id, &user.0, &user.4, &state.jwt_secret, &req.session)?;
+    persist_session(&state, &user_id, &tokens, &req.session).await?;
     Ok(Json(AuthResponse { access_token: tokens.access_token, refresh_token: tokens.refresh_token, expires_in: tokens.expires_in, user: UserResponse { id: user_id, email: user.0, username: user.1, display_name: user.2, avatar_url: user.3, role: user.4, totp_enabled: user.5 != 0 } }))
 }
 
@@ -1649,9 +1739,8 @@ async fn passkey_login_finish(
     .fetch_one(&state.db)
     .await
     .map_err(AppError::internal)?;
-    let tokens = jwt::create_token_pair(&user_id, &user.0, &user.4, &state.jwt_secret)
-        .map_err(|error| AppError::Internal(error.to_string()))?;
-    persist_session(&state, &user_id, &tokens).await?;
+    let tokens = create_session_tokens(&user_id, &user.0, &user.4, &state.jwt_secret, &req.session)?;
+    persist_session(&state, &user_id, &tokens, &req.session).await?;
 
     Ok(Json(AuthResponse {
         access_token: tokens.access_token,
@@ -1899,6 +1988,7 @@ async fn list_sessions(
     State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<impl IntoResponse, AppError> {
+    remove_expired_sessions(&state).await?;
     let sessions: Vec<(
         String,
         Option<String>,
@@ -1907,8 +1997,9 @@ async fn list_sessions(
         String,
         String,
         String,
+        String,
     )> = sqlx::query_as(
-        "SELECT id, device_name, ip_address, user_agent, last_seen_at, expires_at, created_at FROM sessions WHERE user_id = ?1 ORDER BY last_seen_at DESC",
+        "SELECT id, device_name, ip_address, user_agent, session_kind, last_seen_at, expires_at, created_at FROM sessions WHERE user_id = ?1 ORDER BY last_seen_at DESC",
     )
     .bind(&auth.claims.sub)
     .fetch_all(&state.db)
@@ -1918,12 +2009,13 @@ async fn list_sessions(
     let result: Vec<SessionResponse> = sessions
         .into_iter()
         .map(
-            |(id, device_name, ip_address, user_agent, last_seen_at, expires_at, created_at)| {
+            |(id, device_name, ip_address, user_agent, session_kind, last_seen_at, expires_at, created_at)| {
                 SessionResponse {
                     id,
                     device_name,
                     ip_address,
                     user_agent,
+                    session_kind,
                     last_seen_at,
                     expires_at,
                     created_at,
@@ -1933,6 +2025,29 @@ async fn list_sessions(
         .collect();
 
     Ok(Json(result))
+}
+
+/// PUT /api/v1/auth/sessions/{session_id}
+async fn rename_session(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(session_id): Path<String>,
+    Json(req): Json<SessionUpdateRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let Some(device_name) = normalized_device_name(Some(&req.device_name))? else {
+        return Err(AppError::BadRequest("Session name cannot be empty".into()));
+    };
+    let result = sqlx::query("UPDATE sessions SET device_name = ?1 WHERE id = ?2 AND user_id = ?3")
+        .bind(device_name)
+        .bind(&session_id)
+        .bind(&auth.claims.sub)
+        .execute(&state.db)
+        .await
+        .map_err(AppError::internal)?;
+    if result.rows_affected() == 0 {
+        return Err(AppError::NotFound("Session not found".into()));
+    }
+    list_sessions(State(state), auth).await
 }
 
 /// DELETE /api/v1/auth/sessions/{session_id}
@@ -2733,6 +2848,7 @@ async fn list_admin_user_sessions(
     _admin: AdminUser,
     Path(user_id): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
+    remove_expired_sessions(&state).await?;
     let user_exists: Option<(String,)> = sqlx::query_as("SELECT id FROM users WHERE id = ?1")
         .bind(&user_id)
         .fetch_optional(&state.db)
@@ -2750,8 +2866,9 @@ async fn list_admin_user_sessions(
         String,
         String,
         String,
+        String,
     )> = sqlx::query_as(
-        "SELECT id, device_name, ip_address, user_agent, last_seen_at, expires_at, created_at \
+        "SELECT id, device_name, ip_address, user_agent, session_kind, last_seen_at, expires_at, created_at \
          FROM sessions WHERE user_id = ?1 ORDER BY last_seen_at DESC",
     )
     .bind(&user_id)
@@ -2762,12 +2879,13 @@ async fn list_admin_user_sessions(
     let result: Vec<SessionResponse> = sessions
         .into_iter()
         .map(
-            |(id, device_name, ip_address, user_agent, last_seen_at, expires_at, created_at)| {
+            |(id, device_name, ip_address, user_agent, session_kind, last_seen_at, expires_at, created_at)| {
                 SessionResponse {
                     id,
                     device_name,
                     ip_address,
                     user_agent,
+                    session_kind,
                     last_seen_at,
                     expires_at,
                     created_at,
@@ -3569,6 +3687,9 @@ mod tests {
                 id TEXT PRIMARY KEY NOT NULL,
                 user_id TEXT NOT NULL,
                 refresh_token_hash TEXT NOT NULL,
+                device_name TEXT,
+                session_kind TEXT NOT NULL DEFAULT 'browser',
+                last_seen_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
                 expires_at TEXT NOT NULL
             )",
         )
@@ -3924,6 +4045,7 @@ mod tests {
                 email: "new@example.com".to_string(),
                 display_name: "New User".to_string(),
                 password: "correct-password".to_string(),
+                session: SessionMetadata::default(),
             }),
         )
         .await;
@@ -4232,6 +4354,7 @@ mod tests {
                 email: "eagle@example.com".to_string(),
                 password: "correct-password".to_string(),
                 totp_code: None,
+                session: SessionMetadata::default(),
             }),
         )
         .await;
@@ -4272,6 +4395,7 @@ mod tests {
                 email: "eagle@example.com".to_string(),
                 password: "correct-password".to_string(),
                 totp_code: Some("000000".to_string()),
+                session: SessionMetadata::default(),
             }),
         )
         .await;
@@ -4312,6 +4436,7 @@ mod tests {
                 email: "eagle@example.com".to_string(),
                 password: "correct-password".to_string(),
                 totp_code: Some(current_totp_code(&setup.secret)),
+                session: SessionMetadata::default(),
             }),
         )
         .await
@@ -4363,6 +4488,7 @@ mod tests {
                 email: "eagle@example.com".to_string(),
                 password: "correct-password".to_string(),
                 totp_code: Some(recovery_code_without_dash),
+                session: SessionMetadata::default(),
             }),
         )
         .await
@@ -4378,6 +4504,7 @@ mod tests {
                 email: "eagle@example.com".to_string(),
                 password: "correct-password".to_string(),
                 totp_code: Some(setup.recovery_codes[0].clone()),
+                session: SessionMetadata::default(),
             }),
         )
         .await;
@@ -4686,5 +4813,18 @@ mod tests {
         assert!(!is_valid_username(""));
         assert!(!is_valid_username("not allowed"));
         assert!(!is_valid_username(&"a".repeat(65)));
+    }
+
+    #[test]
+    fn session_policy_uses_browser_and_app_inactivity_windows() {
+        assert_eq!(normalized_session_kind(Some("app")), "app");
+        assert_eq!(normalized_session_kind(Some("unexpected")), "browser");
+        assert_eq!(session_inactivity_days("browser"), 30);
+        assert_eq!(session_inactivity_days("app"), 180);
+        assert_eq!(
+            normalized_device_name(Some("  Eagle's iPhone  ")).expect("valid name"),
+            Some("Eagle's iPhone".to_string())
+        );
+        assert!(normalized_device_name(Some(&"x".repeat(81))).is_err());
     }
 }

@@ -285,6 +285,7 @@ export interface UserSessionRecord {
   device_name?: string;
   ip_address?: string;
   user_agent?: string;
+  session_kind?: "browser" | "app";
   last_seen_at: string;
   expires_at: string;
   created_at: string;
@@ -6538,6 +6539,16 @@ export const dataClient = {
     }
   },
 
+  async renameSession(sessionId: string, deviceName: string): Promise<UserSessionRecord[]> {
+    if (!inLocalMode()) {
+      return api.fetch<UserSessionRecord[]>(`/auth/sessions/${encodeURIComponent(sessionId)}`, {
+        method: "PUT",
+        body: { device_name: deviceName },
+      });
+    }
+    return [];
+  },
+
   async setupTotp(): Promise<TotpSetupResponse> {
     if (!inLocalMode()) return api.fetch<TotpSetupResponse>("/auth/2fa/totp/setup", { method: "POST" });
     throw new Error("Two-factor authentication is unavailable in local mode.");
@@ -6610,11 +6621,15 @@ export const dataClient = {
     throw new Error("Passkey sign-in is unavailable in local mode.");
   },
 
-  async finishPasskeyLogin(challengeId: string, credential: unknown): Promise<PasskeyAuthResponse> {
+  async finishPasskeyLogin(
+    challengeId: string,
+    credential: unknown,
+    session?: { session_kind: "browser" | "app"; device_name: string },
+  ): Promise<PasskeyAuthResponse> {
     if (!inLocalMode()) {
       return api.fetch<PasskeyAuthResponse>("/auth/passkeys/login/finish", {
         method: "POST",
-        body: { challenge_id: challengeId, credential },
+        body: { challenge_id: challengeId, credential, ...session },
       });
     }
     throw new Error("Passkey sign-in is unavailable in local mode.");

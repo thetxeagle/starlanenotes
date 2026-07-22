@@ -1,4 +1,4 @@
-import { getApiBase, isTauri } from "@/lib/api";
+import { getApiBase, getSessionClientDetails, isTauri } from "@/lib/api";
 
 const STORAGE_KEY = "starlane-native-auth-handoff";
 const BROWSER_HANDOFF_KEY = "starlane-browser-native-auth-handoff";
@@ -39,7 +39,7 @@ export async function finishNativeAuthHandoff(url: string): Promise<{ access_tok
   let stored: { handoffId?: string; verifier?: string } | null = null;
   try { stored = JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? "null") as { handoffId?: string; verifier?: string } | null; } catch { /* invalid stale storage */ }
   if (!callback || !stored?.verifier || stored.handoffId !== callback.handoffId) throw new Error("Browser sign-in could not be verified.");
-  const response = await fetch(`${getApiBase()}/auth/native-handoff/exchange`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ handoff_id: callback.handoffId, code: callback.code, code_verifier: stored.verifier }) });
+  const response = await fetch(`${getApiBase()}/auth/native-handoff/exchange`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ handoff_id: callback.handoffId, code: callback.code, code_verifier: stored.verifier, ...getSessionClientDetails() }) });
   sessionStorage.removeItem(STORAGE_KEY);
   if (!response.ok) throw new Error("Browser sign-in expired or was rejected.");
   return response.json();

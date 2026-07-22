@@ -79,7 +79,9 @@ Accounts created via OAuth/OIDC (with no password set) cannot use this endpoint 
 
 ## Session Management
 
-Each password, passkey, OAuth, or OIDC login creates a server-side session record with a hashed refresh token. Refresh requests must match an active session and rotate it to a new session record. Revoking a session prevents that refresh token from issuing further access tokens; already-issued access tokens remain valid only until their normal short expiry.
+Each password, passkey, OAuth, or OIDC login creates a server-side session record with a hashed refresh token. A refresh rotates the token in that same session record, so its device name and history remain stable. Revoking a session prevents that refresh token from issuing further access tokens; already-issued access tokens remain valid only until their normal short expiry.
+
+Browser sessions expire after 30 days without authenticated activity. Native Starlane app sessions expire after 180 days without authenticated activity. Expired records are removed before session lists are returned. Authenticated use refreshes the last-seen time and inactivity deadline.
 
 Signing out in server mode calls `POST /api/v1/auth/logout` to revoke the current refresh session. The client clears its local credentials immediately even if that request cannot reach the server.
 
@@ -116,7 +118,13 @@ Requires a valid access token in the `Authorization` header. The server deletes 
 
 **Endpoint:** `GET /api/v1/auth/sessions`
 
-Returns all sessions for the authenticated user, including device name, IP address, last seen timestamp, and creation time.
+Returns all unexpired sessions for the authenticated user, including the editable device name, session kind (`browser` or `app`), IP address, last seen timestamp, expiry, and creation time.
+
+### Naming a Session
+
+**Endpoint:** `PUT /api/v1/auth/sessions/{session_id}`
+
+Send `{ "device_name": "Harley's iPhone" }` to give one of your own sessions a readable name. Names are required, trimmed, and limited to 80 characters. The Profile screen exposes this as an inline field beside every active session.
 
 ### Revoking a Session
 

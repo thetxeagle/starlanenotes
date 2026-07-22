@@ -383,9 +383,7 @@ function checkAgentWorkflowInventories(errors) {
   }
 
   const claudePath = join(repoRoot, "CLAUDE.md");
-  if (!existsSync(claudePath)) {
-    errors.push("Missing Claude workflow inventory: CLAUDE.md");
-  } else {
+  if (existsSync(claudePath)) {
     const text = readText(claudePath);
     const slashCommandRefs = [...text.matchAll(/`\/([A-Za-z0-9_.-]+)`/g)].map(
       (match) => match[1],

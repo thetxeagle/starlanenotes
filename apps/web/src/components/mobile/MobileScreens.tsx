@@ -2596,7 +2596,15 @@ export function MobileTotpSetupPanel({
 }
 
 export function sessionDeviceLabel(session: UserSessionRecord): string {
-  return session.device_name || session.user_agent || "Unknown device";
+  if (session.device_name) return session.device_name;
+  const userAgent = session.user_agent ?? "";
+  if (/iphone/i.test(userAgent)) return "Browser on iPhone";
+  if (/ipad/i.test(userAgent)) return "Browser on iPad";
+  if (/android/i.test(userAgent)) return "Browser on Android device";
+  if (/safari/i.test(userAgent)) return "Safari browser";
+  if (/chrome|crios/i.test(userAgent)) return "Chrome browser";
+  if (/firefox/i.test(userAgent)) return "Firefox browser";
+  return session.session_kind === "app" ? "Starlane Notes app" : "Browser session";
 }
 
 async function resetGraphCache(): Promise<void> {
@@ -2649,6 +2657,8 @@ export function MobileProfileScreen({ scope = "all" }: { scope?: "all" | "app" |
   const [sessions, setSessions] = useState<UserSessionRecord[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sessionRevokeTarget, setSessionRevokeTarget] = useState<UserSessionRecord | null>(null);
+  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
+  const [sessionNameDraft, setSessionNameDraft] = useState("");
   const [totpEnabled, setTotpEnabled] = useState(Boolean(user?.totp_enabled));
   const [totpSetupUrl, setTotpSetupUrl] = useState("");
   const [totpRecoveryCodes, setTotpRecoveryCodes] = useState<string[]>([]);
@@ -3046,6 +3056,30 @@ export function MobileProfileScreen({ scope = "all" }: { scope?: "all" | "app" |
   }, [runAction, sessionRevokeTarget]);
 
   const closeSessionRevokeDialog = useCallback(() => setSessionRevokeTarget(null), []);
+
+  const startSessionRename = useCallback((session: UserSessionRecord) => {
+    setRenamingSessionId(session.id);
+    setSessionNameDraft(session.device_name ?? sessionDeviceLabel(session));
+  }, []);
+
+  const saveSessionRename = useCallback(
+    (session: UserSessionRecord) => {
+      const deviceName = sessionNameDraft.trim();
+      if (!deviceName) {
+        setError("Enter a session name.");
+        return;
+      }
+      void runAction(`rename-session-${session.id}`, async () => {
+        const nextSessions = await dataClient.renameSession(session.id, deviceName);
+        setSessions(nextSessions);
+        setRenamingSessionId(null);
+        setSessionNameDraft("");
+        setStatus("Session name updated.");
+        triggerHaptic("confirm");
+      });
+    },
+    [runAction, sessionNameDraft],
+  );
 
   const handleStartTotpSetup = useCallback(() => {
     const disabledReason = getMobileTotpSetupDisabledReason(totpEnabled, totpSetupUrl, busyAction);
@@ -4081,25 +4115,63 @@ export function MobileProfileScreen({ scope = "all" }: { scope?: "all" | "app" |
             sessions.map((session) => (
               <div
                 key={session.id}
-                className="flex min-h-[64px] items-center gap-3 border-b border-border/70 px-3 py-2 last:border-b-0"
+                className="border-b border-border/70 px-3 py-2 last:border-b-0"
               >
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm text-text">{sessionDeviceLabel(session)}</span>
-                  <span className="block truncate text-xs text-text-muted">
-                    {session.ip_address || "Unknown IP"} · {new Date(session.last_seen_at).toLocaleString()}
+                <div className="flex min-h-[64px] items-center gap-3">
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm text-text">{sessionDeviceLabel(session)}</span>
+                    <span className="block truncate text-xs text-text-muted">
+                      {session.session_kind === "app" ? "App session" : "Browser session"} · {new Date(session.last_seen_at).toLocaleString()}
+                    </span>
+                    <span className="block truncate text-[11px] text-text-muted">
+                      {session.ip_address || "Unknown IP"} · expires {new Date(session.expires_at).toLocaleDateString()}
+                    </span>
                   </span>
-                  <span className="block truncate text-[11px] text-text-muted">
-                    Session {session.id.slice(0, 8)}
-                  </span>
-                </span>
-                <button
-                  type="button"
-                  disabled={busyAction === `revoke-session-${session.id}`}
-                  onClick={() => handleRevokeSession(session)}
-                  className="h-9 shrink-0 rounded-button border border-danger px-2 text-xs text-danger transition-colors duration-100 active:bg-surface-raised disabled:opacity-50"
-                >
-                  Revoke
-                </button>
+                  <div className="flex shrink-0 gap-2">
+                    <button
+                      type="button"
+                      disabled={busyAction === `rename-session-${session.id}`}
+                      onClick={() => startSessionRename(session)}
+                      className="flex h-9 w-9 items-center justify-center rounded-button border border-border text-text-muted transition-colors duration-100 active:bg-surface-raised hover:text-text disabled:opacity-50"
+                      aria-label={`Rename ${sessionDeviceLabel(session)}`}
+                    >
+                      <Pencil size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busyAction === `revoke-session-${session.id}`}
+                      onClick={() => handleRevokeSession(session)}
+                      className="h-9 rounded-button border border-danger px-2 text-xs text-danger transition-colors duration-100 active:bg-surface-raised disabled:opacity-50"
+                    >
+                      Revoke
+                    </button>
+                  </div>
+                </div>
+                {renamingSessionId === session.id && (
+                  <div className="mt-2 flex gap-2 border-t border-border/70 pt-2">
+                    <Input
+                      value={sessionNameDraft}
+                      onChange={(event) => setSessionNameDraft(event.target.value)}
+                      maxLength={80}
+                      aria-label="Session name"
+                    />
+                    <button
+                      type="button"
+                      disabled={busyAction === `rename-session-${session.id}`}
+                      onClick={() => saveSessionRename(session)}
+                      className="h-9 shrink-0 rounded-button border border-primary px-3 text-xs text-primary transition-colors duration-100 active:bg-surface-raised disabled:opacity-50"
+                    >
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setRenamingSessionId(null); setSessionNameDraft(""); }}
+                      className="h-9 shrink-0 rounded-button border border-border px-3 text-xs text-text-muted transition-colors duration-100 active:bg-surface-raised"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
               </div>
             ))
           )}

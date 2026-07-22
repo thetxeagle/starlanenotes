@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { api } from "@/lib/api";
+import { api, getSessionClientDetails } from "@/lib/api";
 import { dataClient } from "@/lib/dataClient";
 import { getPasskeyCredential } from "@/lib/passkeys";
 import { completeNativeAuthHandoffInBrowser, finishNativeAuthHandoff, rememberBrowserNativeAuthHandoff } from "@/lib/nativeAuthHandoff";
@@ -203,7 +203,7 @@ export function AuthProvider({ children, mode = "server" }: AuthProviderProps) {
         user: User;
       }>("/auth/login", {
         method: "POST",
-        body: { email, password, totp_code: totpCode },
+        body: { email, password, totp_code: totpCode, ...getSessionClientDetails() },
       });
 
       api.setToken(data.access_token);
@@ -222,7 +222,11 @@ export function AuthProvider({ children, mode = "server" }: AuthProviderProps) {
 
       const challenge = await dataClient.startPasskeyLogin(email);
       const credential = await getPasskeyCredential(challenge.public_key);
-      const data = await dataClient.finishPasskeyLogin(challenge.challenge_id, credential);
+      const data = await dataClient.finishPasskeyLogin(
+        challenge.challenge_id,
+        credential,
+        getSessionClientDetails(),
+      );
 
       api.setToken(data.access_token);
       api.setRefreshToken(data.refresh_token);
@@ -248,7 +252,7 @@ export function AuthProvider({ children, mode = "server" }: AuthProviderProps) {
         user: User;
       }>("/auth/register", {
         method: "POST",
-        body: { email, display_name: displayName, password },
+        body: { email, display_name: displayName, password, ...getSessionClientDetails() },
       });
 
       api.setToken(data.access_token);

@@ -180,8 +180,8 @@ async fn validate_bearer_session(
     claims: Claims,
 ) -> Result<Claims, AuthError> {
     let now = chrono::Utc::now().to_rfc3339();
-    let session: Option<(String, String)> = sqlx::query_as(
-        "SELECT users.email, users.role \
+    let session: Option<(String, String, String)> = sqlx::query_as(
+        "SELECT users.email, users.role, sessions.session_kind \
          FROM sessions \
          JOIN users ON users.id = sessions.user_id \
          WHERE sessions.id = ?1 \
@@ -197,9 +197,17 @@ async fn validate_bearer_session(
     .await
     .map_err(|_| AuthError::InvalidToken)?;
 
-    let Some((email, role)) = session else {
+    let Some((email, role, session_kind)) = session else {
         return Err(AuthError::InvalidToken);
     };
+
+    let now = chrono::Utc::now().to_rfc3339();
+    let _ = sqlx::query("UPDATE sessions SET last_seen_at = ?1, expires_at = ?2 WHERE id = ?3")
+        .bind(&now)
+        .bind(super::routes::session_expiry_at(&session_kind))
+        .bind(&claims.sid)
+        .execute(&app_state.db)
+        .await;
 
     Ok(Claims {
         email,
@@ -301,6 +309,7 @@ mod tests {
                 id TEXT PRIMARY KEY NOT NULL,
                 user_id TEXT NOT NULL,
                 refresh_token_hash TEXT NOT NULL,
+                session_kind TEXT NOT NULL DEFAULT 'browser',
                 expires_at TEXT NOT NULL
             )",
         )
