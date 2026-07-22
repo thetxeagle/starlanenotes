@@ -1,0 +1,36 @@
+.git
+.gitignore
+.dockerignore
+
+# Dependencies and generated build output
+node_modules/
+target/
+apps/web/dist/
+server/web-dist/
+docs/site/
+apps/desktop/src-tauri/target/
+
+# Native generated/build artifacts that are not needed by the server image
+apps/desktop/src-tauri/gen/
+apps/desktop/src-tauri/icons/
+
+# Local secrets and data
+.env
+.env.*
+!.env.example
+data/
+server/data/
+*.db
+*.db-journal
+*.db-wal
+
+# Editor, OS, logs, and temporary files
+.DS_Store
+**/.DS_Store
+.idea/
+.vscode/
+*.log
+*.tmp
+*.swp
+*.swo
+*~

@@ -1,0 +1,43 @@
+{
+  "name": "starlane-notes",
+  "version": "1.3.0",
+  "private": true,
+  "workspaces": [
+    "apps/web",
+    "apps/docs",
+    "packages/shared-types"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=apps/web",
+    "dev:isolated": "npm run dev --workspace=apps/web -- --host 127.0.0.1 --port 5199 --strictPort",
+    "build": "npm run build --workspace=apps/web",
+    "lint": "npm run lint --workspace=apps/web",
+    "validate:design": "node scripts/validate-starlane-design.mjs",
+    "typecheck": "npm run typecheck --workspace=apps/web",
+    "test": "npm run test --workspace=apps/web",
+    "desktop:dev": "cd apps/desktop/src-tauri && cargo tauri dev",
+    "desktop:build": "cd apps/desktop/src-tauri && cargo tauri build",
+    "desktop:build:app": "cd apps/desktop/src-tauri && cargo tauri build --bundles app",
+    "mobile:android:init": "./scripts/mobile/android-tauri.sh init",
+    "mobile:android:dev": "./scripts/mobile/android-tauri.sh dev",
+    "mobile:android:build": "./scripts/mobile/android-tauri.sh build",
+    "mobile:ios:init": "./scripts/mobile/ios-tauri.sh init",
+    "mobile:ios:dev": "./scripts/mobile/ios-tauri.sh dev",
+    "mobile:ios:build": "./scripts/mobile/ios-tauri.sh build",
+    "mobile:ios:doctor": "./scripts/mobile/ios-signing-doctor.sh",
+    "env:jwt-secret": "node scripts/generate-jwt-secret.mjs",
+    "env:write-jwt-secret": "node scripts/generate-jwt-secret.mjs --write",
+    "docker:smoke": "./scripts/smoke/docker-healthcheck.sh",
+    "docs:validate": "node --test scripts/docs/*.test.mjs && node scripts/docs/validate-docs-completeness.mjs",
+    "docs:sync": "node scripts/docs/sync-starlight-content.mjs",
+    "docs:dev": "npm run docs:sync && npm run dev --workspace=apps/docs",
+    "docs:build": "npm run docs:sync && npm run build --workspace=apps/docs",
+    "docs:preview": "npm run preview --workspace=apps/docs",
+    "docs:wiki": "node scripts/docs/sync-gitea-wiki.mjs",
+    "docs:wiki:publish": "node scripts/docs/sync-gitea-wiki.mjs --push",
+    "mobile:android:studio": "./scripts/mobile/android-studio.sh"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

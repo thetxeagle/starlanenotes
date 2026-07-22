@@ -1,0 +1,1330 @@
+# Changelog
+
+## [Unreleased]
+
+### Fixed
+
+- Site Administration now uses its own single desktop navigation rail, removing the duplicate workspace/document sidebar while retaining a direct route back to Notes.
+- Native passkey and SSO sign-in now describe opening the system browser rather than naming Safari, so the same copy is accurate on macOS and mobile apps.
+
+### Added
+
+- Added a clean public GitHub export path with a GitHub-specific README and GHCR application/documentation image workflow.
+- Added a reusable fictional-content screenshot gallery for the public README and documentation.
+
+## [1.3.0] - 2026-07-21
+
+### Added
+
+- Local-vault MCP stdio/SSE hosts can now explicitly opt into the confirmed, journaled, replay-safe document-create tool while remaining read-only by default.
+- Static ZIP publishing now includes a credential-external SSH/rsync deploy hook. Operators supply only the destination at invocation time and rely on their SSH agent/config for credentials and host verification.
+- Native self-hosted sign-in can now open Safari for passkey or SSO authentication and return through a short-lived, one-time PKCE-bound handoff; password and TOTP stay in the app.
+- Native passkey sign-in now keeps its Safari handoff available even when the embedded WebView does not expose WebAuthn, instead of hiding the only compatible passkey path.
+- Safari handoff now survives OAuth/OIDC provider redirects by retaining only its opaque ID until browser authentication completes.
+- Documented native-browser handoff endpoints in the generated OpenAPI contract and authentication API reference.
+- Plugin runtime now has a canonical deny-by-default access guard for install state, per-space scope, declared permissions, and HTTPS fetch-domain allowlists before future sandbox dispatch.
+- Plugin client code now has an opaque-origin iframe sandbox host with no same-origin or direct application API access.
+- Local-vault MCP now has host-bound JSONL stdio and SSE listener adapters that emit redacted accepted-token read responses, reject malformed input safely, and support orderly drain/stop without enabling write execution.
+- Static ZIP publishing now hydrates eligible native vault asset bytes before packaging, allowing those assets to be extracted and rewritten into portable site bundles.
+- Editor bookmark cards now support an explicit server-side metadata snapshot: authors can fetch a title and description once, save it into portable Markdown, and keep the card usable offline without page-view refetches.
+- Server-linked native workspace shells now show a concise offline readiness status, including whether the downloaded workspace can open and how many local changes remain queued for replay. The same status is available in the mobile app shell.
+- Named Dataview collection blocks can now be inserted with `/collection`. Their property query, view mode, columns, and name are retained in page Markdown, making the saved collection portable across web, desktop, and mobile page view.
+- Published documents now have a focused unauthenticated web reader at `/p/{slug}`, so a self-hosted instance can share knowledge-base pages without exposing workspace chrome or account controls.
+
+### Security
+
+- Hardened Markdown rendering so raw HTML stays inert and unsafe link/image protocols such as `javascript:` and executable `data:` content cannot reach rendered HTML sinks. Bookmark metadata retrieval is authenticated, blocks private-network targets and redirects, and uses bounded responses and timeouts.
+
+### Fixed
+
+- iOS passkey setup now ships the required `webcredentials:starlane.2eagles.xyz` Associated Domains entitlement and publishes the matching Apple App Site Association JSON instead of returning the single-page app shell. Native WebAuthn cancellation now identifies this configuration path instead of presenting an indistinguishable user-canceled message.
+- Mobile table controls now use the normal editor-toolbar treatment and remain active after a table action, so table editing does not collapse back into a hidden control surface.
+- Server-linked native apps now reopen their downloaded workspace when the remote server is unavailable instead of stopping at the startup connection screen. Previously downloaded pages remain readable offline, and document/folder creates plus updates queue locally with durable source IDs for ordered retry after reconnection; server rejections remain queued rather than being silently overwritten.
+- Fixed a mobile app startup crash caused by the offline workspace status bar returning a new external-store snapshot on every render. Status snapshots now remain stable until their visible readiness or queued-write count changes.
+- Failed or unsupported local-first replay operations now retain their retry count and server error in the local queue, so Admin Storage recovery remains available after an app restart.
+
+### Changed
+
+- v1.3.0 development started from the v1.0.12 baseline now merged into `main`; roadmap work will continue as validated, concrete slices.
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+- v1.0.12 in progress: replaced the empty phone-width Site Administration sidebar with an iOS-settings-style mobile admin home/subpage flow, exposed public signup policy in Admin Authentication, and made post-setup public registration opt-in by default with server/OpenAPI/docs coverage.
+- v1.0.12 in progress: added passkey registration/login/management endpoints, shared web/desktop/mobile passkey UI wiring, TOTP account controls with hashed one-time recovery codes plus setup/verify/disable button-state and in-app disable confirmation, structured API auth-error code preservation, auth-flow 401 refresh gating, login-gate and 2FA prompt state-reset coverage, server-message-aligned two-factor-required notice coverage, recovery-code login/disable UI and route regression coverage including recovery-code-friendly input modes, desktop/web profile-security placement, explicit local-mode TOTP/passkey guards, passkey OpenAPI/docs coverage, WebAuthn native-origin allowlist handling, passkey browser-adapter/support-detection/login-affordance/ceremony-error/challenge-lifecycle/delete-confirmation/ownership regression tests, mobile active-session revoke confirmation, Admin user-session revoke confirmation, server-mode vault switching in mobile settings with native runtime-drift/row-order coverage including delayed native-vault availability, mobile vault safe-trash confirmation coverage, shared confirmation-dialog coverage, mobile reset-app confirmation coverage, sidebar page/folder delete confirmation coverage, properties-panel delete confirmation coverage, right-panel restore confirmation coverage, Admin storage-reset confirmation coverage, Admin queued-sync clear/replay confirmation coverage, Admin vault-import/provider-recovery confirmation coverage, and phone-width Site Administration layout validation.
+- v1.0.12 in progress: replaced the Search saved-view browser prompt with an in-app Starlane naming panel and regression coverage for saved-search naming rules.
+- v1.0.12 in progress: replaced page icon and cover image browser prompts with inline Starlane editor controls and regression coverage.
+- v1.0.12 in progress: replaced desktop/mobile editor toolbar link and image URL browser prompts with a shared Starlane URL dialog.
+- v1.0.12 in progress: replaced workflow queue view and reassignment-rule browser prompts with an in-app Starlane naming dialog and regression coverage.
+- v1.0.12 in progress: replaced the editor upload-size browser alert with an in-editor Starlane warning banner and rendered regression coverage.
+- v1.0.12 in progress: added mobile editor toolbar layout guards for keyboard-open full-width placement, safe-area fallback, horizontal scrolling, and finger-sized action buttons.
+- v1.0.12 in progress: made empty Excalidraw page-view preview cards explicit and tokenized instead of rendering like blank panels.
+- v1.0.12 in progress: made editor blocks shrink-safe so the first-block placeholder cannot collapse into vertical stacked text on constrained layouts.
+- v1.0.12 in progress: moved the document Move action out of desktop primary chrome so it stays in the document actions menu while starred pages retain a restrained favorite affordance.
+- v1.0.12 in progress: added mobile document properties panel scroll-chain guards so the centered viewport-bounded shell keeps its header fixed while panel content scrolls.
+- v1.0.12 in progress: made server-mode mobile App Settings expose vault management as a dedicated `Vaults / Switch` submenu row beside the server sync status.
+- v1.0.12 in progress: strengthened rendered profile-security coverage so TOTP and passkey controls keep mobile-friendly sizing and Starlane semantic tokens.
+- v1.0.12 in progress: added a required-2FA enrollment notice to profile security when the server enforces 2FA and the account has not enabled TOTP.
+- v1.0.12 in progress: pinned mobile required-2FA enrollment and disable-policy notices to a shared semantic warning layout contract.
+- v1.0.12 in progress: enforced required-2FA enrollment by redirecting unenrolled protected-route users to profile security while allowing enrollment routes through.
+- v1.0.12 in progress: synchronized auth-context TOTP status after profile security enable/disable so required-2FA route enforcement releases immediately after enrollment.
+- v1.0.12 in progress: aligned authentication docs and environment-variable docs with the implemented required-2FA profile-security redirect behavior.
+- v1.0.12 in progress: normalized the passkey login affordance onto the shared Starlane button component with rendered focus/token coverage.
+- v1.0.12 in progress: added an idempotent passkey credential-table migration so upgraded server databases receive passkey storage even if their initial schema predates passkeys.
+- v1.0.12 in progress: bound passkey registration finish to the authenticated user that started the registration challenge.
+- v1.0.12 in progress: changed passkey/WebAuthn RP ID derivation to use the configured base URL host, preserving localhost development support while documenting BASE_URL's passkey role.
+- v1.0.12 in progress: added a mobile TOTP setup panel with direct `otpauth://` authenticator-app handoff alongside copy, verify, and recovery-code controls.
+- v1.0.12 in progress: added mobile TOTP recovery-code copy-all support with a semantic one-time-code warning and safer clipboard fallback handling.
+- v1.0.12 in progress: gated mobile TOTP setup verification behind an explicit recovery-code saved acknowledgment when recovery codes are shown.
+- v1.0.12 in progress: added visible, accessible disabled-state reasons for the mobile TOTP setup Verify action.
+- v1.0.12 in progress: made the mobile TOTP setup Verify helper require a trimmed 6-digit authenticator code before starting verification, matching the visible one-time-code input contract.
+- v1.0.12 in progress: added visible, accessible disabled-state reasons for the mobile Disable 2FA action.
+- v1.0.12 in progress: made the mobile server-mode vault switch row mode-driven so `Switch vault` stays paired with `Sync` even when platform/native-vault detection is unavailable or delayed.
+- v1.0.12 in progress: enforced required-2FA policy on TOTP disable so servers with `REQUIRE_2FA=true` reject disable requests and profile security shows a policy notice instead of disable controls.
+- v1.0.12 in progress: added a visible disabled-state reason to the login form after the 2FA prompt appears so sign-in waits for an authenticator or recovery code.
+- v1.0.12 in progress: made login and mobile Disable 2FA prompts validate authenticator and recovery-code formats before submit while preserving dashless recovery-code paste compatibility.
+- v1.0.12 in progress: pinned login 2FA-required and passkey-unavailable notices to shared Starlane surface layout contracts.
+- v1.0.12 in progress: made passkey login disabled states reason-driven so missing-email and in-progress sign-in states show accurate helper copy.
+- v1.0.12 in progress: made login submit and passkey sign-in handlers reuse their disabled-state helpers so stale keyboard/touch submits cannot bypass visible auth guidance.
+- v1.0.12 in progress: normalized login 2FA/recovery-code submission so mobile paste/autofill whitespace cannot pass the UI guard but fail server verification.
+- v1.0.12 in progress: pinned the login 2FA code input to a named keyboard/autofill/recovery-code contract.
+- v1.0.12 in progress: made mobile Add passkey respect the shared security busy state and explain when another action must finish first.
+- v1.0.12 in progress: aligned the mobile profile passkey name/Add row so the input and button stay paired on wider settings surfaces with helper copy below.
+- v1.0.12 in progress: made the mobile Add passkey disabled-state helper enforce the server-aligned 80-character name limit, keeping stale/programmatic state aligned with the visible UI rule.
+- v1.0.12 in progress: made mobile passkey deletion respect the shared security busy state and surface blocked/delete-in-progress reasons.
+- v1.0.12 in progress: rendered mobile passkey delete disabled reasons directly on each passkey row with accessible helper linkage.
+- v1.0.12 in progress: normalized mobile passkey row helper IDs so unusual passkey identifiers keep accessible disabled-state linkage intact.
+- v1.0.12 in progress: made mobile passkey row date labels tolerate malformed metadata instead of rendering invalid dates.
+- v1.0.12 in progress: made mobile authenticator setup start respect the shared security busy state and show visible disabled-state reasons.
+- v1.0.12 in progress: pinned the mobile TOTP setup panel to named layout contracts for setup actions, verify controls, recovery-code warning, and saved-code acknowledgment.
+- v1.0.12 in progress: made mobile TOTP verify and Disable 2FA handlers respect the shared security busy state so stale taps cannot start competing security actions.
+- v1.0.12 in progress: normalized the mobile TOTP setup Verify button to the shared `text-on-primary` token.
+- v1.0.12 in progress: aligned profile passkey-name input with the server's 80-character limit and added supported-browser render coverage.
+- v1.0.12 in progress: added visible disabled-state guidance for the mobile profile Add passkey action when no passkey name is entered or setup is already running.
+- v1.0.12 in progress: tightened browser passkey support detection so insecure contexts no longer advertise passkey setup/sign-in.
+- v1.0.12 in progress: normalized unsupported-authenticator passkey ceremony errors for setup and sign-in.
+- v1.0.12 in progress: hardened passkey challenge decoding so malformed registration/login challenge payloads fail with explicit Starlane-readable errors before launching the authenticator ceremony.
+- v1.0.12 in progress: added a tokenized login notice when passkey sign-in is unavailable in the current browser or webview.
+- v1.0.12 in progress: strengthened the profile-security unavailable-passkey notice with status semantics, fallback guidance, and shared surface tokens.
+- v1.0.12 in progress: enforced server-mode mobile App Settings so a visible `Sync` row always keeps the `Switch vault` submenu reachable for create/open/connect vault recovery.
+- v1.0.12 in progress: reshaped first launch into create/open/connect sections, added mobile vault submenu actions with in-app safe trash confirmation, and clarified server vault local-copy recovery expectations.
+- v1.0.12 in progress: restored the last configured native vault automatically, validated it before mounting, and marked failed vaults as needing repair before returning to the chooser.
+- v1.0.12 in progress: made native local vault selection explicit so status checks no longer initialize phantom App-folder vaults and first-run local setup surfaces vault selection failures.
+- v1.0.12 in progress: added an iOS Documents-side vault-location fallback so custom mobile vault selections survive an empty native settings store.
+- v1.0.12 in progress: surfaced native mobile storage action failures instead of generic errors and guarded default App folder rename with clear copy.
+- v1.0.12 in progress: differentiated inline-code and code-block toolbar icons and aligned desktop/mobile folder/page tree chevron lanes plus folder/page icon sizing.
+- v1.0.12 in progress: aligned scratchpad auth-hardening and release-packaging follow-ups with exact future-work gates.
+- v1.0.12 in progress: aligned scratchpad recommended-next-slice tracking with the all-phase exact future-work gates.
+- v1.0.12 in progress: normalized all-phase recommended next slices behind exact future-work gates for Phase 1, packaging, workflows, SCIM, sync, storage, publishing, plugins, and MCP.
+- v1.0.12 in progress: normalized Phase 1 reconciliation next actions for SCIM, MCP, templates, search, and OpenAPI behind exact future-work gates.
+- v1.0.12 in progress: tightened Phase 1 AI/webhook/notification and Admin lifecycle reconciliation actions behind exact evidence gates.
+- v1.0.12 in progress: aligned the Phase 1 fast-track board with exact audit gates for SCIM/admin, OpenAPI, personal-space, lifecycle, editor, template, and collaboration follow-ups.
+- v1.0.12 in progress: audit-gated residual Phase 1 user-provisioning, CRDT collaboration, and AI command-completion follow-ups behind exact findings or selected goals.
+- v1.0.12 in progress: aligned scratchpad follow-ups and Phase 1 API docs tracking with exact audit-gate triggers.
+- v1.0.12 in progress: audit-gated remaining Phase 1 editor/comments/search/template rows and Phase 6/7 plugin/API/MCP rows behind exact findings or selected goals.
+- v1.0.12 in progress: audit-gated Phase 3/4 discovery, document-feature, workflow, SCIM, and permission rows behind exact findings or selected lanes.
+- v1.0.12 in progress: audit-gated Phase 2 desktop/mobile/storage/readiness rows behind exact findings or selected packaging/storage goals.
+- v1.0.12 in progress: audit-gated residual Phase 1 polish rows behind exact auth, spaces/folders/documents, personal-space, webhook/notification, or Admin panel findings.
+- v1.0.12 in progress: audit-gated local-boundary/device-polish and provider-import follow-up work behind exact evidence findings.
+- v1.0.12 in progress: audit-gated settings/storage follow-up work behind exact device-storage, OAuth-readiness, or server/local drift evidence.
+- v1.0.12 in progress: audit-gated settings/admin entry-point follow-up work behind exact app-shell drift evidence.
+- v1.0.12 in progress: parked remaining broad recommended next-slice lanes for desktop packaging, workflow operations, and post-fast-track MCP.
+- v1.0.12 in progress: reconciled recommended next-slice guidance so sync, storage switching, static publishing, and plugin work stay audit-gated behind selected narrow gaps.
+- v1.0.12 in progress: reconciled Phase 2 UI/readiness audit tracking with the documented app-readiness and design-validation gates.
+- v1.0.12 in progress: parked broad Phase 5 publishing, integration, embed, and importer lanes behind explicit selected goals.
+- v1.0.12 in progress: marked broad missing roadmap lanes as parked so semantic/RAG search, collaboration awareness, guest access, and plugin SDK work require separate selected goals.
+- v1.0.12 in progress: reconciled Phase 2 CI/release/docs workflow tracking with current docs validation, wiki sync, container publishing, and manual desktop/mobile package boundaries.
+- v1.0.12 in progress: reconciled Phase 7 REST/API coverage tracking so future API work is audit-gated by concrete route/test gaps instead of a broad rebuild prompt.
+- v1.0.12 in progress: reconciled admin lifecycle tracking with admin password-reset session-revocation route evidence.
+- v1.0.12 in progress: added focused admin password-reset coverage for target-session revocation.
+- v1.0.12 in progress: reconciled auth hardening tracking with current logout and password-reset revocation evidence.
+- v1.0.12 in progress: added focused password-reset confirmation coverage for session revocation and token consumption.
+- v1.0.12 in progress: added focused auth logout route coverage for server-side current-session deletion.
+- v1.0.12 in progress: made docs validation enforce auth logout/session and cookie/CSRF hardening guidance.
+- v1.0.12 in progress: corrected local-auth logout docs to match server-side session revocation.
+- v1.0.12 in progress: added docs validation regression coverage for required docs index links.
+- v1.0.12 in progress: synced AGENTS and CODEX guidance with required docs index-link enforcement.
+- v1.0.12 in progress: synced mirrored gen-docs workflow guidance with the current docs validation scope.
+- v1.0.12 in progress: synced documentation guidance with the docs index-link validation gate.
+- v1.0.12 in progress: made docs validation require every required docs page to be linked from the docs index.
+- v1.0.12 in progress: added App Store metadata preparation docs and made docs validation require the metadata checklist.
+- v1.0.12 in progress: added reviewer-access preparation docs for App Store/TestFlight review paths and made docs validation require them.
+- v1.0.12 in progress: added a privacy baseline page for self-hosted/local data, identity providers, AI providers, and App Store preparation, and made docs validation require it.
+- v1.0.12 in progress: replaced stale screenshot placeholder copy with release capture guidance and made docs validation enforce it.
+- v1.0.12 in progress: made docs validation require the publicly linked screenshots guide.
+- v1.0.12 in progress: made docs validation require auth-hardening notes and surfaced them from the docs index.
+- v1.0.12 in progress: surfaced required feature guides, plugin docs, screenshots, and support from the docs index.
+- v1.0.12 in progress: made docs validation require user-provisioning docs and surfaced CSV/SSO provisioning from the docs index.
+- v1.0.12 in progress: made docs validation require app-readiness/mobile/release self-hosting docs and surfaced those pages from the docs index.
+- v1.0.12 in progress: synced documentation guidance with the expanded docs validation scope for wiki metadata-filtering regression coverage.
+- v1.0.12 in progress: aligned App Store review preflight commands with the current app-readiness gate before signed iOS archive work.
+- v1.0.12 in progress: added a docs validation regression test for Gitea Wiki rendering so hidden metadata files stay out of generated wiki output.
+- v1.0.12 in progress: hardened Gitea Wiki rendering so hidden dotfiles and OS metadata files are skipped from generated wiki artifacts.
+- v1.0.12 in progress: aligned development and contributing validation docs with the current app-readiness gate instead of stale partial build-only checks.
+- v1.0.12 in progress: removed the stale Claude screenshot command listing and made docs validation catch missing Claude slash-command inventory entries.
+- v1.0.12 in progress: refreshed mirrored test-runner workflows with the current workspace-scoped web, Tauri, design, and docs validation gates.
+- v1.0.12 in progress: updated mirrored gen-docs workflows so documentation edits run docs validation and wiki render checks.
+- v1.0.12 in progress: aligned Codex docs guidance with the expanded docs validation contract for agent workflow and legacy docs-tooling drift.
+- v1.0.12 in progress: synced the documentation standard and scratchpad with current docs validation coverage for agent workflow inventory and legacy docs-tooling checks.
+- v1.0.12 in progress: synced README, development, contributing, and app-readiness docs with the expanded docs validation contract.
+- v1.0.12 in progress: reconciled the all-phase app-readiness audit row with current docs validation coverage for agent workflow inventories and legacy docs-tooling drift.
+- v1.0.12 in progress: removed stale MkDocs guidance from Starlane docs standards and made docs validation reject legacy docs-tooling references in guidance files.
+- v1.0.12 in progress: hardened docs completeness validation so stale Claude command references and missing required Codex workflow skill inventory entries are caught automatically.
+- v1.0.12 in progress: corrected CODEX workflow parity docs so Codex-only app-readiness and screenshot skills no longer point to missing Claude commands.
+- v1.0.12 in progress: added the app-readiness validation skill to Codex/agent workflow inventories so tester-handoff validation is discoverable.
+- v1.0.12 in progress: aligned Claude/Codex session-log guidance with the repo's descriptive session filename convention.
+- v1.0.12 in progress: updated Docker and Gitea registry docs so self-hosting downloads and image examples point at the current v1.0.11 main/production line.
+- v1.0.12 in progress: updated README version badges, quick-start downloads, and container image examples to show v1.0.11 as main/production and v1.0.12 as development.
+- v1.0.12 in progress: refreshed the Starlane brand baseline documentation standard from stale MkDocs guidance to the current docs validator and Gitea Wiki flow.
+- v1.0.12 in progress: refreshed Claude/Codex test guidance so docs validation uses `docs:validate` and `docs:wiki` instead of stale MkDocs build commands.
+- v1.0.12 in progress: updated README and contributing docs so documentation onboarding runs docs completeness validation before wiki rendering.
+- v1.0.12 in progress: updated development docs so isolated agent setup runs docs completeness validation before wiki rendering.
+- v1.0.12 in progress: added docs completeness validation to the app-readiness checklist so docs enforcement is included before tester handoff.
+- v1.0.12 in progress: refreshed the app-readiness Codex skill so it targets v1.0.12 and includes design/docs validation gates.
+- v1.0.12 in progress: added the Starlane design validation command to the app-readiness checklist so the enforced gate and release evidence stay aligned.
+- v1.0.12 in progress: added Starlane design validation to the safe local app-readiness evidence gate.
+- v1.0.12 in progress: restored the safe local app-readiness gate by aligning browser asset test fixtures and graph node folder typing with current runtime models.
+- v1.0.12 in progress: reconciled the Phase 1 OpenAPI/Scalar fast-track board with the generated Tag nullable response schema coverage.
+- v1.0.12 in progress: tightened the generated OpenAPI Tag schema so nullable `created_at` and `doc_count` match runtime response envelopes.
+- v1.0.12 in progress: tightened generated OpenAPI user directory, group, membership, and space-group schemas so nullable response fields match runtime response envelopes.
+- v1.0.12 in progress: tightened generated OpenAPI SCIM User and Group schemas so nullable response fields match runtime response envelopes.
+- v1.0.12 in progress: tightened the generated OpenAPI admin config schema so nullable `env_var` matches the runtime response envelope.
+- v1.0.12 in progress: tightened the generated OpenAPI sync replay history checkpoint schema so nullable provenance fields match runtime response envelopes.
+- v1.0.12 in progress: tightened the generated OpenAPI GraphNode schema so nullable `folder_id` matches the runtime response envelope.
+- v1.0.12 in progress: tightened generated OpenAPI template and workflow schemas so nullable response fields match runtime response envelopes.
+- v1.0.12 in progress: tightened generated OpenAPI metadata and comment schemas so nullable response fields match runtime response envelopes.
+- v1.0.12 in progress: tightened generated OpenAPI notification, webhook, delivery, and audit-log schemas so nullable response fields match runtime response envelopes.
+- v1.0.12 in progress: tightened generated OpenAPI auth/user/session/API-key schemas so nullable response fields match runtime response envelopes.
+- v1.0.12 in progress: tightened generated OpenAPI Document and PublicPage schemas so nullable response fields match runtime response envelopes.
+- v1.0.12 in progress: tightened generated OpenAPI Space and Folder schemas so nullable metadata fields match runtime response envelopes.
+- v1.0.12 in progress: tightened the generated OpenAPI starred-document schema so nullable `icon` matches the runtime response envelope.
+- v1.0.12 in progress: added Dataview computed word-count columns and sorting for title/excerpt result metadata.
+- v1.0.12 in progress: added focused browser editor file-drop coverage for image uploads, Markdown insertion, and generic attachment cards.
+- v1.0.12 in progress: added focused Journal helper coverage for monthly prompt gating and prompt-template cadence metadata variants.
+- v1.0.12 in progress: reconciled embed-block roadmap status with existing bookmark-card, Excalidraw canvas, and Dataview block support.
+- v1.0.12 in progress: reconciled integration-hub roadmap status with existing webhooks, SMTP, AI provider, OAuth/OIDC, API-key, and storage-provider integration surfaces.
+- v1.0.12 in progress: clarified permissions docs so folder-level overrides, commenter role, guest links, and permission-change diff audits remain roadmap work.
+- v1.0.12 in progress: reconciled importer roadmap docs with existing CSV, local-vault, desktop archive, Markdown mirror, and provider replay import paths.
+- v1.0.12 in progress: reconciled custom icon roadmap docs with existing space, folder, and document icon metadata/display support.
+- v1.0.12 in progress: added focused Graph View helper coverage for neighbor highlighting and combined folder/orphan/degree/focus filters.
+- v1.0.12 in progress: added focused Source view read-only coverage for locked documents.
+- v1.0.12 in progress: aligned the plugin runtime audit OpenAPI schema with runtime plugin ID validation.
+- v1.0.12 in progress: added focused static publishing coverage for duplicate unsafe asset filenames in ZIP bundles.
+- v1.0.12 in progress: added focused server validation coverage for plugin runtime audit actions without enabling plugin execution.
+- v1.0.12 in progress: reconciled local-first provider-sync docs so manual Google Drive pull/import is no longer listed as unfinished broad provider work.
+- v1.0.12 in progress: clarified Tauri updater signing docs so signing secrets are manual/future release setup, not an active desktop packaging pipeline.
+- v1.0.12 in progress: reconciled the Phase 2 Tauri desktop row with existing menu, tray, updater, deep-link, notification, and new-window shell wiring.
+- v1.0.12 in progress: corrected users/groups docs so workflow templates are no longer described as planned-only.
+- v1.0.12 in progress: reconciled the Phase 7 OpenAPI/Scalar row with plugin runtime audit-event route coverage.
+- v1.0.12 in progress: reconciled the API overview plugin row with the implemented `/admin/plugin-runtime-audit` route while keeping plugin execution marked planned.
+- v1.0.12 in progress: added manual desktop/mobile package build commands to contributing docs to match the current no-app-packaging-pipeline boundary.
+- v1.0.12 in progress: clarified README CI/CD docs so Gitea Actions only promise web/server artifacts and container publishing while desktop/mobile packaging remains manual.
+- v1.0.12 in progress: corrected the phased MCP fast-track scope wording so listener-backed stdio/SSE binding remains explicitly deferred.
+- v1.0.12 in progress: reconciled the Phase 1 OpenAPI/Scalar fast-track row with the documented SCIM user PATCH conflict response.
+- v1.0.12 in progress: updated the Starlane documentation standard to describe docs validation enforcement for CI, wiki sync, and wiki publish secrets.
+- v1.0.12 in progress: corrected App Store readiness docs so latest physical iPhone launch-smoke status matches the current manual-validation boundary.
+- v1.0.12 in progress: documented required Gitea wiki publish secrets and made docs validation enforce their workflow/docs wiring.
+- v1.0.12 in progress: reconciled the Phase 7 OpenAPI/Scalar audit summary with the documented SCIM user PATCH conflict response.
+- v1.0.12 in progress: added a generated OpenAPI 409 conflict response for SCIM user PATCH duplicate-email updates.
+- v1.0.12 in progress: hardened docs completeness validation so it now verifies CI docs validation and Gitea wiki sync workflow wiring.
+- v1.0.12 in progress: reconciled the Phase 1 OpenAPI/Scalar audit summary with the documented document-lock conflict response.
+- v1.0.12 in progress: added a generated OpenAPI 409 conflict response for the implemented document-lock guard when another user holds the lock.
+- v1.0.12 in progress: added generated OpenAPI 409 conflict responses for implemented document-template and workflow-template create import paths.
+- v1.0.12 in progress: added generated OpenAPI 409 conflict responses for implemented tag and property-schema create import paths.
+- v1.0.12 in progress: added generated OpenAPI 409 conflict responses for implemented space, folder, and document create import/duplicate paths.
+- v1.0.12 in progress: added generated OpenAPI 409 conflict responses for implemented auth registration, profile username, and TOTP setup conflict paths.
+- v1.0.12 in progress: tightened the generated OpenAPI shared `Error` schema so `error` and `message` are required like runtime responses and API docs.
+- v1.0.12 in progress: clarified MCP docs for the current server HTTP JSON error envelope and 403 permission boundary.
+- v1.0.12 in progress: corrected users/groups docs for implemented SCIM-managed group lifecycle operations.
+- v1.0.12 in progress: corrected AI integration docs for the existing translate/custom document-action controls in the document panel.
+- v1.0.12 in progress: aligned shared app permission failures with the documented 403 `forbidden` JSON error envelope for space-role, workflow approval, and MCP execution guards.
+- v1.0.12 in progress: aligned auth middleware rejection responses with the documented JSON error envelope and generic 403 error code.
+- v1.0.12 in progress: aligned auth rate-limit runtime responses with the documented JSON error envelope.
+- v1.0.12 in progress: added the API overview 429 rate-limit error-code row to match the documented authentication throttle behavior.
+- v1.0.12 in progress: added generated OpenAPI 429 rate-limit responses for rate-limited authentication endpoints.
+- v1.0.12 in progress: reconciled the API overview rate-limit docs with password-reset request and confirmation endpoints.
+- v1.0.12 in progress: aligned admin audit-log pagination runtime bounds with the generated OpenAPI contract and added focused regression coverage.
+- v1.0.12 in progress: corrected the all-phase session log decision notes to reflect later Dataview test/API-contract follow-up slices.
+- v1.0.12 in progress: reconciled the Phase 1 OpenAPI priority slice with Dataview lower-bound query-parameter coverage.
+- v1.0.12 in progress: reconciled the API docs audit row with Dataview lower-bound query-parameter coverage.
+- v1.0.12 in progress: reconciled the Phase 1 fast-track board with Dataview lower-bound OpenAPI coverage.
+- v1.0.12 in progress: reconciled the phased prompt audit with Dataview lower-bound API coverage.
+- v1.0.12 in progress: added focused Dataview result-limit lower-bound coverage for explicit zero-result API requests.
+- v1.0.12 in progress: corrected Dataview API docs and server route comment to document the current 50-result default and 100-result cap.
+- v1.0.12 in progress: expanded generated OpenAPI Dataview query-parameter coverage for query max length and result-limit caps.
+- v1.0.12 in progress: aligned the server Dataview default result limit with the generated API contract and added focused cap/default regression coverage.
+- v1.0.12 in progress: added focused Dataview local query limit coverage for blank and filtered first-pass queries.
+- v1.0.12 in progress: added focused static publishing coverage for sanitized document export paths and duplicate unsafe title collisions.
+- v1.0.12 in progress: added focused plugin runtime-audit CSV export coverage for quoted and multiline blocked-runtime values.
+- v1.0.12 in progress: clarified the all-phase iPad QA recommendation so browser viewport coverage is preserved and remaining work is native iPadOS/device confirmation.
+- v1.0.12 in progress: reconciled the all-phase recommended next-slice queue so SCIM stays parked unless the larger admin token-management or sync-audit UI is explicitly selected.
+- v1.0.12 in progress: reconciled the Phase 2 mobile-target audit row with the latest signed physical iPhone install state and manual launch-smoke boundary.
+- v1.0.12 in progress: reconciled the Phase 1 fast-track board and Phase 7 audit rows with completed MCP HTTP execution guardrail coverage.
+- v1.0.12 in progress: added focused MCP HTTP execution guardrail coverage for unknown tools, deferred write tools, non-admin users, and admin API keys missing the admin scope.
+- v1.0.12 in progress: added documentation enforcement with a Starlane docs standard, docs completeness validator, CI/wiki validation steps, and reusable global Codex skills for Starlight docs portals and wiki validation.
+- v1.0.12 in progress: added a shared mobile-friendly slash-token destination picker for create/move dialogs and documented the existing server-hosted Scalar/OpenAPI docs path.
+- v1.0.12 in progress: fast-tracked selected query-language, Excalidraw, and auth-hardening slices with `folder_id:` search aliasing, portable Excalidraw sidecar filename normalization, and focused password-reset confirmation validation tests.
+- v1.0.12 in progress: completed the Phase 1 fast-track completion audit and trimmed the scratchpad so future Phase 1 work requires a concrete evidence gap or explicit deferred-lane selection.
+- v1.0.12 in progress: hardened OAuth/OIDC callback fragment handling, documented current auth invariants, and captured the cookie/CSRF migration lane.
+- v1.0.12 in progress: fast-tracked auth hardening so bearer access tokens require an active server session/user, JWT validation requires the session and authority claims it uses, and TOTP setup cannot overwrite an enabled secret.
+- v1.0.12 in progress: cleaned up validation warnings by removing an unused search-index schema field, isolating setup shared constants, and naming the lazy Excalidraw vendor chunk.
+- v1.0.12 in progress: added full embedded Excalidraw edit/view modals with document-owned `.excalidraw` sidecar asset persistence for web and desktop editor surfaces.
+- v1.0.12 in progress: added a focused startup storage check for local vault structure, wired the Excalidraw slash command to the persisted canvas directive, and fixed nested child-page sidebar rendering.
+- v1.0.12 in progress: added focused SNQL exact-date aliases for `created_on:`, `updated_on:`, and `modified:` typed search filters.
+- v1.0.12 in progress: audit-gated the Phase 1 fast-track board so future slices require concrete missing evidence or explicit deferred-scope selection.
+- v1.0.12 in progress: added focused NotificationBell mark-all-read state coverage for clearing visible unread rows.
+- v1.0.12 in progress: added focused Admin Users password-reset session-state coverage so viewed sessions and loading state clear deterministically.
+- v1.0.12 in progress: expanded the generated OpenAPI/Scalar route-surface regression test to cover every currently documented REST path.
+- v1.0.12 in progress: added focused Admin Users visible-toggle coverage for filtered bulk lifecycle row selection.
+- v1.0.12 in progress: added focused Admin Users bulk lifecycle result-message coverage for updated counts and skipped reasons.
+- v1.0.12 in progress: added focused Admin Users visible-selection coverage for filtered bulk lifecycle rows.
+- v1.0.12 in progress: added API-key routes to the generated OpenAPI/Scalar route-family smoke coverage.
+- v1.0.12 in progress: aligned generated OpenAPI/Scalar document workflow paths with implemented `{document_id}` route parameters.
+- v1.0.12 in progress: added focused Admin Users lifecycle filter coverage for query, role, and status combinations.
+- v1.0.12 in progress: added focused template renderer coverage for unknown placeholders and null or missing property values.
+- v1.0.12 in progress: added focused Admin Users lifecycle count coverage for total, active, inactive, admin, and member summaries.
+- v1.0.12 in progress: added focused Search/SNQL saved-filter formatting coverage for title, presence, unlocked-state, and exact date filters.
+- v1.0.12 in progress: added focused NotificationBell unread badge label coverage for the visible `9+` cap.
+- v1.0.12 in progress: added focused AI document-action request payload coverage for translate, custom, and summarize actions.
+- v1.0.12 in progress: reconciled the broad Phase 7 OpenAPI audit row with the Phase 1 fast-track board so future OpenAPI work only starts from concrete route-family gaps.
+- v1.0.12 in progress: added focused Admin Users bulk lifecycle request payload coverage for selected user IDs and lifecycle action.
+- v1.0.12 in progress: added focused Admin Webhook delivery reset coverage for stale delivery rows, delivery errors, redelivery errors, and in-flight redelivery state.
+- v1.0.12 in progress: guarded AI document actions against missing document context, busy state, and blank translate/custom inputs.
+- v1.0.12 in progress: added focused mobile notification pagination coverage so older pages do not duplicate existing delivery rows.
+- v1.0.12 in progress: cleared stale Admin Users session rows and loading state when the session panel closes.
+- v1.0.12 in progress: added focused Search/SNQL `title:` substring filtering with parser, local/server search, OpenAPI, and docs coverage.
+- v1.0.12 in progress: stabilized NotificationBell refresh polling and added focused failure-state coverage for clearing stale notification rows and native-notification IDs.
+- v1.0.12 in progress: added persisted Excalidraw Markdown directive rendering and round-trip coverage.
+- v1.0.12 in progress: reconciled API overview and Phase 1 notes for existing document version restore and attachment list/upload/delete OpenAPI coverage.
+- v1.0.12 in progress: reconciled OpenAPI coverage notes for existing comment, comment-resolution, and reaction routes.
+- v1.0.12 in progress: reconciled OpenAPI coverage notes for existing AI config, chat, completion, and document-action routes.
+- v1.0.12 in progress: reconciled OpenAPI coverage notes for existing direct membership and group-grant routes.
+- v1.0.12 in progress: reconciled OpenAPI coverage notes for existing space, folder, and folder-reorder routes.
+- v1.0.12 in progress: reconciled OpenAPI coverage notes for existing document property-value and backlink routes.
+- v1.0.12 in progress: reconciled OpenAPI coverage notes for existing audit export and plugin runtime audit-event routes.
+- v1.0.12 in progress: reconciled OpenAPI coverage notes for existing workflow queue and deadline-escalation route schemas.
+- v1.0.12 in progress: reconciled OpenAPI coverage notes for existing admin config and search reindex route schemas.
+- v1.0.12 in progress: reconciled OpenAPI coverage notes for existing admin user provisioning and CSV import route schemas.
+- v1.0.12 in progress: reconciled OpenAPI coverage notes for existing user-directory route schemas.
+- v1.0.12 in progress: reconciled OpenAPI coverage notes for existing password reset request/confirm schemas and success responses.
+- v1.0.12 in progress: reconciled SCIM closeout status after focused release-validation tests for filter, pagination, token, patch, group membership, and generated route contracts.
+- v1.0.12 in progress: documented notification inbox pagination/filtering and added focused generated OpenAPI query-parameter assertions.
+- v1.0.12 in progress: added focused Admin Webhook redelivery UX evidence with per-delivery queueing lockout and row-level failure feedback.
+- v1.0.12 in progress: added generated OpenAPI/Scalar query-parameter coverage for the existing Dataview query endpoint.
+- v1.0.12 in progress: added bounded translate and custom AI document-action controls in the document AI panel using the existing `/ai/action` route.
+- v1.0.12 in progress: added generated OpenAPI/Scalar query-parameter coverage for existing admin audit-log filters and pagination.
+- v1.0.12 in progress: cleared stale Admin Users lifecycle rows, selection, and session details after user-list load failures.
+- v1.0.12 in progress: added focused Search/SNQL exact `created:` and `updated:` date filters with parser, local/server search, OpenAPI, and docs coverage.
+- v1.0.12 in progress: added focused editor bookmark-card slash-command and portable directive round-trip coverage.
+- v1.0.12 in progress: wired focused AI document action buttons for summarize, improve, and extract-actions in the document AI panel using the existing `/ai/action` route.
+- v1.0.12 in progress: documented the AI app UX boundary before wiring focused built-in `/ai/action` controls.
+- v1.0.12 in progress: added focused AI chat response rendering coverage so assistant responses render once with AI styling.
+- v1.0.12 in progress: tightened the Phase 1 fast-track board with a super-fast-track operating mode, ordered next-slice queue, explicit left-out register, and reusable goal prompt.
+- v1.0.12 in progress: cleared stale desktop and mobile notification rows/unread counts after failed full notification refreshes.
+- v1.0.12 in progress: cleared stale Admin Webhook delivery rows while refreshing webhook selections or handling delivery-list failures.
+- v1.0.12 in progress: cleared stale Admin Users session rows while loading or failing a different user's session list.
+- v1.0.12 in progress: added a backed loading state for the Admin Users lifecycle table while the user list API is pending.
+- v1.0.12 in progress: preserved local personal-space owner metadata in space responses and surfaced personal-space owner identity in desktop/mobile space UI.
+- v1.0.12 in progress: added generated OpenAPI/Scalar path-parameter coverage for the existing space graph route.
+- v1.0.12 in progress: added generated OpenAPI/Scalar path-parameter coverage for existing document workflow routes.
+- v1.0.12 in progress: added generated OpenAPI/Scalar path-parameter coverage for existing admin group member routes.
+- v1.0.12 in progress: added generated OpenAPI/Scalar path-parameter coverage for existing OAuth provider redirect routes.
+- v1.0.12 in progress: added generated OpenAPI/Scalar path-parameter coverage for existing document attachment routes.
+- v1.0.12 in progress: added generated OpenAPI/Scalar path-parameter coverage for existing document version routes.
+- v1.0.12 in progress: added generated OpenAPI/Scalar path-parameter coverage for existing document comment and reaction routes.
+- v1.0.12 in progress: added generated OpenAPI/Scalar path-parameter coverage for the existing public page slug route.
+- v1.0.12 in progress: added generated OpenAPI/Scalar path-parameter coverage for existing document starred, lock, and publish subroutes.
+- v1.0.12 in progress: added generated OpenAPI/Scalar path-parameter coverage for existing core document list/read/update/content routes.
+- v1.0.12 in progress: added generated OpenAPI/Scalar path-parameter coverage for existing space member and group grant routes.
+- v1.0.12 in progress: added generated OpenAPI/Scalar path-parameter coverage for existing space and folder routes.
+- v1.0.12 in progress: added generated OpenAPI/Scalar path-parameter coverage for existing metadata property routes.
+- v1.0.12 in progress: added generated OpenAPI/Scalar path-parameter coverage for existing metadata tag routes.
+- v1.0.12 in progress: added generated OpenAPI/Scalar path-parameter coverage for the existing admin configuration delete route.
+- v1.0.12 in progress: added generated OpenAPI/Scalar path-parameter coverage for existing document-template and workflow-template routes.
+- v1.0.12 in progress: added generated OpenAPI/Scalar path-parameter coverage for existing webhook delivery and notification read routes.
+- v1.0.12 in progress: added generated OpenAPI/Scalar path-parameter coverage for existing admin-user lifecycle and session routes.
+- v1.0.12 in progress: added generated OpenAPI/Scalar path-parameter coverage for existing auth session and API-key item routes.
+- v1.0.12 in progress: added generated OpenAPI/Scalar path-parameter coverage for existing SCIM Group item routes.
+- v1.0.12 in progress: added generated OpenAPI/Scalar path-parameter coverage for existing SCIM User item routes.
+- v1.0.12 in progress: added generated OpenAPI/Scalar coverage for the existing SCIM Users list response and supported lookup filters.
+- v1.0.12 in progress: added generated OpenAPI/Scalar route-parameter coverage for the existing read-only MCP tool execution endpoint.
+- v1.0.12 in progress: tightened generated OpenAPI/Scalar notification preference schemas by enumerating the existing supported notification types.
+- v1.0.12 in progress: added generated OpenAPI/Scalar coverage for the existing document parent create field.
+- v1.0.12 in progress: added generated OpenAPI/Scalar coverage for the existing document parent response field.
+- v1.0.12 in progress: added generated OpenAPI/Scalar coverage for the existing document parent placement update field.
+- v1.0.12 in progress: aligned generated OpenAPI/Scalar admin-user list schemas with implemented `avatar_url` and `updated_at` response fields.
+- v1.0.12 in progress: tightened generated OpenAPI/Scalar coverage for AI document actions by enumerating the documented built-in actions.
+- v1.0.12 in progress: added generated OpenAPI/Scalar schema coverage for the existing public auth configuration response.
+- v1.0.12 in progress: added focused notification delivery-plan coverage and docs for inbox/email/none channel behavior.
+- v1.0.12 in progress: added focused webhook subscription matching coverage and docs for exact event names and wildcard subscriptions.
+- v1.0.12 in progress: added focused notification preference validation coverage and API docs for supported notification types/channels.
+- v1.0.12 in progress: closed the template automation fast-track docs/test slice for template-backed same-space metadata matching, ignored unknown/null metadata, local replay ordering, and deferred import/export automation boundaries.
+- v1.0.12 in progress: fixed Search/SNQL `property:false` and `has:property` alias parsing while adding focused docs/tests for negative presence aliases and unlocked-state local search parity.
+- v1.0.12 in progress: added generated OpenAPI/Scalar redirect responses for existing OAuth and OIDC login/callback endpoints.
+- v1.0.12 in progress: added generated OpenAPI/Scalar schemas for existing health check success and database-unavailable responses.
+- v1.0.12 in progress: added generated OpenAPI/Scalar success responses for existing document update, content update, and document tag attach endpoints.
+- v1.0.12 in progress: added generated OpenAPI/Scalar success responses for existing membership and group-grant mutation endpoints.
+- v1.0.12 in progress: added generated OpenAPI/Scalar schemas for existing TOTP 2FA setup, verify, and disable endpoints.
+- v1.0.12 in progress: added generated OpenAPI/Scalar schemas for existing auth register, login, and refresh token endpoints.
+- v1.0.12 in progress: added generated OpenAPI/Scalar schemas for existing current-user profile read/update endpoints.
+- v1.0.12 in progress: added generated OpenAPI/Scalar coverage for webhook redelivery’s existing `202 Accepted` queued response.
+- v1.0.12 in progress: closed SCIM fast-track documentation gaps for bearer-token operations, IdP setup mapping, audit review expectations, API overview status, and remaining admin/sync-history boundaries.
+- v1.0.12 in progress: reconciled the Phase 1 fast-track board and phased prompt audit with explicit deferred-scope notes and next implementation prompts for SCIM closeout and OpenAPI/Scalar coverage.
+- v1.0.12 in progress: added a durable Phase 1 fast-track backlog documenting thin next slices, deferred scope, and already-covered foundations to avoid rebuilding completed work.
+- v1.0.12 in progress: local-vault MCP now exposes the minimum enabled transport-envelope request handler for accepted-token reads, reusing the canonical dispatch/token path and preserving confirmed-write journal-only behavior.
+- v1.0.12 in progress: local-vault MCP adapter runtime-state previews now reuse token-aware bind/startup evidence under explicit transport enablement while keeping runtime activation, listener binding, and shell responses closed.
+- v1.0.12 in progress: local-vault MCP handler skeleton previews now pass explicit transport-enable options through composed bind, dispatch, response, cleanup, terminal-state, readiness, and runtime evidence for accepted reads.
+- v1.0.12 in progress: local-vault MCP handler terminal-state previews now consume explicit transport enablement and accepted-read terminal-cleanup evidence instead of reporting stale disabled handler state.
+- v1.0.12 in progress: local-vault MCP transport-enable readiness now derives accepted-read request-loop, response, cleanup, execution, and blocker evidence from the canonical dispatch plus terminal-cleanup path instead of stale disabled defaults.
+- v1.0.12 in progress: local-vault MCP terminal-cleanup previews now carry accepted-read closeout into terminal-cleanup-attempt evidence while adapter closeout handoff, cleanup queues, lifecycle completion, and writes remain closed.
+- v1.0.12 in progress: local-vault MCP request-closeout previews now carry completed accepted-read requests into closeout-attempt evidence while cleanup queue handoff, lifecycle completion, and writes remain closed.
+- v1.0.12 in progress: local-vault MCP response-completion and lifecycle-audit previews now carry emitted accepted-read outputs into completed response/request evidence while lifecycle completion, cleanup scheduling, and writes remain closed.
+- v1.0.12 in progress: local-vault MCP response-emission previews now mark accepted-read stdio/SSE output as emitted only after explicit transport enablement and a dispatch-allowed response envelope, while write execution stays closed.
+- v1.0.12 in progress: local-vault MCP handler response-frame and response-emission previews now create accepted-read response envelopes when explicit transport enablement makes the canonical dispatch gate pass, while stdout/SSE writes remain disabled.
+- v1.0.12 in progress: local-vault MCP adapter request, response, lifecycle, and runtime-state previews now consume the explicit transport-enable option so accepted-read adapter evidence stays aligned with dispatch-allowed state while response emission remains disabled.
+- v1.0.12 in progress: local-vault MCP startup and request-loop registration now consume the explicit transport-enable option so nested bind/startup/registration evidence stays aligned with dispatch-allowed accepted reads.
+- v1.0.12 in progress: local-vault MCP bind preflight and listener-config validation now accept the explicit transport-enable option, letting accepted-read configs surface dispatch-allowed evidence while still avoiding listener binding/startup.
+- v1.0.12 in progress: local-vault MCP transport-enable readiness now derives blocker order from the canonical dispatch gate, keeping capability-token, acceptance, journal, and transport blockers consistent with request-loop dispatch.
+- v1.0.12 in progress: local-vault MCP request-loop dispatch now invokes the existing auth-preview handler for accepted confirmed writes under explicit transport enablement, recording the redacted journal boundary while keeping write execution and response emission disabled.
+- v1.0.12 in progress: local-vault MCP request-loop dispatch can now invoke the existing accepted-token read handler when explicit transport enablement makes the canonical dispatch gate pass, while listener startup and response emission remain disabled.
+- v1.0.12 in progress: Phase 1 MCP scope is trimmed to read parity, capability-token gates, confirmed-write journaling, one canonical dispatch gate, and the minimum stdio/SSE binding path; extra preview-only layers are deferred unless they unblock transport, journaling, confirmed writes, or local-vault parity.
+- v1.0.12 in progress: local-vault MCP accepted-read execution now returns a dispatch-executed request trace instead of a preflight-only trace.
+- v1.0.12 in progress: local-vault MCP auth-preview envelope handling can execute accepted-token read-only requests when explicit transport enablement makes the dispatch gate pass.
+- v1.0.12 in progress: local-vault MCP dispatch gates now accept an explicit transport-enable option that lets accepted-token read requests become dispatch-allowed while defaults stay disabled.
+- v1.0.12 in progress: local-vault MCP dispatch gates now derive `dispatch_allowed` from blocker presence instead of hardcoding the disabled result.
+- v1.0.12 in progress: local-vault MCP auth-preview preflight now builds token acceptance from the already-computed auth gate.
+- v1.0.12 in progress: local-vault MCP confirmed-write auth responses now reuse the journaled preflight dispatch gate instead of recomputing dispatch evidence.
+- v1.0.12 in progress: local-vault MCP auth-preview envelope handling now carries confirmed-write journaled preflight evidence for accepted-token write requests.
+- v1.0.12 in progress: local-vault MCP journaled preflight now returns a confirmed-write closeout summary for recorded, replayed, skipped, and blocked journal boundaries.
+- v1.0.12 in progress: local-vault MCP request-loop registration now carries the canonical dispatch gate through one shared builder for listener-config and standalone registration evidence.
+- v1.0.12 in progress: local-vault MCP listener-configuration validation now carries disabled request-loop registration evidence from the startup handoff without registering loops.
+- v1.0.12 in progress: local-vault MCP listener-configuration validation now hands non-starting bind descriptors into disabled startup previews without starting stdio/SSE listeners.
+- v1.0.12 in progress: local-vault MCP journaled write preflight now returns the canonical dispatch gate alongside confirmed-write journal evidence.
+- v1.0.12 in progress: local-vault MCP listener-configuration validation now returns non-starting stdio/SSE listener bind descriptors for structurally valid configs.
+- v1.0.12 in progress: local-vault MCP listener-configuration validation now carries dispatch-backed bind evidence for structurally valid stdio/SSE configs without starting listeners.
+- v1.0.12 in progress: local-vault MCP token-aware stdio/SSE bind preflight now consumes the canonical dispatch gate, so accepted tokens advance binding readiness to the transport blocker without enabling execution.
+- v1.0.12 in progress: local-vault MCP accepted-token state now satisfies the token acceptance/auth gate while keeping transport dispatch disabled behind the stdio/SSE transport gate.
+- v1.0.12 in progress: local-vault MCP now exposes a disabled stdio/SSE transport enablement readiness rollup after handler terminal-state summary.
+- v1.0.12 in progress: local-vault MCP now exposes a disabled stdio/SSE handler terminal-state summary after terminal cleanup.
+- v1.0.12 in progress: local-vault MCP now exposes a disabled stdio/SSE terminal cleanup and adapter closeout handoff preview after request closeout.
+- v1.0.12 in progress: local-vault MCP now exposes a disabled stdio/SSE request closeout and cleanup-queue handoff preview after lifecycle audit.
+- v1.0.12 in progress: local-vault MCP now exposes a disabled stdio/SSE lifecycle audit and cleanup-scheduling preview after response and error paths.
+- v1.0.12 in progress: local-vault MCP now exposes a disabled stdio/SSE transport error-emission preview before stderr writes or SSE error events.
+- v1.0.12 in progress: local-vault MCP now exposes a disabled stdio/SSE error-envelope framing preview before transport error-envelope creation or emission.
+- v1.0.12 in progress: local-vault MCP now exposes a disabled stdio/SSE response-completion preview before request lifecycle completion.
+- v1.0.12 in progress: local-vault MCP now exposes a disabled stdio/SSE response-emission preview before transport output.
+- v1.0.12 in progress: local-vault MCP now exposes a disabled stdio/SSE handler response-frame preview before envelope emission.
+- v1.0.12 in progress: local-vault MCP now exposes a disabled stdio/SSE handler-invocation preview before tool execution.
+- v1.0.12 in progress: local-vault MCP now exposes a disabled stdio/SSE request-loop dispatch preview before handler invocation.
+- v1.0.12 in progress: local-vault MCP now exposes a disabled stdio/SSE request-loop registration preview that blocks request acceptance before any handler loop starts.
+- v1.0.12 in progress: local-vault MCP now exposes a disabled stdio/SSE handler response shell that wraps the non-running skeleton with `response_envelope: null`.
+- v1.0.12 in progress: local-vault MCP now exposes a non-running stdio/SSE handler skeleton preview that composes token-aware binding, dispatch, journal, replay, and runtime-state gates without writing records or emitting responses.
+- v1.0.12 in progress: local-vault MCP operation-journal writes now expose replay/idempotency previews and refuse to overwrite existing blocked-write records for repeated request IDs.
+- v1.0.12 in progress: local-vault MCP now previews confirmed-write operation-journal gates before redacted journal writes, requiring valid confirmation text before any blocked write attempt is recorded.
+- v1.0.12 in progress: local-vault MCP now exposes token-aware adapter bind/startup previews that block listener binding on disabled token acceptance before stdio/SSE activation.
+- v1.0.12 in progress: local-vault MCP auth-preview preflight, envelope, and dispatch-gate responses now carry disabled token-acceptance gate metadata before transport dispatch.
+- v1.0.12 in progress: local-vault MCP now exposes a disabled capability-token acceptance gate that separates passed token checks from token acceptance, listener binding, and transport dispatch.
+- v1.0.12 in progress: local-vault MCP now validates stdio/SSE listener configuration requests before returning disabled binding state.
+- v1.0.12 in progress: local-vault MCP now exposes a disabled stdio/SSE listener configuration contract and preview before adapter binding.
+- v1.0.12 in progress: local-vault MCP now exposes a disabled adapter runtime-state snapshot that composes bind, startup, shutdown, request, response, and lifecycle previews.
+- v1.0.12 in progress: local-vault MCP now exposes disabled adapter shutdown previews for stdio/SSE teardown and error state without closing listeners or detaching streams.
+- v1.0.12 in progress: local-vault MCP now exposes disabled adapter startup previews for stdio/SSE listener configuration without attaching streams or registering endpoints.
+- v1.0.12 in progress: local-vault MCP now exposes disabled adapter bind-preflight readiness for stdio/SSE without starting listeners or request loops.
+- v1.0.12 in progress: local-vault MCP now exposes a disabled adapter lifecycle preview that ties request/response previews to blocked stdio/SSE lifecycle stages.
+- v1.0.12 in progress: local-vault MCP now exposes a disabled adapter response preview that defines no-response stdio/SSE behavior before transport enablement.
+- v1.0.12 in progress: local-vault MCP now exposes a non-binding stdio/SSE adapter request preview that consumes the dispatch gate without accepting or responding.
+- v1.0.12 in progress: local-vault MCP auth-preview envelopes now attach the non-executing dispatch-gate preview for valid requests.
+- v1.0.12 in progress: local-vault MCP now exposes a non-executing transport dispatch-gate preview that combines envelope, auth, transport, journal, and tool blockers.
+- v1.0.12 in progress: local-vault MCP now exposes a token auth-gate preview that separates passed token checks from blocked transport dispatch.
+- v1.0.12 in progress: local-vault MCP now persists token revocation state and classifies revoked tokens without accepting them.
+- v1.0.12 in progress: local-vault MCP transport envelopes can now return non-authorizing token validation preview metadata without enabling dispatch.
+- v1.0.12 in progress: local-vault MCP transport preflight can now attach the non-authorizing token validation preview without enabling dispatch.
+- v1.0.12 in progress: local-vault MCP now previews token validation by matching supplied tokens to persisted fingerprints and expiry state without accepting them.
+- v1.0.12 in progress: local-vault MCP now issues one-time local capability tokens while persisting only SHA-256 fingerprints and keeping token acceptance disabled.
+- v1.0.12 in progress: local-vault MCP planned capability-token records now support lookup plus record-backed expiry and revocation previews while tokens remain disabled.
+- v1.0.12 in progress: local-vault MCP now persists planned capability-token metadata records without storing raw tokens or accepting capability tokens.
+- v1.0.12 in progress: local-vault MCP disabled transport preflight can now persist redacted journal records for confirmed blocked write attempts.
+- v1.0.12 in progress: local-vault MCP now persists redacted operation-journal records for blocked write attempts without enabling transport or write execution.
+- v1.0.12 in progress: local-vault MCP manifests now expose a compact transport-lifecycle contract for disabled stdio/SSE configure, bind, auth, dispatch, response, journal, and shutdown stages.
+- v1.0.12 in progress: local-vault MCP manifests now expose a compact transport-adapter contract for disabled stdio/SSE binding and request/response boundaries.
+- v1.0.12 in progress: local-vault MCP manifests now expose a compact transport-side-effect contract for disabled stdio/SSE mutation and persistence boundaries.
+- v1.0.12 in progress: local-vault MCP manifests now expose a compact transport-idempotency contract for disabled stdio/SSE replay and write-idempotency boundaries.
+- v1.0.12 in progress: local-vault MCP manifests now expose a compact transport-retry contract for disabled stdio/SSE envelope and preflight failures.
+- v1.0.12 in progress: local-vault MCP manifests now expose a compact transport-result contract clarifying that disabled stdio/SSE responses never return tool results.
+- v1.0.12 in progress: local-vault MCP manifests now expose a compact transport-error contract mapping stable errors to envelope/preflight blocker stages.
+- v1.0.12 in progress: local-vault MCP manifests now expose a compact transport-dispatch contract separating helper read dispatch from disabled stdio/SSE dispatch.
+- v1.0.12 in progress: local-vault MCP manifests now expose a compact transport-envelope contract for disabled stdio/SSE requests and responses.
+- v1.0.12 in progress: local-vault MCP manifests now expose a compact operation-journal record contract for future write audit entries.
+- v1.0.12 in progress: local-vault MCP manifests now expose a compact write-block contract for disabled write execution.
+- v1.0.12 in progress: local-vault MCP manifests now expose a compact transport execution contract tying disabled transports to auth, journal, trace, read, and write gates.
+- v1.0.12 in progress: local-vault MCP manifests now expose a compact capability-token auth contract summary for disabled transport auth.
+- v1.0.12 in progress: local-vault MCP manifests now expose a compact operation-journal contract summary for future write gating.
+- v1.0.12 in progress: local-vault MCP manifests now expose a compact request trace contract summary alongside the full trace policy.
+- v1.0.12 in progress: local-vault MCP request traces now separate primary blocking stages from secondary tool-guard blockers.
+- v1.0.12 in progress: local-vault MCP request traces now identify the trace stage and primary blocking stage for invalid envelopes and disabled preflight responses.
+- v1.0.12 in progress: local-vault MCP request traces now explicitly declare response-only storage and no retention.
+- v1.0.12 in progress: local-vault MCP request traces and their manifest policy now carry schema version `1` for future transport compatibility.
+- v1.0.12 in progress: local-vault MCP request traces now explicitly declare presence-only value handling and that raw request values are not stored.
+- v1.0.12 in progress: local-vault MCP manifests now expose the non-persistent request trace redaction policy for valid and invalid transport envelopes.
+- v1.0.12 in progress: local-vault MCP invalid transport envelopes now return non-persistent redacted request traces before preflight.
+- v1.0.12 in progress: local-vault MCP request trace previews now report redacted request-shape metadata for input, confirmation text, and capability tokens.
+- v1.0.12 in progress: local-vault MCP transport envelopes now include a non-persistent request trace preview for valid disabled preflight responses.
+- v1.0.12 in progress: local-vault MCP disabled transport preflight now reports stable tool-level guard error codes for write-disabled, not-implemented, and unknown tools.
+- v1.0.12 in progress: local-vault MCP disabled transport preflight now includes a compact transport readiness summary across transport, auth, journal, and write gates.
+- v1.0.12 in progress: local-vault MCP disabled transport preflight now includes operation-journal readiness alongside auth readiness.
+- v1.0.12 in progress: local-vault MCP disabled transport preflight now includes the capability-token auth readiness summary.
+- v1.0.12 in progress: local-vault MCP manifests now expose transport-facing capability-token auth readiness across disabled request, issuance, expiry, and revocation gates.
+- v1.0.12 in progress: local-vault MCP now previews planned capability-token expiry status without accepting tokens.
+- v1.0.12 in progress: local-vault MCP now validates and previews planned capability-token revocation without revoking or accepting tokens.
+- v1.0.12 in progress: local-vault MCP now previews would-be capability-token issuance metadata without creating, storing, or accepting tokens.
+- v1.0.12 in progress: local-vault MCP manifests now expose a planned non-issuing capability-token lifecycle policy for future local auth storage, expiry, fingerprinting, and revocation.
+- v1.0.12 in progress: local-vault MCP now validates planned capability-token request fields while still issuing no tokens.
+- v1.0.12 in progress: local-vault MCP now exposes a disabled capability-token request challenge without issuing or accepting tokens.
+- v1.0.12 in progress: local-vault MCP manifests now summarize planned transport capabilities and disabled execution gates.
+- v1.0.12 in progress: local-vault MCP envelope and preflight failures now map to stable machine-readable error codes.
+- v1.0.12 in progress: local-vault MCP transport envelopes now validate request IDs, transports, and tool names before disabled preflight.
+- v1.0.12 in progress: local-vault MCP planned transports now have a non-executing request/response envelope around disabled preflight.
+- v1.0.12 in progress: local-vault MCP now exposes a planned operation-journal policy and preview before any write execution is enabled.
+- v1.0.12 in progress: local-vault MCP transport preflight now includes a disabled capability-token policy before stdio/SSE wiring.
+- v1.0.12 in progress: local-vault MCP manifests now expose disabled planned stdio/SSE transport metadata and preflight through the execution guard.
+- v1.0.12 in progress: local-vault MCP execution now has a transport-facing guard that reports executable/rejection status before dispatch while keeping writes disabled.
+- v1.0.12 in progress: local-vault MCP confirmation validation now checks exact challenge text for blocked write tools without enabling execution.
+- v1.0.12 in progress: local-vault MCP helper confirmation challenges now define required confirmation text for blocked write tools without enabling write execution.
+- v1.0.12 in progress: local-vault MCP helper safety planning now reports executable, confirmation-required, not-implemented, and unknown tool states before dispatch.
+- v1.0.12 in progress: local-vault MCP helper discovery now lists blocked catalog tools separately from executable reads, with write-not-enabled and not-implemented reasons.
+- v1.0.12 in progress: local-vault MCP helper execution now supports string-name dispatch for discovered read tools while rejecting unknown or write tools before dispatch.
+- v1.0.12 in progress: local-vault MCP helper discovery now exposes helper-only manifest metadata for the current read catalog without implying stdio/SSE transport availability.
+- v1.0.12 in progress: completed first-pass local-vault MCP helper parity for the current read catalog by adding search and graph reads.
+- v1.0.12 in progress: expanded the local-vault MCP runtime helper to cover tag, property-schema, and document-template list reads.
+- v1.0.12 in progress: expanded the local-vault MCP runtime helper to cover folder listing and document reads with local content.
+- v1.0.12 in progress: added a first local-vault MCP runtime helper for `starlane.spaces.list` and `starlane.spaces.get`, backed by the standalone data client.
+- v1.0.12 in progress: MCP manifests now expose explicit per-tool runtime modes and runtime summary counts, with the current catalog marked server-backed until local-vault parity lands.
+- v1.0.12 in progress: Admin provider import review now uses structured entity/action classification for server-only and recovery-required unsupported rows, with message matching retained only for older saved attempts.
+- v1.0.12 in progress: local provider import apply coverage now proves server-owned replay families stay blocked end-to-end without mutating the local vault.
+- v1.0.12 in progress: provider import dry-runs now classify server-owned families such as reactions, versions, webhooks, notifications, API keys, users/groups, and membership records as server-only instead of generic unsupported local imports.
+- v1.0.12 in progress: provider import dry-runs now classify unsupported and server-only operation families before local queued-write conflicts, keeping review labels stable.
+- v1.0.12 in progress: provider-pulled document publish/unpublish operations are now classified as server-only local-vault imports instead of generic unsupported operations.
+- v1.0.12 in progress: added an explicit, confirmed local recovery path for provider-pulled whole-space deletions, including scoped asset ownership across web and Tauri vault records.
+- v1.0.12 in progress: webhook delivery attempts now time out after 15 seconds before bounded retry handling.
+- v1.0.12 in progress: added portable persisted bookmark cards to the editor with a slash-command insertion path.
+- v1.0.12 in progress: removed the unwired Excalidraw slash command so the editor no longer inserts a non-functional drawing reference.
+- v1.0.12 in progress: attachment uploads now enforce the documented `file` multipart field and reject blank or oversized display filenames before storage.
+- v1.0.12 in progress: added cross-mode negative SNQL presence filters for documents without attachments, covers, workflows, tags, or property values.
+- v1.0.12 in progress: webhook creation, updates, and deletion now record Admin audit events.
+- v1.0.12 in progress: webhook updates now rotate a supplied secret while preserving the existing secret when none is provided.
+- v1.0.12 in progress: webhook create and update requests now reject blank names, invalid destinations, and empty event subscriptions before persistence.
+- v1.0.12 in progress: attachment storage filenames now use only bounded safe extensions, even when an uploaded display name is malformed.
+- v1.0.12 in progress: CSV user imports now create password-backed accounts, return one-time credentials to the calling Admin, and audit each imported user.
+- v1.0.12 in progress: full-text search now applies the same direct-member, group-member, and admin read boundary as the rest of the server APIs.
+- v1.0.12 in progress: documented sync replay preflight, execution, and personal history with typed OpenAPI contracts.
+- v1.0.12 in progress: profile updates now reject an already claimed username with a clear conflict response instead of surfacing a database error.
+- v1.0.12 in progress: replaced the remaining SQLite-only duplicate-safe membership and document-tag inserts with portable conflict clauses for PostgreSQL compatibility.
+- v1.0.12 in progress: notified active document subscribers about new comments and parent authors about replies, while making comment auto-subscription portable across SQLite and PostgreSQL.
+- v1.0.12 in progress: added desktop notification-bell loading, failure, and retry feedback so unreachable inboxes are not shown as empty.
+- v1.0.12 in progress: removed the remaining runtime SQLite-only timestamp expressions from API-key, auth, Admin, workflow, config, and CRDT mutation paths.
+- v1.0.12 in progress: expanded audited SCIM User PATCH reconciliation to one safe `active`, `displayName`, or `userName` replacement.
+- v1.0.12 in progress: added cross-mode SNQL `has:tag` and `has:property` document metadata filters.
+- v1.0.12 in progress: preserved template-applied local tag/property metadata as ordered queued-sync replay operations for server recovery.
+- v1.0.12 in progress: bound tag and property-schema update/delete mutations to their routed spaces and return not-found for cross-space IDs.
+- v1.0.12 in progress: made document-template creation apply matching same-space tags and property values atomically, with equivalent local-vault behavior and OpenAPI coverage.
+- v1.0.12 in progress: made space metadata and group-permission timestamps portable across SQLite and PostgreSQL.
+- v1.0.12 in progress: made folder update and reorder timestamps portable across SQLite and PostgreSQL.
+- v1.0.12 in progress: bound tag/property metadata reads and document metadata writes to the routed space/document, blocking cross-space exposure and tag assignment.
+- v1.0.12 in progress: made core document metadata, content, lock, and publishing timestamps portable across SQLite and PostgreSQL.
+- v1.0.12 in progress: made starred-document timestamps portable across SQLite and PostgreSQL.
+- v1.0.12 in progress: added local-calendar yesterday/tomorrow template placeholders for document, journal, and daily-note automation.
+- v1.0.12 in progress: made notification read-state timestamps SQLite/PostgreSQL portable and missing individual reads return not-found.
+- v1.0.12 in progress: connected server-mode AI Chat to bounded current-document context with loading and retryable context-fetch feedback.
+- v1.0.12 in progress: added cross-mode SNQL `is:locked` and `is:unlocked` document-state filters.
+- v1.0.12 in progress: bound attachment listing, upload, and deletion to the readable routed space/document, preventing cross-space metadata reads and cross-document deletion.
+- v1.0.12 in progress: completed safe SCIM Group lifecycle replacement/deletion with managed-group isolation and immutable IdP correlation IDs.
+- v1.0.12 in progress: added audited SCIM User replacement and safe DELETE deprovisioning, preserving content while disabling access.
+
+### Added
+
+- v1.0.12 in progress: added optional stable profile usernames for server personal-space owner metadata, with legacy email fallback.
+- v1.0.12 in progress: added an inline mention picker that inserts stable user-ID-backed Markdown references from authorized space members.
+- v1.0.12 in progress: documented concrete typed query parameters for the search API, including workflow, attachment, cover, tag, folder, and property filters.
+- v1.0.12 in progress: added cross-mode SNQL `has:workflow` filtering for documents with workflow instances.
+- v1.0.12 in progress: added atomic SCIM Group creation with optional validated existing-user members, audit logging, and OpenAPI coverage.
+- v1.0.12 in progress: added constrained SCIM Group membership replacement for IdP reconciliation, with transactional validation and audit logging.
+- v1.0.12 in progress: added cross-mode SNQL `has:cover` filtering for documents with cover images.
+- v1.0.12 in progress: added visible quick document reactions with retryable reaction-state loading to the Comments panel.
+
+### Fixed
+
+- v1.0.12 in progress: made missing webhook reads, updates, and deletes return a truthful not-found result, and made webhook updates use portable RFC3339 timestamps.
+- v1.0.12 in progress: removed the unwired AI slash command so the editor no longer silently discards an AI action request.
+- v1.0.12 in progress: restricted space-member directory reads to users who can access the routed space.
+- v1.0.12 in progress: bound every comment mutation and threaded reply to a readable routed space/document, preventing cross-space, cross-document, and invalid-parent writes.
+- v1.0.12 in progress: enforce readable-space membership and bounded reaction input on comment listing and reaction APIs.
+- v1.0.12 in progress: added a current-space editor Wiki link picker that emits stable document-ID links.
+- v1.0.12 in progress: documented the same-space backlinks API with a concrete OpenAPI response schema and coverage guard.
+- v1.0.12 in progress: added same-space Backlinks to the document panel in server and local-vault modes without cross-space metadata exposure.
+- v1.0.12 in progress: made the editor smart-date command insert today's local `YYYY-MM-DD` date instead of a literal placeholder.
+- v1.0.12 in progress: added verified OIDC custom identity and nested role-claim mapping, including string-array admin-role matching.
+- v1.0.12 in progress: made signed-out server sessions revoke their bound refresh token while preserving immediate local credential clearing.
+- v1.0.12 in progress: bound password, OAuth, and OIDC token issuance to persisted sessions, with refresh-token rotation and revoked-session enforcement.
+- v1.0.12 in progress: made the visible local sync-conflict status a direct link to Storage recovery controls.
+- v1.0.12 in progress: added bearer-authenticated read-only SCIM Group and membership directory endpoints with resource/schema discovery and OpenAPI coverage.
+- v1.0.12 in progress: added loading, error, and retry states for Admin webhook delivery-history fetches.
+- v1.0.12 in progress: added a retry action for recoverable document version-history loading failures.
+- v1.0.12 in progress: added stable `owner_username` identity metadata to server space responses and shared/OpenAPI contracts for personal-space parity.
+- v1.0.12 in progress: clarified AI Chat availability with explicit loading and retryable configuration-error states.
+- v1.0.12 in progress: added comments-panel loading, retryable error, and mutation-state feedback for comment, reply, and resolve workflows.
+- v1.0.12 in progress: added the cross-mode SNQL `has:attachment` filter for finding documents with attachments in both server and local-vault search.
+- v1.0.12 in progress: documented the implemented SCIM discovery, provisioning, and active-lifecycle APIs in OpenAPI with a dedicated bearer scheme and `/scim/v2` server base.
+- v1.0.12 in progress: added tightly scoped SCIM user lifecycle deactivation/reactivation through audited `replace active` PATCH operations.
+- v1.0.12 in progress: added SCIM User creation with immutable external-ID persistence, IdP correlation lookup, duplicate protection, and personal-space provisioning.
+- v1.0.12 in progress: added bearer-authenticated SCIM User schema and resource-type discovery endpoints, accurately documenting the supported read-only contract for IdP integration.
+- v1.0.12 in progress: added SCIM `userName eq` collection filtering and bounded one-based pagination, with matching discovery metadata and explicit invalid-query responses.
+- v1.0.12 in progress: added bearer-authenticated read-only SCIM `GET /scim/v2/Users/{id}` lookup with SCIM-native missing-resource responses.
+- v1.0.12 in progress: added bearer-authenticated read-only SCIM `GET /scim/v2/Users` with core identity and active lifecycle mapping.
+- v1.0.12 in progress: added the first SCIM 2.0 bearer-authenticated discovery endpoint at `/scim/v2/ServiceProviderConfig`, with truthful disabled capability declarations until mutable provisioning is implemented.
+- v1.0.12 in progress: enforced `OIDC_AUTO_PROVISION=false` for unknown OIDC identities while allowing existing linked and email-matched accounts, and clarified the current custom OIDC claim-mapping limitation in deployment docs.
+- v1.0.12 in progress: added authoritative `created_by` and `owner_display_name` fields to server space responses and shared/OpenAPI contracts for personal-space metadata parity.
+- v1.0.12 in progress: added the cross-mode SNQL `folder:` filter, matching exact folder names or IDs in local and server document search.
+- v1.0.12 in progress: migrated iOS app-Documents vault preferences from sandbox-absolute paths to stable Documents-relative paths, while preserving absolute iCloud and external vault locations.
+- v1.0.12 in progress: increased the shared native header-to-content clearance to 20px after device review.
+- v1.0.12 in progress: added consistent mobile content clearance beneath the persistent app header.
+- v1.0.12 in progress: gave the native mobile app header a solid background and padded divider, then removed legacy floating-toggle offsets from space and document page headers.
+- v1.0.12 in progress: added a persistent native mobile header with sidebar toggle, Starlane Notes branding, and Search, while removing duplicate brand/search chrome from the navigation drawer.
+- v1.0.12 in progress: restored the missing semantic `success`, `danger`, and `warning` theme tokens and Tailwind mappings, so destructive and status colors now generate correctly in production CSS.
+- v1.0.12 in progress: restored the dedicated mobile safe-area lane above the enlarged sidebar control and aligned page content beneath it.
+- v1.0.12 in progress: enforced the destructive danger token on every visible Reset app row element, including icon, text, chevron, and row state.
+- v1.0.12 in progress: corrected native mobile chrome safe-area spacing for the larger sidebar control and serialized local-vault initialization so concurrent startup reads cannot race into an empty first route.
+- v1.0.12 in progress: added native edge-swipe access to the sidebar and document properties panel, expanded the top-left sidebar control, and restored mobile sidebar touch actions for nested folders and child pages.
+- v1.0.12 in progress: added three-level child-page hierarchy support across local vault snapshots and server document APIs, with same-folder and cycle validation.
+- v1.0.12 in progress: differentiated mobile Reset cache recovery styling with the primary blue treatment while retaining red destructive styling for Reset app.
+- v1.0.12 in progress: simplified the native drawer header to the Starlane logo and search action, and replaced its footer gear with a settings menu for space, app, and server-connected profile settings.
+- v1.0.12 in progress: routed native App Settings to a mobile-scoped settings surface instead of the desktop Admin page, separating app/storage/appearance controls from server profile, notification, and session controls.
+
+- v1.0.12 in progress: introduced the first SNQL (Starlane Notes Query Language) search terms in the unified web header field, including `tag:`, `space:`, `property:`, and `is:starred`, without a duplicate query textbox in the result popover.
+- v1.0.12 in progress: moved the native/fullscreen search surface to the same single SNQL field, preserving saved views while translating their older structured filters into visible editable query terms.
+- v1.0.12 in progress: restored direct desktop document actions for Page View, Edit, Source View, and Properties; widened document pages on larger screens; and fixed overlapping document title/H1 presentation.
+- v1.0.12 in progress: compacted desktop document actions to tooltip-labelled icons and rendered Page View titles as semantic headings so title text is no longer clipped by the editor control.
+
+- v1.0.12 in progress: added server queued replay support for `document:update` metadata, applying title, folder, icon, cover image, and timestamp changes with lock and folder-depth validation.
+- v1.0.12 in progress: added server queued replay support for `space:create`, preserving source space IDs and timestamps while enforcing admin-only creation and owner membership setup.
+- v1.0.12 in progress: added server queued replay support for `space:update`, applying owner-gated space metadata changes while preserving existing server slugs.
+- v1.0.12 in progress: added server queued replay support for local document conflict-resolution actions, applying approved `resolve_conflict:*` strategies through the content replay path.
+- v1.0.12 in progress: added server queued replay support for `document:delete`, removing server document rows and content files idempotently with payload space validation.
+- v1.0.12 in progress: hardened server replay preflight so `asset:delete` tombstones block when they depend on documents created later in the manifest.
+- v1.0.12 in progress: added server queued replay support for `asset:delete`, removing attachment rows and backing files idempotently with payload context validation.
+- v1.0.12 in progress: expanded provider remote import support coverage from sampled operation families to the full local merge executor matrix.
+- v1.0.12 in progress: clarified Admin Google Drive setup evidence so production HTTPS live completion is visibly distinguished from local/dev OAuth sessions that do not satisfy production validation.
+- v1.0.12 in progress: improved Admin provider import review summaries by showing selected and skipped apply-plan counts together.
+- v1.0.12 in progress: hardened Admin provider import summaries so older apply results without `blocked_operation_count` fall back to counting blocked operation rows.
+- v1.0.12 in progress: added provider remote import `blocked_operation_count` summaries and Admin display wiring so blocked apply rows have first-class aggregate visibility.
+- v1.0.12 in progress: fixed provider remote import disabled-execution summaries so failed and skipped operation counts are derived from result statuses even when no selected local mutations run.
+- v1.0.12 in progress: added provider remote space import edge coverage for idempotent duplicate creates, conflicting duplicate creates, missing update targets, and halted follow-on selected operations after blocked space merges.
+- v1.0.12 in progress: added focused local-vault coverage proving provider remote `space:create` and `space:update` imports merge through the real dataClient apply path without queuing outbound local writes.
+- v1.0.12 in progress: revalidated focused non-device app-readiness coverage for app shell, mobile shell, sidebar, properties panel, breadcrumbs, space settings, and Admin surfaces while keeping native/device, production OAuth, and background-provider-sync blockers open.
+- v1.0.12 in progress: refreshed local-first documentation so Phase A and provider pull/import merge status reflect current v1.0.12 work while preserving default-sync, production OAuth, and device-background validation blockers.
+- v1.0.12 in progress: corrected the app-readiness validation checklist so template/workflow documentation checks treat approval enforcement as implemented while preserving remaining template import/export and automation gaps.
+- v1.0.12 in progress: refreshed the app-readiness validation checklist so repository/docs checks reference v1.0.12 release notes and keep remaining native/device validation blockers explicit.
+- v1.0.12 in progress: hardened provider import preflight so duplicate replay operation IDs block import review before apply-plan selection.
+- v1.0.12 in progress: hardened provider import preflight so padded replay operation identity fields block import review before apply-plan selection.
+- v1.0.12 in progress: hardened provider import preflight so malformed replay payload-status values block import review for structurally identified operations.
+- v1.0.12 in progress: hardened provider import dry-run review so malformed replay payload-status values fail before apply-plan selection.
+- v1.0.12 in progress: hardened provider import dry-run review so padded replay identity fields fail before conflict checks and apply-plan selection.
+- v1.0.12 in progress: hardened provider import dry-run review so duplicate remote operation IDs fail before apply-plan selection.
+- v1.0.12 in progress: hardened provider import preflight so malformed replay operation summaries block import review instead of being ignored.
+- v1.0.12 in progress: hardened provider import preflight so malformed replay operation lists block import review instead of being treated as valid empty replays.
+- v1.0.12 in progress: hardened provider import preflight so replay operation and payload summary counts must be non-negative integers before import review.
+- v1.0.12 in progress: hardened provider import dry-run review so malformed optional delete/tombstone provenance metadata fails before apply selection while payload-less deletes remain selectable.
+- v1.0.12 in progress: hardened provider import dry-run review so malformed top-level payload IDs fail before apply selection, including delete/tombstone payloads.
+- v1.0.12 in progress: moved Admin System Google Drive setup actions directly under the ordered manual setup steps so Generate Preview, Open OAuth, and callback validation follow the visible PKCE flow.
+- v1.0.12 in progress: fixed provider remote import apply accounting so all-invalid import plans stay blocked/failed, mixed plans keep skipped review rows distinct from attempted merge failures, and property-schema option payloads accept the local object-shaped schema model.
+- v1.0.12 in progress: added desktop/web root startup fallback to the preferred space home after last-viewed document restore is exhausted.
+- v1.0.12 in progress: added a mobile Profile vault-picker server-vault URL entry that switches local native sessions back to the server-backed app shell without making browser storage canonical.
+- v1.0.12 in progress: clarified the mobile Profile active-vault row by showing the current vault as context and exposing `Rename / Switch` as the local native action.
+- v1.0.12 in progress: hid the mobile profile Open folder row until native reveal is available and a vault path has loaded.
+- v1.0.12 in progress: labelled provider import review blockers for remote `space:delete` operations as recovery-required instead of generic unsupported.
+- v1.0.12 in progress: added Admin provider import coverage for recovery-required Apply Last Import readiness and pull-review summaries.
+- v1.0.12 in progress: hardened provider import dry-run review by failing mismatched document-tag relationships and document property-value document IDs before apply selection.
+- v1.0.12 in progress: hardened provider import dry-run review by blocking relationship/property/workflow imports when local queued work targets related tags, property schemas, or workflow templates.
+- v1.0.12 in progress: hardened provider import dry-run review by blocking workflow-event imports when local queued work targets the referenced document workflow.
+- v1.0.12 in progress: hardened provider import dry-run review by blocking remote document creates/metadata moves when local queued work targets the payload folder.
+- v1.0.12 in progress: hardened provider import dry-run review by failing document create/update/content payloads that are missing required semantic fields before apply selection.
+- v1.0.12 in progress: hardened provider import dry-run review by failing malformed space/folder/tag/template/workflow-template metadata payloads before apply selection.
+- v1.0.12 in progress: hardened provider import dry-run review by failing malformed property, asset, document-workflow, and workflow-event payloads before apply selection.
+- v1.0.12 in progress: hardened provider import dry-run review by failing invalid or duplicate property reorder IDs and document property-value entries before apply selection.
+- v1.0.12 in progress: hardened provider import dry-run review by failing asset creates without embedded data URL bytes and document workflows with invalid statuses before apply selection.
+- v1.0.12 in progress: hardened provider import dry-run review by failing asset creates with invalid embedded data URLs or declared byte-size mismatches before apply selection.
+- v1.0.12 in progress: hardened provider import dry-run review by failing blank space, folder, tag, template, and asset names before apply selection.
+- v1.0.12 in progress: hardened provider import dry-run review by failing malformed workflow-template normalization payloads and blank property names before apply selection.
+- v1.0.12 in progress: hardened provider import dry-run review by failing blank document titles and oversized document content before apply selection.
+- v1.0.12 in progress: hardened provider remote template imports by enforcing local template name, description, and content limits in dry-run review and merge execution.
+- v1.0.12 in progress: added provider pull-review coverage proving related tag conflicts are rebuilt with local queued-operation context before Apply Last Import.
+- v1.0.12 in progress: clarified Admin provider import summaries by distinguishing related-entity and document conflicts from generic conflicts.
+- v1.0.12 in progress: hardened Google Drive manual OAuth launch validation by requiring generated authorization URLs to include client ID and redirect URI parameters.
+- v1.0.12 in progress: hardened Google Drive manual OAuth launch validation by requiring state and PKCE code challenge parameters before opening OAuth.
+- v1.0.12 in progress: hardened Google Drive manual OAuth launch validation by requiring Drive scopes plus offline consent parameters before opening OAuth.
+- v1.0.12 in progress: hardened Google Drive manual provider readiness by requiring a persisted refresh token and surfacing its status in Admin System setup.
+- v1.0.12 in progress: carried Google Drive refresh-token readiness into provider remote enablement so explicit remote sync cannot be enabled for non-refreshable sessions.
+- v1.0.12 in progress: hardened background provider pushes so stale explicit enablement cannot run unless current remote enablement remains ready.
+- v1.0.12 in progress: added provider remote document metadata update coverage proving missing folder targets block before local mutation.
+- v1.0.12 in progress: hardened provider remote `asset:create` imports by rejecting embedded data URL payloads whose decoded byte size does not match declared asset metadata.
+- v1.0.12 in progress: hardened provider remote document property-value imports by rejecting duplicate property entries and value IDs that already belong to another local document/property.
+- v1.0.12 in progress: hardened provider remote document workflow creates by blocking remote workflow IDs from replacing a different local workflow on the same document.
+- v1.0.12 in progress: hardened provider remote document workflow updates/transitions by rejecting remote workflow IDs that do not match the existing local workflow for the document.
+- v1.0.12 in progress: hardened provider remote workflow-event imports by validating document/space context before skipping duplicate event IDs.
+- v1.0.12 in progress: hardened provider remote template updates by rejecting payloads that would move an existing local template into another space.
+- v1.0.12 in progress: hardened provider remote document content imports by applying valid remote folder placement and blocking missing-folder targets.
+- v1.0.12 in progress: hardened provider remote workflow-template updates by rejecting payloads that would move an existing local workflow template into another space.
+- v1.0.12 in progress: hardened provider remote tag updates by rejecting payloads that would move an existing local tag into another space.
+- v1.0.12 in progress: hardened provider remote folder updates by rejecting payloads that would move an existing local folder into another space.
+- v1.0.12 in progress: hardened provider remote property-schema updates by rejecting payloads that would move an existing local property schema into another space.
+- v1.0.12 in progress: hardened provider remote property-schema reorders by rejecting duplicate property IDs before local metadata ordering changes.
+- v1.0.12 in progress: repaired document breadcrumb header layout by giving the breadcrumb flexible width and marking the current page crumb for assistive tech.
+- v1.0.12 in progress: hid standalone local-vault setup from the plain web first-run storage chooser so browser sessions remain online-first and server-linked.
+- v1.0.12 in progress: added local space create/switch controls to active-space settings so standalone users can manage spaces without leaving the settings flow.
+- v1.0.12 in progress: made local space editing explicit in active-space settings with per-space Edit actions and an active Editing state.
+- v1.0.12 in progress: kept the mobile space switcher sorted A-Z after load and local space creation for sidebar parity.
+- v1.0.12 in progress: moved active-space visibility settings onto the shared `Select` control for consistent settings form styling.
+- v1.0.12 in progress: replaced mobile error/destructive hardcoded red utility classes with the Starlane `danger` token.
+- v1.0.12 in progress: moved Graph View error surfaces onto a shared `danger` token class instead of hardcoded red utility classes.
+- v1.0.12 in progress: moved auth/setup/server-connect and Recent error banners onto semantic `danger` token styling.
+- v1.0.12 in progress: moved top-bar sign-out and sidebar destructive row actions onto semantic `danger` token styling.
+- v1.0.12 in progress: moved editor destructive context actions, save-error status, and Properties workflow errors onto semantic `danger` token styling.
+- v1.0.12 in progress: moved sync status indicator dots onto semantic `success`, `warning`, `accent`, and `danger` tokens.
+- v1.0.12 in progress: moved reset-password success feedback onto semantic `success` token styling.
+- v1.0.12 in progress: moved the shared `Button` danger variant onto semantic `danger` token styling.
+- v1.0.12 in progress: moved Admin provider import operation statuses onto semantic `success`, `warning`, and `danger` token styling.
+- v1.0.12 in progress: moved Workflow Queue error banners and due-status badges onto semantic `danger` and `warning` token styling.
+- v1.0.12 in progress: moved document autosave feedback onto semantic `danger`, `accent`, and muted text token styling.
+- v1.0.12 in progress: moved Admin user lifecycle active/inactive badges onto semantic `success` and `danger` token styling.
+- v1.0.12 in progress: moved shared Admin error cards and spaces/groups remove icon actions onto semantic `danger` token styling.
+- v1.0.12 in progress: moved shared Admin success cards onto semantic `success` token styling.
+- v1.0.12 in progress: moved Admin one-time API/service key success panels onto semantic `success` token styling.
+- v1.0.12 in progress: moved Admin notification message cards and webhook delivery statuses onto semantic `success` and `danger` token styling.
+- v1.0.12 in progress: moved compact Admin user lifecycle error alerts onto semantic `danger` token styling.
+- v1.0.12 in progress: moved Admin Storage error cards onto shared semantic `danger` token styling.
+- v1.0.12 in progress: moved Admin Search reindex error cards onto shared semantic `danger` token styling.
+- v1.0.12 in progress: moved Admin plugin permission review badges onto semantic `warning`, `accent`, and `success` token styling.
+- v1.0.12 in progress: moved Admin plugin validation success cards onto semantic `success` token styling.
+- v1.0.12 in progress: moved Admin plugin validation error cards onto semantic `danger` token styling.
+- v1.0.12 in progress: moved Admin local sync error cards onto semantic `danger` token styling.
+- v1.0.12 in progress: moved Admin provider readiness badges and blocker copy onto semantic `success` and `warning` token styling.
+- v1.0.12 in progress: moved remaining Admin provider setup/import blocker rows onto shared semantic `warning` token styling.
+- v1.0.12 in progress: moved Admin provider setup/import success rows onto shared semantic `success` token styling.
+- v1.0.12 in progress: extended Starlane design validation to reject hardcoded Tailwind status color ramps and moved the shared menu danger item onto semantic `danger` tokens.
+- v1.0.12 in progress: extended Starlane design validation to reject raw text-like inputs, raw selects, and raw textareas outside shared UI primitives.
+- v1.0.12 in progress: added fixture coverage for the shared form-control design validator so raw text inputs/selects/textareas fail and shared UI primitive files stay exempt.
+- v1.0.12 in progress: trimmed the web app top bar to compact sidebar-toggle chrome by removing the duplicate Starlane brand/search header content and its stale active-space name fetch.
+- v1.0.12 in progress: removed the duplicate lower brand/search header from the mobile navigation drawer while preserving the top drawer Starlane Notes header and shared sidebar footer controls.
+- v1.0.12 in progress: restored web header branding with a centered search dropdown trigger and moved desktop sidebar navigation back to the top by suppressing the embedded sidebar brand header on wide layouts.
+- v1.0.12 in progress: consolidated desktop document Page View/Edit/Source controls into the top-right document overflow menu with favorite and properties actions.
+- v1.0.12 in progress: restored the desktop/sidebar Starlane Notes header above the scrollable navigation tree with a global Search button and sticky footer preserved.
+- v1.0.12 in progress: hid the Admin Storage Open Folder action until a native desktop vault path is loaded so nonfunctional initial renders do not expose it.
+- v1.0.12 in progress: added workflow approval enforcement, workflow history expansion, workflow-aware document queries, space workflow queue views, saved workflow queue views, bulk queue selection/copy/open triage actions, bulk same-template workflow stage transitions, queue-side delegation/escalation event recording with due dates and overdue escalation actions, structured reassignment target rules for workflow handoffs, admin overdue-delegation scan/escalation-run endpoints and an opt-in internal escalation worker, workflow handoff attention/deadline filters, graph view hardening controls, first-pass Journal calendar/feed mode, richer Journal feed modes with recurring prompts, mobile Journal entry points, per-device and server-backed starred documents, global-search and active-space starred document management with Starred manager sorting, saved search views, typed search filter tokens, page-view tag search entry points, right-panel version restore actions, document Source view editing, admin invite/CSV user creation, admin password resets, Admin Webhooks management with stored-payload redelivery replay, Admin Notifications SMTP settings, per-user notification delivery preferences, paginated/unread-filtered notification inboxes, Admin Authentication OIDC/2FA settings, personal API key management and `X-API-Key` authentication, admin user session inspection/revocation, admin user lifecycle summary/filter controls, self-service session review/revocation, self-service profile editing, first-pass OpenAPI/Scalar reference routes with expanded implemented route-family coverage, admin-user lifecycle schemas, auth session/API-key schemas, and webhook/notification schemas, first-pass MCP server contract docs, in-app/email approver notifications, delegated-target workflow notifications, admin user lifecycle controls, standalone/server migration bridge APIs with mapped property/tag/workflow-state import, broad source ID/timestamp preservation for imported core, metadata, workflow, tag, and matching workflow-event actor records, non-handoff workflow history replay, snapshot sync-state metadata preservation, document-linked asset binary upload during server migration, persisted local search indexes, desktop Markdown mirror reconciliation/import, and deeper workflow assignment queue filters.
+- v1.0.12 in progress: added durable queued local write capture/list/clear primitives for standalone spaces, folders, documents, templates, workflow state, properties, tags, and assets.
+- v1.0.12 in progress: extended queued sync replay so local workflow transitions and manually recorded workflow events carry replay payloads and apply through the authenticated server replay path.
+- v1.0.12 in progress: extended queued sync replay with data-URL-backed asset create replay, server attachment writes, document asset-reference rewrites, and missing-byte blockers for native file-backed assets.
+- v1.0.12 in progress: hardened asset replay recovery details so native byte-packing failures preserve the underlying error, byte sources checked, and an explicit recovery action in unavailable-payload summaries.
+- v1.0.12 in progress: added authenticated queued sync replay-run history and recovery checkpoint rows for recent replay recovery views.
+- v1.0.12 in progress: added Admin Storage recent replay-history controls for local-mode queued sync recovery.
+- v1.0.12 in progress: added linked-server health checks and preflight gating before manual queued sync replay retries.
+- v1.0.12 in progress: added failed/unsupported queued replay subset retry controls backed by filtered replay manifests.
+- v1.0.12 in progress: added Admin Storage selected retry/clear recovery controls and clearer local-first replay copy for failed or unsupported queued sync operations.
+- v1.0.12 in progress: added Tauri native vault asset byte packing so file-backed local assets can hydrate queued replay payloads when the files still live under the active vault.
+- v1.0.12 in progress: added Tauri app-open background replay scheduling with linked-server health checks, preflight gates, retry/backoff, and persisted last-error state.
+- v1.0.12 in progress: added native replay lifecycle wake triggers for online, focus, and visible-resume events, with reachability failures retried without waiting for the full backoff window.
+- v1.0.12 in progress: clarified background queued replay partial-failure errors with attempted, applied, skipped, failed, and unsupported operation counts.
+- v1.0.12 in progress: aligned Admin Storage manual queued replay result summaries with background replay diagnostics by including attempted operation counts.
+- v1.0.12 in progress: aligned Admin Storage recent replay history rows with the same attempted/applied/skipped/failed/unsupported summary format.
+- v1.0.12 in progress: added durable Tauri native background replay wake-intent registration commands and frontend registration so future OS background schedulers can attach without changing replay semantics.
+- v1.0.12 in progress: added native background replay OS-scheduler descriptors, stable task identifiers, registration modes, and a wake-recording execution command for Apple/Android scheduler hooks without deploying to devices.
+- v1.0.12 in progress: added a native background replay OS-registration plan command that reports Apple BGTaskScheduler and Android WorkManager requirements, stable task IDs, and wake execution flow without deploying to devices.
+- v1.0.12 in progress: added Android WorkManager background replay registration/execution scaffolding plus iOS BGTaskScheduler permitted identifiers/background modes without deploying to devices.
+- v1.0.12 in progress: added iOS BGTaskScheduler replay handler scaffolding that registers BGProcessing tasks, records Apple background wake receipts, reschedules provider tasks, and links BackgroundTasks without deploying to devices.
+- v1.0.12 in progress: added a Tauri native background replay wake-receipt import bridge so Apple BGTaskScheduler and Android WorkManager receipts can be normalized into durable replay schedules without deploying to devices.
+- v1.0.12 in progress: added normalized native SQLite tables for documents, folders, tags, properties, queued operations, sync cursors, and replay checkpoints while preserving JSON snapshot and Markdown mirror compatibility.
+- v1.0.12 in progress: moved native local database sync-state readback for sync cursors and queued operations onto normalized SQLite tables while keeping snapshot compatibility.
+- v1.0.12 in progress: moved native local database recovery checkpoint persistence onto normalized SQLite replay checkpoint rows with readback through normalized sync-state recovery checkpoint data.
+- v1.0.12 in progress: moved native local database readback for documents, folders, tags, and property schemas onto normalized SQLite payload tables with snapshot-bridge fallback for compatibility.
+- v1.0.12 in progress: added normalized native SQLite tables and readback for spaces, assets, templates, workflow templates, document workflows/events, property values, document tags, and search-index entries while keeping snapshot-bridge fallback.
+- v1.0.12 in progress: added Tauri native local database per-record upsert/delete commands that update both the snapshot bridge and normalized SQLite tables for collection and sync records.
+- v1.0.12 in progress: moved Tauri native SQLite database files into the vault-internal `.starlane/` directory with a neutral local-only file name and legacy root-file migration.
+- v1.0.12 in progress: routed Tauri local document and queued-operation writes through native per-record SQLite commands while retaining full snapshot mirror writes for compatibility.
+- v1.0.12 in progress: routed remaining Tauri local adapter-owned asset, template, workflow-template, document-workflow, and sync-state writes through native per-record SQLite commands while retaining full snapshot mirror writes.
+- v1.0.12 in progress: routed full Tauri local snapshot saves through native per-record SQLite diff mutations for metadata, tags, document tags, property values, search-index entries, sync state, and queued operations while retaining full snapshot mirror writes.
+- v1.0.12 in progress: reduced redundant native full-snapshot bridge writes after successful per-record SQLite mutations while preserving the snapshot bridge fallback for older shells and failed record-command batches.
+- v1.0.12 in progress: reduced another native full-snapshot bridge write by clearing all queued sync operations through per-record SQLite deletes plus a sync-state record refresh.
+- v1.0.12 in progress: added local provider sync readiness checks that surface provider connection, queued replay payload blockers, and pending conflicts before provider pull/push actions.
+- v1.0.12 in progress: added explicit iCloud Drive and Google Drive remote-provider contracts for staged root strategy, auth model, scopes, write model, and conflict model while keeping real remote mutation disabled.
+- v1.0.12 in progress: added provider remote mutation plans that expose pull/push dry-run or blocked status, required scopes, root/write/conflict models, and blockers before real iCloud or Google Drive mutation is enabled.
+- v1.0.12 in progress: added provider remote enablement plans that report whether manual provider sessions have the scopes/root metadata needed for explicit real transport enablement while keeping default sync disabled.
+- v1.0.12 in progress: added persisted provider remote sync enable/disable state behind explicit manual-session readiness, with Admin System controls while default provider sync remains disabled.
+- v1.0.12 in progress: added a typed provider default-sync policy gate and Admin System visibility so default provider sync remains explicitly blocked until manual-session readiness and native background validation are proven.
+- v1.0.12 in progress: expanded provider default-sync policy reporting with structured readiness gates for manual session readiness, explicit remote enablement, background transport wake eligibility, production OAuth validation, and missing device-executed wake validation.
+- v1.0.12 in progress: added provider default-sync validation evidence reporting for production OAuth and device background wake verification while keeping automatic sync blocked.
+- v1.0.12 in progress: persisted Google Drive production OAuth validation evidence after successful live Google API setup completion, while fixture-based setup remains non-verifying and device wake validation remains blocked.
+- v1.0.12 in progress: added Google Drive OAuth redirect-environment classification to the manual setup plan so Admin System distinguishes production HTTPS, native callback, local/dev, and missing redirect configurations before live OAuth validation.
+- v1.0.12 in progress: prevented local/dev Google Drive live OAuth completions from satisfying production OAuth validation evidence, while still allowing the manual provider session to connect with default sync blocked.
+- v1.0.12 in progress: persisted provider device background wake validation evidence after successful non-expired OS-delivered Apple BGTaskScheduler or Android WorkManager native wake receipt imports while keeping automatic sync gated.
+- v1.0.12 in progress: showed provider validation evidence timestamps in Admin System for production OAuth and device background wake checks.
+- v1.0.12 in progress: added provider remote mutation envelopes to pull/push results so future iCloud and Google Drive transports have a concrete root/write/conflict/scope payload boundary while real provider writes remain disabled.
+- v1.0.12 in progress: added provider remote mutation transport-attempt results so dry-run, blocked, and future applied provider writes share a typed execution boundary before real iCloud or Google Drive transports are configured.
+- v1.0.12 in progress: changed manual provider pull/push to return typed blocked transport attempts instead of throwing before the remote mutation envelope boundary when live transport is not configured.
+- v1.0.12 in progress: added concrete provider remote write request specs for Google Drive file upserts and iCloud native file upserts derived from mutation envelopes while keeping network/file execution blocked.
+- v1.0.12 in progress: added a native `write_icloud_provider_sync_manifest` command that writes provider sync manifests under the app iCloud Documents root when invoked, with focused path/payload tests and provider sync still blocked from calling it by default.
+- v1.0.12 in progress: added an async provider transport executor that can apply enabled iCloud mutation envelopes through the native manifest write command and returns typed applied/blocked attempts while default provider sync remains contract-gated.
+- v1.0.12 in progress: added an explicit Google Drive provider API transport executor for enabled mutation envelopes with multipart manifest uploads, bearer-token gating, typed applied/blocked receipts, and no default provider sync activation.
+- v1.0.12 in progress: hardened Google Drive provider transport execution so simulated local provider sessions cannot be reused as real API credentials.
+- v1.0.12 in progress: hardened Google Drive provider transport readiness so manual sessions must be connected, unexpired, and scoped correctly, with optional selected Drive root-folder metadata carried into manifest uploads.
+- v1.0.12 in progress: added Google Drive OAuth authorization request planning and OAuth token-response-to-manual-session mapping for future real provider onboarding without enabling token exchange or default sync.
+- v1.0.12 in progress: added an injected Google Drive OAuth code-exchange executor that maps token responses into manual provider sessions without storing credentials or enabling default provider sync.
+- v1.0.12 in progress: added Google Drive OAuth refresh request planning and refreshed-session mapping that preserve refresh tokens and selected Drive root metadata without performing network token refresh.
+- v1.0.12 in progress: added Google Drive root lookup/create request contracts and selected-root session mapping without executing Drive API calls or enabling default provider sync.
+- v1.0.12 in progress: added injected Google Drive root lookup/create execution for manual sessions, including scope/expiry validation and selected-root session updates without automatic persistence.
+- v1.0.12 in progress: added a manual Google Drive provider connection helper that composes OAuth code exchange, optional root resolution, and final session persistence while avoiding partial writes on blocked root setup.
+- v1.0.12 in progress: added Google Drive manual connection readiness summaries and Admin System visibility for explicit OAuth/root execution boundaries while keeping default provider sync disabled.
+- v1.0.12 in progress: added Google Drive manual setup-plan summaries in Admin System that report public OAuth client ID/redirect/PKCE requirements and injected token/root transport boundaries without launching OAuth.
+- v1.0.12 in progress: hardened Google Drive manual setup so browser-facing OAuth remains a public PKCE client flow, blocks configured client secrets, and verifies token exchange bodies never send `client_secret`.
+- v1.0.12 in progress: added Google Drive OAuth bootstrap generation for CSRF state and PKCE verifier/challenge plus an Admin System setup-preview action that can produce an authorization URL without opening OAuth.
+- v1.0.12 in progress: added an explicit Admin System Google OAuth launch handoff that validates the generated Google Accounts PKCE authorization URL before opening it.
+- v1.0.12 in progress: added Google Drive OAuth callback validation that checks returned state/code and derives injected token-exchange requests without exchanging tokens, persisting sessions, or enabling default provider sync.
+- v1.0.12 in progress: added an Admin System Google Drive callback preview control for pasted OAuth callbacks so setup can validate the returned state/code before any injected token exchange runs.
+- v1.0.12 in progress: added a composed Google Drive callback-to-manual-connection helper that validates OAuth callbacks before invoking injected token/root transports and preserves no-partial-write behavior.
+- v1.0.12 in progress: added a typed Google Drive manual completion plan and Admin System visibility for the injected token/root transport plus provider-session persistence sequence after callback validation.
+- v1.0.12 in progress: added Admin System Google Drive manual-session completion from pasted token/root transport fixtures, persisting the manual provider session while keeping default sync disabled.
+- v1.0.12 in progress: enforced the level-3 folder/page hierarchy cap on server-backed web folder and document routes so web behavior matches local-mode hierarchy rules.
+- v1.0.12 in progress: added explicit Google Drive OAuth/API fetch transports for PKCE code exchange, token refresh, and Drive root setup, plus an Admin completion action that uses live Google APIs only after callback validation while keeping default sync disabled.
+- v1.0.12 in progress: routed explicitly enabled manual Google Drive provider pushes through the real fetch transport so provider-sync manifests can be uploaded with bearer-token/root validation while default/background sync remains disabled.
+- v1.0.12 in progress: added guarded Google Drive provider-sync manifest pull discovery through the explicit fetch transport, using manual-session/root validation while leaving remote import and default sync disabled.
+- v1.0.12 in progress: added typed Google Drive provider pull-discovery results for found, missing, and invalid provider-sync manifest responses so future remote import can target a stable validation boundary.
+- v1.0.12 in progress: extended guarded Google Drive provider pulls to download and validate provider-sync manifest JSON after discovery succeeds while keeping remote merge/import disabled.
+- v1.0.12 in progress: changed Google Drive provider-sync uploads from envelope-only JSON to a typed provider manifest wrapper that can carry the queued replay manifest payload for future remote import.
+- v1.0.12 in progress: added typed provider remote import preflight summaries for downloaded Google Drive provider-sync manifests, reporting replay payload presence, operation counts, and explicit import blockers without mutating local data.
+- v1.0.12 in progress: added no-mutation provider replay import dry-run results for downloaded provider-sync manifests, reporting would-apply, conflict, failed, and unsupported remote operations.
+- v1.0.12 in progress: added blocked provider replay import apply-plan summaries that select eligible remote operations for a future explicit local merge executor without mutating local data.
+- v1.0.12 in progress: added an explicit provider replay import execution boundary that remains blocked by default, and can only run selected remote operations through an injected local merge executor.
+- v1.0.12 in progress: added a first narrow provider remote import merge executor for `document:update_content`, applying downloaded replay payloads to the local vault through existing native SQLite/snapshot write paths while leaving unsupported families blocked.
+- v1.0.12 in progress: tightened provider remote import conflict detection so downloaded replay operations are blocked when local queued operations target the same entity, not just the same operation ID.
+- v1.0.12 in progress: tightened provider remote import conflict detection for document-scoped metadata, tag, asset, and workflow operations when local queued operations target the same document.
+- v1.0.12 in progress: refreshed local Google Drive pull import reviews with local queued-operation context before Admin Apply Last Import selection.
+- v1.0.12 in progress: counted local-queue-aware provider pull import conflicts in sync results so blocked import reviews move local sync state into conflict.
+- v1.0.12 in progress: aligned Apply Last Import sync-state transitions so completed remote imports return to idle and blocked remote imports leave the vault in conflict/error.
+- v1.0.12 in progress: hardened Apply Last Import state handling so remote import execution marks the vault as syncing while active and falls back to error if an unexpected apply exception escapes.
+- v1.0.12 in progress: disabled stale Admin Apply Last Import readiness after a completed provider import so users are directed to run a fresh Test Pull before applying another manifest.
+- v1.0.12 in progress: cleared stale Admin provider import review state when a new Test Pull succeeds without returning a provider-sync manifest.
+- v1.0.12 in progress: cleared stale Admin provider import review state when provider connections are connected or disconnected.
+- v1.0.12 in progress: hardened last-viewed document restore by clearing persisted route records with missing or blank document identities.
+- v1.0.12 in progress: cleared stale last-viewed document restore records when the remembered document no longer exists.
+- v1.0.12 in progress: prevented blank document identities from being parsed or persisted as last-viewed restore routes.
+- v1.0.12 in progress: added Admin System provider remote import review visibility with preflight, dry-run, apply-plan, and explicit Apply Last Import result summaries.
+- v1.0.12 in progress: changed Google Drive provider pull discovery so found provider-sync manifests report as ready for import review instead of carrying the stale import-not-implemented blocker.
+- v1.0.12 in progress: extended provider remote import merging to `document:create`, applying downloaded create payloads to the local vault through the existing native SQLite/snapshot write path without enqueueing a new outbound local operation.
+- v1.0.12 in progress: made provider `document:create` imports idempotent for matching duplicate remote document payloads while blocking conflicting duplicate document creates.
+- v1.0.12 in progress: extended provider remote import merging to `document:delete`, applying remote document deletes through local vault snapshot/native SQLite persistence without enqueueing a new outbound local operation.
+- v1.0.12 in progress: extended provider remote import merging to `document:update`, applying remote document metadata updates through local vault snapshot/native SQLite persistence without replacing content or enqueueing a new outbound local operation.
+- v1.0.12 in progress: extended provider remote import merging to `space:create`, preserving remote space IDs and metadata through local vault snapshot/native SQLite persistence without enqueueing a new outbound local operation.
+- v1.0.12 in progress: made provider `space:create` imports idempotent for matching duplicate remote space metadata while blocking conflicting duplicate space creates.
+- v1.0.12 in progress: extended provider remote import merging to `space:update`, applying remote space metadata updates through local vault snapshot/native SQLite persistence without enqueueing a new outbound local operation.
+- v1.0.12 in progress: extended provider remote import merging to `folder:create`, preserving remote folder IDs through local vault snapshot/native SQLite diff persistence without enqueueing a new outbound local operation.
+- v1.0.12 in progress: made provider `folder:create` imports idempotent for matching duplicate remote folder metadata while blocking conflicting duplicate folder creates.
+- v1.0.12 in progress: extended provider remote import merging to `folder:update`, applying remote folder renames/parent metadata through local vault snapshot/native SQLite diff persistence without enqueueing a new outbound local operation.
+- v1.0.12 in progress: extended provider remote import merging to `folder:delete`, applying remote folder subtree deletes through local vault snapshot/native SQLite diff persistence without enqueueing a new outbound local operation.
+- v1.0.12 in progress: extended provider remote import merging to `tag:create`, `tag:update`, and `tag:delete`, applying remote tag names/colors/deletes through local vault snapshot/native SQLite diff persistence without enqueueing a new outbound local operation.
+- v1.0.12 in progress: made provider `tag:create` imports idempotent for matching duplicate remote tag metadata while blocking conflicting duplicate tag creates.
+- v1.0.12 in progress: extended provider remote import merging to `document_tag:add` and `document_tag:remove`, applying remote tag assignments through local vault snapshot/native SQLite diff persistence without enqueueing a new outbound local operation.
+- v1.0.12 in progress: extended provider remote import merging to `template:create`, `template:update`, and `template:delete`, applying remote document-template payloads through local vault snapshot/native SQLite persistence without enqueueing a new outbound local operation.
+- v1.0.12 in progress: made provider `template:create` imports idempotent for matching duplicate remote document-template payloads while blocking conflicting duplicate template creates.
+- v1.0.12 in progress: extended provider remote import merging to `workflow_template:create`, `workflow_template:update`, and `workflow_template:delete`, applying remote workflow-template stages/approvers through local vault snapshot/native SQLite persistence without enqueueing a new outbound local operation.
+- v1.0.12 in progress: made provider `workflow_template:create` imports idempotent for matching duplicate remote workflow-template payloads while blocking conflicting duplicate workflow-template creates.
+- v1.0.12 in progress: extended provider remote import merging to `property_schema:create`, `property_schema:update`, `property_schema:reorder`, and `property_schema:delete`, applying remote property metadata/order changes through local vault snapshot/native SQLite persistence without enqueueing a new outbound local operation.
+- v1.0.12 in progress: made provider `property_schema:create` imports idempotent for matching duplicate remote property-schema metadata while blocking conflicting duplicate property-schema creates.
+- v1.0.12 in progress: extended provider remote import merging to `document_property_values:set`, applying remote document property values through local vault snapshot/native SQLite persistence without enqueueing a new outbound local operation.
+- v1.0.12 in progress: extended provider remote import merging to browser-backed `asset:create` payloads with embedded data URL bytes, applying remote assets through local vault snapshot/native SQLite persistence without enqueueing a new outbound local operation.
+- v1.0.12 in progress: made browser-backed provider `asset:create` imports idempotent for exact duplicate local assets while still blocking conflicting duplicate asset data.
+- v1.0.12 in progress: extended provider remote import merging to `asset:delete`, removing local asset metadata through snapshot/native SQLite persistence and skipping already-absent assets idempotently.
+- v1.0.12 in progress: hardened provider `asset:delete` imports so same-asset local queued operations and document-scoped queued work block remote tombstones before local mutation.
+- v1.0.12 in progress: hardened provider `asset:delete` execution so optional tombstone document/space context must be internally consistent before local asset metadata is removed.
+- v1.0.12 in progress: extended provider remote import merging to `document_workflow:create`, `document_workflow:update`, `document_workflow:transition`, and `document_workflow:delete`, applying remote active workflow state through local vault snapshot/native SQLite persistence without enqueueing a new outbound local operation.
+- v1.0.12 in progress: made provider `document_workflow:create` imports idempotent for matching duplicate remote active-workflow state while blocking conflicting duplicate workflow creates.
+- v1.0.12 in progress: extended provider remote import merging to standalone `document_workflow_event` enable/transition/disable/delegate/escalate events, applying remote workflow history through local vault snapshot/native SQLite persistence without enqueueing a new outbound local operation.
+- v1.0.12 in progress: changed duplicate provider `document_workflow_event` imports to skip only matching replay events and block conflicting duplicate event payloads.
+- v1.0.12 in progress: changed provider-sync manifests and remote import preflight so new replay-bearing manifests report ready for review instead of stale import-not-implemented blockers, while older blocked wrappers remain compatible.
+- v1.0.12 in progress: hid Comments and AI right-panel tabs in local mode so unavailable server-only collaboration/AI surfaces do not appear in standalone sessions.
+- v1.0.12 in progress: hardened local-mode right-panel rendering so stale server-only tab state falls back to document Properties before Comments or AI content can render.
+- v1.0.12 in progress: hid the unavailable AI slash command in local mode so standalone editing does not advertise server-only AI actions.
+- v1.0.12 in progress: hid mobile Notifications content in local mode even when the direct notifications route is opened.
+- v1.0.12 in progress: hid the mobile Alerts navigation entry in local mode so unavailable notification features are not advertised.
+- v1.0.12 in progress: added mobile navigation coverage that keeps Home/Recent first and hides server-only Alerts in local mode while preserving Settings.
+- v1.0.12 in progress: hid server-only Admin AI Settings, API Keys, Audit Log, Authentication, Groups, Notifications, Search, Users, and Webhooks from local-mode Admin navigation and direct initial-section fallback.
+- v1.0.12 in progress: changed the mobile space switcher to appear whenever multiple spaces exist, including local mode, so standalone users can switch between locally created spaces.
+- v1.0.12 in progress: changed the desktop sidebar to present New Doc/New Folder actions side by side and sort folders before pages alphabetically at root and nested levels.
+- v1.0.12 in progress: enforced local-mode hierarchy limits so folders can nest up to three levels and documents must target existing current-space folders while remaining valid inside level-3 folders.
+- v1.0.12 in progress: blocked provider remote folder imports that would exceed local hierarchy depth or move folders into their own descendants.
+- v1.0.12 in progress: repaired document breadcrumbs so note pages include the resolved nested folder path before the document title.
+- v1.0.12 in progress: made document breadcrumbs semantic and route-backed, linking only the active space crumb and removing fake clickable folder affordances.
+- v1.0.12 in progress: added sidebar Home and Recent entries under the space selector, backed by a desktop recent-documents route for the active space.
+- v1.0.12 in progress: added a Starlane-branded sidebar header with a search button that opens and focuses the space search menu.
+- v1.0.12 in progress: reconciled the desktop sidebar header implementation and coverage so the Starlane brand/search header renders above the scrollable navigation tree.
+- v1.0.12 in progress: added a compact sidebar/mobile brand lockup that renders the icon with “Starlane” above larger “Notes” while preserving the default auth/setup logo.
+- v1.0.12 in progress: added a mobile sidebar header Search action that routes directly to mobile search while keeping the brand in the drawer.
+- v1.0.12 in progress: renamed the mobile sidebar root entry to Home so Home and Recent sit directly under the drawer header.
+- v1.0.12 in progress: added a paired mobile New Folder action beside New Doc for root folder creation from the active Space screen.
+- v1.0.12 in progress: hid the mobile profile Open folder row unless the runtime can actually reveal the native vault folder.
+- v1.0.12 in progress: blocked remote provider document creates that reference missing or cross-space local folders before local merge.
+- v1.0.12 in progress: blocked remote provider document content updates whose payload IDs or spaces do not match the local target.
+- v1.0.12 in progress: added focused coverage for cross-space remote provider document content update blocking.
+- v1.0.12 in progress: blocked provider remote import preflight when replay manifests declare an operation count that does not match their operations.
+- v1.0.12 in progress: blocked provider remote import preflight when replay ready/missing summary counts do not add up to the declared operation count.
+- v1.0.12 in progress: blocked provider remote import preflight when replay ready/missing summary counts do not match operation payload statuses.
+- v1.0.12 in progress: prevented preflight-blocked provider remote imports from selecting operations for local apply.
+- v1.0.12 in progress: hardened provider remote import dry-run so malformed array payloads fail even for delete/tombstone operations, while missing delete payloads remain allowed.
+- v1.0.12 in progress: hardened provider remote import dry-run so delete/tombstone operations reject malformed primitive payloads while preserving payload-less deletes.
+- v1.0.12 in progress: expanded Admin provider import dry-run summaries to show skipped, failed, and unsupported counts in the review panel.
+- v1.0.12 in progress: marked supported remote import operations with mismatched payload IDs as dry-run failures before apply planning.
+- v1.0.12 in progress: marked workflow-event remote import operations with mismatched payload actions as dry-run failures before apply planning.
+- v1.0.12 in progress: blocked payload-less supported remote import operations during dry-run before they can be selected for local apply.
+- v1.0.12 in progress: blocked array payloads for supported remote import operations during dry-run before local apply planning.
+- v1.0.12 in progress: rejected remote import operations with empty identity fields during dry-run before apply planning.
+- v1.0.12 in progress: moved the sidebar space selector into a sticky footer with an adjacent settings icon for active-space settings.
+- v1.0.12 in progress: moved document favorite, page view, edit, source view, and properties controls into a top-right document overflow menu.
+- v1.0.12 in progress: removed the duplicate top-bar properties toggle so document properties are controlled from the document overflow menu.
+- v1.0.12 in progress: trimmed the web top bar so the top-left surface is only the sidebar toggle, with brand and space identity owned by the sidebar.
+- v1.0.12 in progress: reconciled the web top-bar implementation and coverage by removing the duplicate Starlane home/brand button from the header.
+- v1.0.12 in progress: trimmed the mobile top bar so the closed header starts with only the navigation toggle while the brand remains in the mobile sidebar.
+- v1.0.12 in progress: added a clearer desktop Admin Storage active-vault rename control that safely renames the native vault folder before updating the active vault path.
+- v1.0.12 in progress: added local Admin Spaces controls for creating and renaming standalone spaces through existing local vault persistence.
+- v1.0.12 in progress: added a local Admin Storage sync-server vault entry point for saving a self-hosted server URL and reconnecting through the server-backed app shell.
+- v1.0.12 in progress: added last-viewed document startup restore from `/` with an existence check and empty-home fallback when no valid recent document exists.
+- v1.0.12 in progress: added sidebar child-folder creation affordances up to level 3 using the existing folder parent-link create path.
+- v1.0.12 in progress: refined app shell navigation with a restored web brand header/search dropdown, last-viewed-space home routing, per-space settings routes, fullscreen mobile search, and compact mobile drawer/header behavior.
+- v1.0.12 in progress: added local folder move-to-root support through `updateFolder(parent_id)` and nested-folder sidebar actions.
+- v1.0.12 in progress: added a local-only sidebar folder move dialog with valid root/folder destinations under the level-3 hierarchy limit.
+- v1.0.12 in progress: added local-mode sidebar folder drag/drop onto valid parent folders and the root folder list using the same level-3 hierarchy checks as the move dialog.
+- v1.0.12 in progress: added a local-only mobile New Space flow so mobile local vaults can create and immediately switch to additional spaces.
+- v1.0.12 in progress: added focused mobile editor keyboard-inset measurement coverage for visual viewport offsets, closed-keyboard thresholds, and rotation baseline resets.
+- v1.0.12 in progress: added covered mobile editor toolbar placement states for keyboard-overlap and safe-area modes so keyboard-attached toolbar behavior has a testable contract before device confirmation.
+- v1.0.12 in progress: added hidden-blocker count rows to Admin System provider remote enablement/default-sync blocker lists so device-validation gates stay visible.
+- v1.0.12 in progress: expanded Admin System provider remote import review with per-operation dry-run, apply-plan, and apply-result outcome rows.
+- v1.0.12 in progress: added hidden-operation count rows to Admin System provider remote import review lists when dry-run, apply-plan, or apply-result outcomes exceed the visible preview.
+- v1.0.12 in progress: added hidden-blocker count rows to Admin System provider remote import preflight when blocker lists exceed the visible preview.
+- v1.0.12 in progress: added an Admin System provider import apply-readiness summary that disables Apply Last Import when no remote operations are eligible and explains conflicts, failed payloads, unsupported operations, or skipped rows.
+- v1.0.12 in progress: added an Admin System provider import next-action hint so users know whether to run Test Pull, Apply Last Import, or review blockers.
+- v1.0.12 in progress: added a Run Test Pull action directly inside Admin System provider import review so users do not have to find it in generic local sync controls.
+- v1.0.12 in progress: clarified Admin System provider import per-operation labels for ready, unsupported, conflict, failed, and blocked outcomes, including a visible blocked count after Apply Last Import runs.
+- v1.0.12 in progress: refined Admin System provider import review rows with phase headings, wrapped status messages, and visible Apply Last Import blockers.
+- v1.0.12 in progress: added replay operation IDs to Admin System provider import review rows so dry-run, apply-plan, and apply-result blockers can be traced to provider manifests.
+- v1.0.12 in progress: clarified Admin System Apply Last Import messages with attempted, applied, skipped, failed, and blocked operation counts.
+- v1.0.12 in progress: clarified Admin System provider PULL review messages with selected, skipped, conflict, failed, and unsupported operation counts.
+- v1.0.12 in progress: added a shared search textbox component and applied it to Recent, Starred, and Journal search fields for more consistent web form styling.
+- v1.0.12 in progress: applied the shared search textbox to the global search modal primary query field.
+- v1.0.12 in progress: routed global search modal filter fields through the standard `Input` textbox component.
+- v1.0.12 in progress: routed Graph View search and select controls through the shared form styling contract.
+- v1.0.12 in progress: added a shared `Select` form control and applied it to Graph View and Starred manager selects.
+- v1.0.12 in progress: routed Workflow Queue header search and filter selects through shared form controls.
+- v1.0.12 in progress: routed Workflow Queue bulk transition and handoff controls through shared `Input` and `Select` controls.
+- v1.0.12 in progress: routed Sidebar folder, space search, and new-space text controls through shared `Input` and `SearchInput`.
+- v1.0.12 in progress: routed Comments panel reply and new-comment fields through the shared `Input` control.
+- v1.0.12 in progress: routed the AI chat prompt field through the shared `Input` control.
+- v1.0.12 in progress: routed the editor toolbar code-block language picker through the shared `Select` control.
+- v1.0.12 in progress: routed editor tag and link dialog text fields through the shared `Input` control.
+- v1.0.12 in progress: routed the slash command palette search field through the shared `SearchInput` control.
+- v1.0.12 in progress: routed Properties panel workflow and property dropdowns through the shared `Select` control.
+- v1.0.12 in progress: added a shared `Textarea` form control and routed the Properties panel synopsis field through it.
+- v1.0.12 in progress: added focused desktop and mobile route-scope coverage so the properties panel remains limited to exact document routes instead of unrelated pages.
+- v1.0.12 in progress: routed the document source-mode Markdown editor through the shared `Textarea` control.
+- v1.0.12 in progress: routed the document title textarea through the shared `Textarea` control foundation while preserving its borderless page-title presentation.
+- v1.0.12 in progress: routed Admin Plugins manifest, registry, and runtime-audit JSON fields through the shared `Textarea` control.
+- v1.0.12 in progress: routed Admin plugin registry filtering and Google Drive callback URL fields through the shared Admin `Input` control.
+- v1.0.12 in progress: routed Google Drive manual setup token/root JSON fixtures through the shared admin JSON `Textarea` control.
+- v1.0.12 in progress: routed Admin Plugins runtime-audit filter/export selects through a shared compact `Select` control.
+- v1.0.12 in progress: routed Admin user and permission role pickers through the shared `Select` control.
+- v1.0.12 in progress: routed Admin user invite and lifecycle role/status filters through a shared form `Select` control.
+- v1.0.12 in progress: routed Admin space/group inline member pickers through a shared inline `Select` control.
+- v1.0.12 in progress: routed Admin space visibility through the shared inline `Select` control.
+- v1.0.12 in progress: routed Admin static-site export theme through the shared form `Select` control.
+- v1.0.12 in progress: routed Admin static-site export title and description fields through a shared admin text `Input` control.
+- v1.0.12 in progress: routed Admin Users invite and search text fields through the shared admin text `Input` control.
+- v1.0.12 in progress: routed local-space rename and create fields through the shared admin text `Input` control.
+- v1.0.12 in progress: enforced the level-3 folder/page hierarchy cap during authenticated queued sync replay so document creates, folder creates, and folder moves cannot bypass server route validation.
+- v1.0.12 in progress: routed Admin API key and service account key name/expiration fields through the shared admin text `Input` control.
+- v1.0.12 in progress: routed Admin group creation name and description fields through the shared admin text `Input` control.
+- v1.0.12 in progress: routed Admin Storage linked-server and sync-server URL fields through the shared admin text `Input` control.
+- v1.0.12 in progress: routed desktop vault rename and create fields through the shared admin text `Input` control.
+- v1.0.12 in progress: routed the desktop vault folder path field through the shared admin text `Input` control.
+- v1.0.12 in progress: routed Admin Webhooks creation fields through the shared admin text `Input` control.
+- v1.0.12 in progress: routed Admin System, Authentication, and Notifications config fields through the shared admin text `Input` control.
+- v1.0.12 in progress: routed mobile profile display-name and avatar URL fields through a shared mobile text `Input` control.
+- v1.0.12 in progress: routed mobile vault picker active/new vault name fields through the shared mobile text `Input` control.
+- v1.0.12 in progress: routed the mobile space rename dialog field through the shared mobile text `Input` control.
+- v1.0.12 in progress: routed mobile search filter fields through the shared mobile text `Input` control.
+- v1.0.12 in progress: routed the primary mobile document search field through the shared `SearchInput` control with a separate filter icon button.
+- v1.0.12 in progress: routed mobile notification delivery preferences through a shared mobile `Select` control.
+- v1.0.12 in progress: hid the mobile profile Open folder row unless native vault reveal is available.
+- v1.0.12 in progress: hid the mobile profile Use app folder action outside local mode so server-backed device-copy settings do not expose local-vault reset controls.
+- v1.0.12 in progress: added ordered Google Drive manual setup steps in Admin System while preserving explicit OAuth/default-sync boundaries.
+- v1.0.12 in progress: added ready/blocked/next/pending state labels to the Google Drive manual setup steps.
+- v1.0.12 in progress: added a next-action summary to the Admin System Google Drive manual setup plan so the current OAuth/setup step is visible without enabling default sync.
+- v1.0.12 in progress: added hidden-blocker count summaries to Google Drive manual setup readiness, setup, callback, and completion panels so capped blocker previews disclose overflow without enabling default sync.
+- v1.0.12 in progress: moved Google Drive manual setup fixture inputs behind an explicit disclosure so live Google API completion remains the primary visible setup path.
+- v1.0.12 in progress: clarified the setup wizard Google OAuth row as server-login configuration and called out that Google Drive provider setup uses public PKCE without browser client secrets.
+- v1.0.12 in progress: tightened provider remote import dry-run planning so unsupported remote operation families are skipped before local merge execution.
+- v1.0.12 in progress: clarified provider remote import dry-run messaging for server-only comment replay operations so Admin import review explains they cannot be imported into a local vault instead of showing a generic unsupported-family message.
+- v1.0.12 in progress: refined Admin provider import operation labels so server-only comment replay rows read as server-only instead of generic unsupported outcomes.
+- v1.0.12 in progress: split server-only comment replay blockers out of generic unsupported counts in Admin provider import readiness and pull-review summaries.
+- v1.0.12 in progress: aligned the Admin provider import dry-run overview chip with server-only comment blocker summaries instead of showing a single generic unsupported count.
+- v1.0.12 in progress: hid native-only storage, sync, cache, and app-reset controls from web profile/settings in all web modes.
+- v1.0.12 in progress: clarified the local-only top-bar settings shortcut and added coverage that web/server mode does not render a duplicate settings button beside Site administration.
+- v1.0.12 in progress: routed the local-only top-bar settings shortcut directly to Admin Storage settings while keeping Site administration on the generic admin route.
+- v1.0.12 in progress: added Page View syntax-highlighting regression coverage for rendered MarkdownPreview code fences and verified the production web build.
+- v1.0.12 in progress: queued a UI/app readiness implementation lane covering web/native routing cleanup, native-only control hiding, properties-panel scoping, app-shell/sidebar/settings redesign, multi-space local mode, breadcrumb repair, and level-3 hierarchy limits.
+- v1.0.12 in progress: extended the Tauri local background replay scheduler to attempt explicitly enabled provider pushes on background/lifecycle wakes after queued server replay work, while preserving explicit enablement and readiness gates.
+- v1.0.12 in progress: added queued replay dependency-order preflight checks so operations that depend on later document, folder, tag, property, workflow, or asset prerequisites are blocked before server replay execution.
+- v1.0.12 in progress: added an opt-in PostgreSQL replay integration fixture keyed by `STARLANE_SYNC_REPLAY_POSTGRES_URL` so replay execution can be validated against a disposable PostgreSQL schema in addition to default SQLite tests.
+- v1.0.12 in progress: added a first-pass local and server Dataview parser/executor, global-search `dv:` / `dataview:` query entry path, `/api/v1/dataview`, and rendered Page View `dataview` / `dv` blocks with table/list/card modes, basic column options, title/space/updated sort options, space/updated grouping, first-pass updated age/date/weekday/year/quarter/month/link computed table columns, limits, and clickable results for quoted title matching, wildcard and fuzzy searches, boolean predicates, tag slugs, camelCase properties, and normalized dates.
+- v1.0.12 in progress: extended Dataview computed table columns with result metadata expressions for author, space, title length, and excerpt length.
+- v1.0.12 in progress: extended Dataview computed table columns and computed sorting with ISO week buckets via `week(updated)`.
+- v1.0.12 in progress: extended Dataview block display shaping with author sorting and author grouping.
+- v1.0.12 in progress: extended Dataview block grouping with updated-month and updated-year buckets.
+- v1.0.12 in progress: added Admin Storage controls for server-linked app shells to update the self-hosted server URL or reset storage setup back to the vault chooser.
+- v1.0.12 in progress: added first-pass Admin Storage static HTML export for local vaults and selected server spaces, including rendered Markdown, document navigation, tags, and properties.
+- v1.0.12 in progress: added Admin Storage static-site export settings for custom HTML export title, description metadata, and light/dark/paper themes.
+- v1.0.12 in progress: added static-site ZIP exports with an index page, shared stylesheet, and one generated HTML page per document for local vault and selected server-space snapshots.
+- v1.0.12 in progress: added static-site ZIP extraction for embedded `data:` assets, including generated `assets/` files and rewritten document links.
+- v1.0.12 in progress: added static-site ZIP `site.json` metadata manifests and `deploy.json` dry-run deploy plans for future static publishing hooks.
+- v1.0.12 in progress: added static-site ZIP `integrity.json` manifests with per-file size and CRC32 checksums for manual deploy verification.
+- v1.0.12 in progress: added static-site ZIP skipped-asset warnings for remote URLs and invalid `data:` URLs in `site.json`, `deploy.json`, and Admin Storage export messages.
+- v1.0.12 in progress: static-site ZIP `site.json` document entries now list skipped asset references for each affected document.
+- v1.0.12 in progress: static-site ZIP asset extraction now rewrites matching vault-path and `starlane://asset/...` document references when snapshot asset bytes are available, while unavailable local/remote attachment references are listed per document for deploy follow-up.
+- v1.0.12 in progress: static-site ZIP exports now include a credential-free `deploy-local.sh` helper plus `deploy.json` hook metadata for local-directory publishing after unpacking.
+- v1.0.12 in progress: added first-pass plugin registry index validation for catalog entries before install-source/runtime work.
+- v1.0.12 in progress: exposed plugin registry index validation in Admin Plugins for pasted `registry.json` catalogs.
+- v1.0.12 in progress: added local Admin Plugins registry browsing with catalog filtering, selected-entry details, and manifest-review stubs without remote fetching.
+- v1.0.12 in progress: added first-pass plugin manifest validation for IDs, versions, permission allowlists, HTTP fetch domains, and settings fields.
+- v1.0.12 in progress: added an Admin Plugins manifest validation screen for reviewing `plugin.json` contracts before install/runtime support exists.
+- v1.0.12 in progress: added local Admin Plugins install records with validated manifest save, global enable/disable, per-space enablement, and remove controls.
+- v1.0.12 in progress: added local Admin Plugins install audit events for save, enable/disable, per-space scope, and remove actions.
+- v1.0.12 in progress: added Admin Plugins permission review summaries for validated manifests before saving reviewed install records.
+- v1.0.12 in progress: added plugin runtime-readiness status summaries for saved install records while keeping execution blocked.
+- v1.0.12 in progress: added local Admin Plugins runtime audit events for blocked global/per-space enablement attempts while runtime execution remains unavailable.
+- v1.0.12 in progress: added local Admin Plugins runtime-audit filtering plus JSON/CSV export payloads for future server-backed audit parity.
+- v1.0.12 in progress: added server-backed audit logging for blocked Admin Plugins runtime enablement attempts while keeping plugin execution disabled.
+- v1.0.12 in progress: added guarded Admin Users bulk activate/deactivate controls backed by a bulk lifecycle endpoint with deduplication, per-row skip reasons, self-deactivation protection, last-active-admin safeguards, audit logging, and OpenAPI schema coverage.
+- v1.0.12 in progress: added shared server-side admin invite/CSV import provisioning policy for allowed email domains and provisionable roles, with Admin Config and environment-variable controls.
+- v1.0.12 in progress: added self-service password reset request/confirm endpoints, hashed one-time reset tokens, SMTP-backed reset emails, session revocation after reset, OpenAPI coverage, and a signed-out reset-password screen linked from login.
+- v1.0.12 in progress: added scoped personal API keys with read/write/admin scope storage, middleware enforcement for API-key requests, OpenAPI coverage, and Admin API Keys scope controls.
+- v1.0.12 in progress: added admin-managed service account API keys with admin-scope enforcement, service-principal `X-API-Key` authentication, OpenAPI coverage, and Admin API Keys UI controls.
+- v1.0.12 in progress: added plugin install-source provenance metadata to saved Admin Plugins install records while keeping runtime execution and source fetching disabled.
+- v1.0.12 in progress: saved Admin Plugins install records now capture matching pasted registry entries as install-source provenance without fetching source URLs.
+- v1.0.12 in progress: added first-pass server MCP contract scaffolding with a typed tool catalog, scope requirements, and confirmation-boundary helpers.
+- v1.0.12 in progress: added a serializable in-process MCP server manifest for the typed tool catalog and scope tokens while keeping transport unexposed.
+- v1.0.12 in progress: added MCP manifest input/output schema metadata for the current tool catalog while keeping transport and execution unexposed.
+- v1.0.12 in progress: added an authenticated read-only MCP manifest endpoint at `/api/v1/mcp/manifest` while keeping executable tool transport disabled.
+- v1.0.12 in progress: added MCP manifest catalog summary counts by family, scope, and confirmation policy.
+- v1.0.12 in progress: expanded MCP manifest schemas for representative document write/delete, workflow event, snapshot export, import execution, and admin audit export tools while keeping executable transport disabled.
+- v1.0.12 in progress: added OpenAPI schema coverage for MCP manifest summary counts.
+- v1.0.12 in progress: added a conservative authenticated MCP HTTP tool endpoint for the no-confirmation `notes:read` subset while rejecting write/delete/import/export/workflow/admin execution.
+- v1.0.12 in progress: expanded MCP read-only HTTP tools with folder, tag, property schema, and document-template list coverage under space read permissions.
+- v1.0.12 in progress: expanded MCP HTTP execution with admin-scoped `starlane.admin.users.list` while keeping admin audit export, writes, imports, exports, workflow mutations, stdio, and SSE disabled.
+- v1.0.12 in progress: added concrete OpenAPI schemas for tag and property metadata routes, including property reorder and document property values.
+- v1.0.12 in progress: added concrete OpenAPI schemas for AI config, chat, completion, and document-action routes.
+- v1.0.12 in progress: added concrete OpenAPI schemas and read-route coverage for document templates and workflow templates.
+- v1.0.12 in progress: added concrete OpenAPI response schemas for search, Dataview, and space graph routes.
+- v1.0.12 in progress: added concrete OpenAPI multipart request and JSON response schemas for admin CSV user import preview/import routes.
+- v1.0.12 in progress: added a concrete OpenAPI response schema for document publish public-slug responses.
+- v1.0.12 in progress: added OpenAPI schemas for audit-log list responses and CSV content responses for audit export and admin user import template downloads.
+- v1.0.12 in progress: added concrete OpenAPI schemas for document comment threads and reaction groups.
+- v1.0.12 in progress: added concrete OpenAPI schemas for document version history, restore responses, and attachment list/upload routes while correcting stale attachment item route coverage.
+- v1.0.12 in progress: added concrete OpenAPI schemas for core space and folder list/read/create/update/reorder routes.
+- v1.0.12 in progress: added concrete OpenAPI schemas for user directory, space membership, admin groups, group membership, and space group grant routes.
+- v1.0.12 in progress: added concrete OpenAPI schemas for core document list/create/read/update/content, starred-document list, and public-page routes.
+- v1.0.12 in progress: added OpenAPI 204 no-content response coverage for document delete, star/unstar, lock/unlock, and unpublish routes.
+- v1.0.12 in progress: added OpenAPI 204 no-content response coverage for logout, session/API-key revocation, admin session revocation, attachment delete, and webhook update/delete routes.
+- v1.0.12 in progress: added OpenAPI 204 no-content response coverage for template/workflow-template updates and deletes, workflow clearing, metadata/tag/property mutations, comment resolution/deletion, and reaction toggles while removing stale generic 200 responses for explicit no-content operations.
+- v1.0.12 in progress: added OpenAPI 204 no-content response coverage for space/folder updates and deletes, member/group access changes, admin user lifecycle updates, and admin configuration upsert/delete routes.
+- v1.0.12 in progress: added concrete OpenAPI schemas for active document workflow, workflow transitions/events, workflow queue, and deadline escalation routes.
+- v1.0.12 in progress: added concrete OpenAPI schemas for admin config entries and search reindex responses.
+- v1.0.12 in progress: Dataview blocks can sort by computed table-column labels and expressions such as Age, Title chars, and `month(updated)`.
+- v1.0.12 in progress: added browser-side Admin Storage checkpoints for selected shared-space snapshot downloads, including latest download time and snapshot counts per server space.
+- v1.0.12 in progress: added local vault JSON import preflight summaries that show snapshot counts and sync queued-operation state before replacing the current vault.
+- v1.0.12 in progress: added a native-local-database command bridge behind the local vault adapter, a vault-scoped Tauri SQLite payload store that keeps JSON snapshot/Markdown mirror compatibility, and queued replay manifest contracts/readiness checks for SQLite/PostgreSQL-backed server replay targets.
+- v1.0.12 in progress: added an authenticated no-mutation server replay preflight endpoint for queued sync manifests with OpenAPI route coverage.
+- v1.0.12 in progress: added a sync replay ledger, first-pass authenticated replay execution for document create/content-update operations, and Admin Storage preflight/run controls that clear successfully applied or skipped queued operations.
+- v1.0.12 in progress: added SQLite-backed replay execution fixture coverage for portable folder, tag, property-schema, ledger-idempotency, and replay-checkpoint SQL paths.
+- v1.0.12 in progress: hardened server replay execution so core entity payload IDs must match queued operation target IDs before mutation.
+- v1.0.12 in progress: expanded authenticated sync replay execution to folder create/update, tag create/update, and document tag add operations, and preserved folder/tag `source_id` values in local import paths so replay payloads keep stable identities.
+- v1.0.12 in progress: queued sync operations now capture replay payloads when they are enqueued, including tombstones for folder/tag deletes and document tag removals, and authenticated replay execution now applies those delete/remove operations idempotently.
+- v1.0.12 in progress: expanded authenticated sync replay execution to document template create/update/delete operations, with local template source-ID preservation and captured queued payload coverage.
+- v1.0.12 in progress: expanded authenticated sync replay execution to property schema create/update/delete/reorder and document property value set operations, with local source-ID preservation and referenced document/property validation.
+- v1.0.12 in progress: expanded authenticated sync replay execution to workflow template create/update/delete operations, with local workflow-template source-ID preservation and route-equivalent stage/approver validation.
+- v1.0.12 in progress: expanded authenticated sync replay execution to active document workflow create/update/delete operations, including captured enable-event replay and workflow template/stage validation.
+- v1.0.12 in progress: added local personal-space owner metadata in standalone vault snapshots so desktop mirrors can keep stable `personalspaces/local-user` paths while preserving display names.
+- v1.0.12 in progress: queued sync replay manifests now include shared-space download recovery checkpoints alongside local write-intent payloads.
+- v1.0.12 in progress: queued sync replay manifests now include a preflight operation summary with missing-payload counts and action/entity breakdowns.
+- v1.0.12 in progress: queued sync replay manifests now include structured unavailable-payload details for missing attachment bytes, and Admin Storage export messages surface the affected asset names.
+- v1.0.12 in progress: shared-space download checkpoints now include optional source-server and downloading-user provenance for future authenticated recovery/replay flows.
+- v1.0.12 in progress: added saved workflow reassignment rules in the workflow queue so operators can persist and reapply common delegate/escalate target, note, and due-date combinations per space.
+- v1.0.12 in progress: added an optional server-side workflow reassignment policy for delegate/escalate events, including target allowlists and due-date requirements.
+
+### Changed
+
+- Updated phased roadmap, API overview, MCP docs, plugin docs, document workflow docs, Daily note documentation, document feature docs, OIDC/authentication docs, users/groups docs, API webhook docs, self-hosting environment docs, and local-first docs to reflect completed workflow approval, queue, structured reassignment target rules, saved reassignment rules, admin deadline scan/run/worker, handoff/escalation, due-date escalation actions, deadline attention, delegated-target notification, journal/mobile journal, richer Journal feed prompts, server-backed and search-managed starred documents, active-space Starred manager/sorting, saved search views, typed search filter tokens, page-view tag search entry points, right-panel version restore actions, Source view editing, admin invite/import, admin password resets, Admin Users summary/filter/bulk lifecycle polish, invite/import provisioning policy, Admin Webhooks, webhook redelivery replay, Admin Notifications, notification preferences, Admin Authentication, personal API keys, admin session revocation, self-service session UI, profile editing, OpenAPI/Scalar routes, auth/admin-user/webhook/notification schemas, and route-coverage corrections, MCP safety contract and server-side tool catalog/manifest/schema scaffolding/read-only manifest route/read-only HTTP tool endpoint, plugin manifest contract, plugin install/per-space records/audit events/permission review and validation UI, search-index, Dataview block rendering/display/sort/group/computed-column options/server execution, Dataview author sort/group options, Dataview date/weekday/quarter/result-metadata computed columns, migration metadata mapping/source preservation, migration secondary metadata preservation, migration tag timestamp preservation, migration asset upload, mirror-reconciliation/import, server-linked storage-switching, static HTML/ZIP publishing/config/embedded-asset extraction/site manifests/non-embedded attachment references, shared-space download checkpoint work, and local vault import preflight work.
+- Clarified the local-first storage/sync architecture direction: SQLite-first self-hosted servers with PostgreSQL compatibility, native desktop/mobile local SQLite for offline operation, and online-first web sessions that mutate server state through APIs rather than maintaining a canonical browser database.
+- Updated iPad layout QA tracking with browser viewport coverage for portrait, landscape, and Split View shell sizing.
+- Added Starlane design validation guidance and a `validate:design` script covering banned blur/gradient/shadow and non-token background drift.
+- Refined the web app shell with header branding, centered search, visible document view controls, sidebar Home/Recent/Graph/Workflows ordering, centered folder rename/create dialogs, mobile child-folder creation up to level 3, profile image upload, and tokenized light/dark form surfaces.
+
+### Fixed
+
+- v1.0.12 in progress: migrated stale iOS app-sandbox vault paths to the current Documents container after an app update, preserving the configured vault name instead of failing storage reads; also restored destructive Reset App row coloring.
+- v1.0.12 in progress: separated Reset App vault cleanup from the explicit Use App Folder action so reset clears the vault selection without recreating a default vault folder.
+- v1.0.12 in progress: redirected stale native routes home instead of leaving an unmatched black screen, and prevented server setup or vault-list inspection from creating a native vault folder before the user explicitly selects local storage.
+- Fixed narrow tablet Split View sidebar drawer rendering so underlying main content no longer clips visibly behind the drawer while it is open.
+- Fixed mobile document properties drawers so the responsive web shell and Tauri/mobile shell share centered, viewport-bounded dialog geometry.
+- Fixed provider remote document and folder delete imports so removed local documents also clear their tag, property-value, workflow, and workflow-event metadata from the local snapshot.
+
+## [1.0.11] - 2026-06-27
+
+### Added
+
+- Added standalone desktop local vault mode with first-run local/server storage selection.
+- Added native Tauri vault folder controls for desktop, including current vault path, folder picker, custom path save, reset to default, and open-folder actions.
+- Added local vault snapshot persistence for spaces, folders, documents, and dropped asset metadata.
+- Added local vault content counts in Admin Storage, including spaces, folders, documents, assets, and total asset size.
+- Added JSON snapshot import/export for browser local mode and full desktop vault archive import/export with asset files.
+- Added editor clipboard context actions for copy, copy as Markdown, paste as Markdown, and paste plain text.
+- Added toolbar hover titles, table grid insertion, contextual table controls, block helper labels, and styled task checkboxes.
+- Added fuller editor context-menu actions for block duplication/deletion and table row/column insertion/deletion.
+- Added desktop/web block hover boundaries and context-menu block transforms for paragraph, heading, quote, code, move, duplicate, and delete actions.
+- Added searchable editor command menus from Ctrl+/, block/context menus, and a mobile keyboard-floating command button.
+- Added active-block helper text attached to the block border plus code-block language selection beside the helper.
+- Added editor command handling that transforms the current block for headings, lists, quotes, and code blocks instead of inserting raw Markdown markers.
+- Added Markdown conversion regression coverage for fenced code blocks, hyphenated code languages, and image syntax.
+- Added Markdown conversion regression coverage for nested unordered and task lists.
+- Added users/groups/permissions documentation, app-readiness validation documentation, and a repo-local app-readiness validation Codex skill.
+- Added space-level document template CRUD endpoints, local vault template persistence, desktop vault archive preservation, desktop sidebar template picking, command-menu template insertion, mobile template picking, and daily-note template support.
+- Added space-level workflow template CRUD foundations with ordered stages, required approvers, server routes, local vault persistence, and focused local tests.
+- Added document workflow activation foundations with server routes, local vault persistence, Properties panel current-stage display, and focused local tests.
+- Added document workflow stage transitions with lightweight event history, local vault persistence, Properties panel stage controls, and focused local tests.
+- Added richer template placeholders for title, space, author, date/time parts, template properties, and command-menu cursor placement.
+- Added command-menu inserts for current date, time, date/time, space name, and author in normal pages.
+- Added automatic Created Date, Created By, Updated By, and Last Updated system rows in document properties, including local standalone metadata.
+- Added first-pass Properties panel controls for creating custom space properties, editing document property values, creating tags, and assigning/removing document tags.
+- Added inline property schema rename/type/delete controls and tag rename/color/delete controls in the Properties panel.
+- Added select and multi-select option editing plus matching document value controls in the Properties panel.
+- Added relation property values backed by document pickers for documents in the same space.
+- Added custom property reordering in the Properties panel for server-linked and local standalone spaces.
+- Added user property values backed by a narrow signed-in user directory.
+- Added first-pass tag and property filters to web and mobile document search.
+- Added live document word count and estimated reading time in the editor chrome.
+- Added `_daily` folder placement for Daily note creation on desktop and mobile.
+- Added a right-panel Contents tab for document Markdown headings.
+- Added a right-panel History tab for server-backed document version records.
+- Added a phased prompt gap audit documenting remaining Phase 1-7 feature work, including full API and MCP coverage.
+- Added a streamlined mobile Settings surface with grouped storage, sync, appearance, cache reset, and app reset controls.
+- Added Files/Finder-visible mobile vault storage by defaulting Tauri mobile local vaults into the app Documents folder and enabling iOS document sharing.
+- Added named vault folder setup plus mobile vault rename controls so local and server-linked device folders can be kept distinct.
+- Added a generated filesystem vault mirror with `spaces/`, per-space `documents/`, `attachments/`, and `templates/` folders plus Markdown page/template files for Tauri vaults.
+- Added icon-only right-panel tabs with an active section label and hidden tab scrollbars.
+- Added editor link insertion/editing with display-text and URL controls plus a link popover for open/edit/remove actions.
+- Added a selected-text formatting tooltip for bold, italic, inline code, highlight, and link actions.
+- Added an Obsidian-style mobile editor quick-action toolbar with keyboard-aware positioning, scrollable icon actions, and a dedicated command-menu button.
+- Added expanded selected-text formatting actions for strikethrough, bullet list, and command-menu access on desktop/web.
+- Added a verified v1.0.11 enhancement checklist in `SCRATCHPAD.md` that separates completed, partial, and open items with code evidence.
+- Added a mobile toolbar customization menu for adding/removing quick actions.
+- Added real editor file and image import buttons that persist picked assets through the local vault asset path instead of inserting placeholder links.
+- Added page synopsis frontmatter support and displays the synopsis under the title in Page View.
+- Added code-block syntax highlighting in both the editor and Page View.
+- Added expanded selected-text formatting controls for underline, headings, numbered lists, quotes, clear formatting, and curated local/system font selection.
+- Added a native Tauri data-URL asset import bridge so picked images/files can be copied into the vault assets folder and referenced by stable `asset://` URLs.
+- Added a uniform editor image/file insert menu before native file selection, matching the shared raised command/search menu shell.
+- Added `VITE_MAX_UPLOAD_SIZE_MB` documentation for the client-side image/file picker guardrail and documented the matching server `MAX_UPLOAD_SIZE_MB` setting.
+- Added mobile toolbar reordering controls with drag/drop plus explicit up/down buttons for touch-friendly customization.
+- Added native vault folder discovery, creation, and switching commands plus first-run and mobile settings vault pickers for existing on-device vault folders.
+- Added desktop Admin Storage vault switching and vault creation for sibling local vault folders.
+- Added first-pass Apple iCloud Documents vault support with native iCloud container resolution, vault copy/move, and iOS entitlements.
+- Added recent, owned, capped, and searchable space sections to the desktop/sidebar space selector.
+- Added content-page tag insertion/rendering as styled inline `#tag` tokens that round-trip back to Markdown.
+- Added mobile space rename support backed by local and server space update handling.
+- Added inline active-vault rename inside the mobile vault picker.
+- Added Notes Admin support for the server attachment upload-size limit through `max_upload_size_mb`, with `MAX_UPLOAD_SIZE_MB` still taking precedence when set.
+- Added bundled self-hosted Inter and JetBrains Mono font assets for Docker, Tauri, and offline web builds.
+- Added local-first storage-map and migration-strategy documentation for vault snapshots, Markdown mirrors, attachments, settings, search, and sync state.
+
+### Changed
+
+- Renamed Local Space to Personal Space for standalone mode.
+- Restyled the space selector and replaced inline new-space creation with a dialog flow that switches to the new space automatically.
+- Simplified editor modes to Markdown and read-only Preview, removing Split mode.
+- Removed the desktop/web formatting toolbar and replaced the Markdown/Page View row with quiet edit/view icon buttons in the page header.
+- Hid sync and user-profile controls for local spaces while preserving settings access.
+- Kept desktop vault folder/archive controls desktop-only and showed mobile-safe standalone storage copy on Tauri mobile.
+- Renamed editor Preview mode to Page View.
+- Made the site administration sidebar obey the app-shell sidebar toggle.
+- Split the heavy TipTap/ProseMirror editor dependencies into a dedicated vendor chunk and removed the stale generated Vite config that caused the build to ignore the tracked config.
+- Updated Vite dev-server binding for Tauri iOS physical-device runs so mobile dev can reach the frontend over the Mac LAN host.
+- Streamlined mobile settings so local mode hides users, groups, API, and administration controls, while sync/server mode keeps advanced administration desktop-oriented.
+- Removed the mobile editor bottom toolbar, mobile long-press override, and mobile block handle/helper chrome in favor of an explicit command button.
+- Changed mobile local mode navigation labels from Spaces to Space.
+- Kept iCloud/folder selection controls local-mode-only in mobile settings so server-linked mode presents the on-device server copy instead of cloud provider controls.
+- Made `Ctrl+/` the single command-menu hotkey, hardened slash-key detection across browser variants, and allowed it to open at the cursor or over selected text without deleting the selection during block transforms.
+- Restyled the command palette on the shared raised menu shell with a search row and viewport clamping for mobile-width and desktop layouts.
+- Removed document Focus mode and moved document word count/read time metadata below the title with created/modified attribution.
+- Made page titles larger than in-content H1 headings.
+- Trimmed the default mobile editor toolbar so non-working trailing indent/outdent-style actions are no longer shown by default.
+- Hid the mobile Alerts tab in local standalone mode.
+- Recorded app-level vault switching and bundled self-hosted font assets as explicit v1.0.11 readiness follow-up requirements.
+- Consolidated editor Image and File quick actions into a single Upload command in the selected-text toolbar, mobile toolbar, and command palette.
+- Changed the mobile Heading quick action into a Text/H1-H6 selector instead of a hard-coded heading toggle.
+- Replaced the mobile bottom tab bar with a slide-out sidebar navigation drawer.
+- Moved mobile vault switching and vault creation into a centered picker dialog.
+- Simplified mobile local settings by hiding desktop-only folder picking and local-only sync rows.
+- Renamed the mobile Profile surface to Settings and removed redundant header/sidebar section titles.
+- Changed the mobile Search surface to a single search bar with optional filters instead of always showing three filter inputs.
+- Simplified local document metadata to last modified date, word count, and read time.
+- Changed the first-run server setup local-storage action into a Back action so local setup only starts from the vault chooser.
+- Changed server-mode space creation to require Notes Admin role while preserving local standalone space creation.
+
+### Fixed
+
+- Added sidebar row action menus for notes and folders so rename/delete actions are available.
+- Fixed editor block action placement and replaced misleading drag affordance behavior with explicit move up/down actions.
+- Persisted native dropped assets into the local vault assets folder instead of keeping only transient browser URLs.
+- Guarded mobile Tauri builds from desktop-only vault archive commands.
+- Validated imported local vault snapshots before replacing current standalone data.
+- Fixed profile/settings menu navigation and kept the space sidebar out of the site administration route.
+- Fixed fenced code block parsing so blank lines, indentation, and hyphenated language names survive editor reloads.
+- Fixed Markdown conversion so nested unordered and task lists keep their hierarchy across editor import/export.
+- Fixed stale docs that described v1.0.11 local vault and template work as only planned.
+- Fixed the right properties panel so it can load the selected document metadata from the app shell instead of requiring page-level props.
+- Fixed the right properties panel route scope so the toolbar button, keyboard shortcut, and drawer render only on document routes instead of unrelated web pages.
+- Fixed the keyboard shortcuts modal so the document side-panel shortcut is listed only on document routes where it can open.
+- Fixed the mobile app shell right-panel context so mobile profile, search, recent, and notification routes cannot open the document properties drawer.
+- Fixed mobile space folder/page ordering so folders and pages render A-Z instead of storage-return order.
+- Fixed sidebar folder move destinations so nested targets show readable folder paths instead of ambiguous duplicate folder names.
+- Fixed web profile/settings navigation by adding a separate `/profile` account route, removing the duplicate top-bar Settings admin menu item, and hiding native-only storage, sync, cache, and reset controls from web profile settings.
+- Fixed iOS physical-device signing configuration by aligning the generated Tauri Xcode project with the installed `H9FVZ6838A` provisioning team.
+- Fixed Tauri mobile runtime detection so iPhone/iPad webviews fall back to the mobile shell when the Tauri OS API is unavailable.
+- Fixed the first-run mobile storage selection transition by bundling the mobile shell with the startup app instead of lazy-loading it after the first tap.
+- Fixed code-block language selection by replacing the native select with a raised editor menu above other editor chrome.
+- Fixed table selections showing a paragraph helper label by hiding block helper chrome for tables.
+- Fixed desktop/web block drag-and-drop by making the block handle reorder top-level editor blocks.
+- Fixed the editor Link command so it inserts at the cursor/selection through the link dialog instead of dropping raw Markdown on a new line.
+- Fixed mobile local storage controls by adding a native folder chooser action alongside open, rename, iCloud provider selection, and app-folder reset.
+- Fixed rendered web/desktop command-palette handling by adding a document-level `Ctrl+/` fallback for the focused editor surface.
+- Fixed command palette overflow on narrow viewports by clamping floating menu coordinates inside the visible screen.
+- Fixed first-pass link mark bleed by making inserted links non-inclusive and applying link marks to the intended display text range.
+- Fixed command menus so they close when clicking or tapping outside the menu.
+- Fixed iOS mobile storage controls so Tauri mobile no longer calls the desktop folder picker and instead reports Files/iCloud limitations explicitly.
+- Fixed picked images disappearing after navigation by storing Tauri picker assets in the native vault instead of saving large `data:` URLs inside document content.
+- Fixed the iOS mobile document properties button by providing the right-panel control context and centered properties dialog inside the Tauri mobile shell.
+- Fixed document page titles so long titles wrap instead of clipping, document metadata prefers display names over raw IDs, Page View registers additional syntax highlighter languages, and selected-text dropdowns use raised editor menus instead of native selects.
+- Fixed mobile editor toolbar drift on iOS by using a debounced keyboard inset so the quick-action toolbar sits above the keyboard without chasing viewport scroll.
+- Fixed editor image/file commands so web command-palette actions open the real upload picker and mobile toolbar upload menus stay inside the visible overlay area.
+- Fixed mobile first-run vault setup overflow by constraining cards, buttons, and vault path rows inside the viewport.
+- Fixed the mobile editor toolbar so it sits above the bottom tab bar when the keyboard is closed.
+- Fixed browser file picker reliability by opening native file inputs synchronously from the Upload menu selection.
+- Fixed editor/Page View link action popovers so links expose open/edit/remove or open/close controls more reliably.
+- Fixed mobile document title sizing/wrapping so page titles match the desktop scale and wrap long names instead of clipping.
+- Fixed the desktop/web selected-text formatting tooltip appearing on mobile editor surfaces.
+- Fixed saved Tauri vault images and files rendering as broken icons by enabling the native asset protocol for vault asset URLs.
+- Fixed local Tauri document uploads so new images and files save under the document's space attachment folder instead of the vault-level assets folder.
+- Fixed mobile document properties dialogs by adding a dedicated close control.
+- Fixed mobile search and properties inputs so fields use consistent dark styling and touch-friendly sizing.
+- Fixed mobile editor toolbar placement after removing the bottom tab bar so it anchors to the keyboard or safe area instead of the old tab offset.
+- Fixed mobile title sizing by overriding the global iOS textarea font-size rule for the document title field.
+- Fixed the mobile editor action toolbar on iOS so it uses the measured keyboard overlap as its bottom inset instead of staying pinned to the physical screen bottom.
+- Fixed editor upload limit messaging so image/file picker guardrails read the server-advertised upload limit instead of only the build-time client fallback.
+
+## [1.0.10] - 2026-06-24
+
+### Added
+
+- Started v1.0.10 planning around test-server feedback for editor UX, space navigation, privacy defaults, administration controls, and table blocks.
+- Added a side-by-side editor/markdown preview mode with live preview rendering.
+- Added code block language selection, slash-command insertion, configurable table column insertion, and table row insertion controls.
+- Added automatic private personal-space creation for newly registered, OAuth-provisioned, and CSV-imported users.
+- Added block action controls with paragraph/heading/quote/code conversion and move up/down affordances.
+- Added group management, group membership, and space-level group permission grants.
+- Added Spaces admin controls for public/internal/private visibility, direct user sharing, and group sharing.
+- Added an admin-managed application configuration panel backed by system config entries, including mail, SSO, and site identity settings.
+- Added configurable site naming exposed through auth config, the home view, and the app header fallback.
+- Added a Gitea Wiki sync script and Actions workflow for publishing repository Markdown docs to the project wiki.
+
+### Changed
+
+- Moved the desktop sidebar below the header, enlarged the header logo, and replaced the generic header wordmark with a clickable active-space name.
+- Moved site administration entry into the profile menu for site admins.
+- Added a space-scoped admin entry in the sidebar for space owners.
+- Resolved OIDC settings from `.env` first and database-backed admin configuration second.
+- Updated browser titles to include document, space, and configured site-name context.
+- Documented a quick Docker pull, restart, logs, and health-check verification flow for self-hosted deployments.
+- Replaced the MkDocs documentation workflow with repository-sourced Gitea Wiki publishing.
+
+### Fixed
+
+- Enforced read access checks for private space metadata and document read/content routes.
+- Included group grants in space listing and role checks.
+- Kept `.env`-managed configuration values locked in the admin UI and masked secret effective values.
+- Set a local Git author identity during Gitea Wiki sync so Actions runners can commit generated wiki pages.
+
+## [1.0.9] - 2026-06-21
+
+### Added
+
+- Added separate Docker Compose examples for pulled-image and local-build workflows, with both bind-mounted storage and Docker named volume variants.
+- Added Gitea Container Registry self-hosting documentation, including authenticated pulls, image pinning, and version-tag guidance.
+- Added startup initialization for the data directory, including visible storage subdirectories and a `.starlane-notes-data-dir` marker file.
+
+### Changed
+
+- Reworked the README and self-hosting docs around a container-first install path using published images instead of requiring local npm/build tooling.
+- Moved Docker environment examples under `docker/` and documented generated JWT secret setup.
+- Changed database configuration so SQLite is the explicit default via `SQLITE_ENABLED=true`, while PostgreSQL uses split `POSTGRES_*` variables.
+
+### Fixed
+
+- Fixed SQLite startup so the application creates `${DATA_DIR}/starlane-notes.db` automatically without requiring users to define a SQLite `DATABASE_URL`.
+- Fixed the production Docker image so it copies the built web bundle into the runtime image and serves the React app with SPA fallback.
+- Fixed unmatched API routes to return JSON `404` responses instead of the web app shell.
+
+## [1.0.5] - 2026-04-13
+
+### Added
+
+- Added Docker-hosted Gitea Actions runner setup documentation and linked it into the self-hosting docs navigation.
+- Added CI/CD overview section in `README.md` for workflow triggers and runner expectations.
+- Added skip-to-content navigation and stronger layout landmarks in the app shell.
+
+### Changed
+
+- Expanded web accessibility smoke checks to include setup routes (`/setup`, `/server-setup`).
+- Improved mobile document experience (toolbar overflow handling, right panel tab behavior, responsive document header spacing).
+- Improved onboarding/auth semantics with better busy-state handling, autocomplete hints, field disabling during submission, and clearer server URL guidance.
+- Updated contributing documentation with Tauri desktop/mobile quickstart commands and standalone repo conventions.
+
+### Fixed
+
+- Hardened button semantics in sidebar/operator controls by explicitly setting native button types.
+- Reduced duplicate in-flight workflow runs by adding concurrency controls to CI, release, and publish pipelines.
+
+## [1.0.0] - 2026-04-12
+
+### Added
+
+- Established standalone Starlane Notes repository baseline.
+- Added aligned Claude/Codex command-skill parity documentation.
+- Added versioned changelog structure with detailed release notes in `changelogs/`.
+
+### Changed
+
+- Standardized branch naming to `v{X.X.X}` for standalone release flow.
+- Standardized commit scope usage (`type(starlanenotes): description`).
+
+[Unreleased]: https://github.com/hbftechnologies/starlanenotes/compare/v1.0.11...HEAD
+[1.0.11]: https://github.com/hbftechnologies/starlanenotes/compare/v1.0.10...v1.0.11
+[1.0.10]: https://github.com/hbftechnologies/starlanenotes/compare/v1.0.9...v1.0.10
+[1.0.9]: https://github.com/hbftechnologies/starlanenotes/compare/v1.0.5...v1.0.9
+[1.0.5]: https://github.com/hbftechnologies/starlanenotes/compare/v1.0.0...v1.0.5
+[1.0.0]: https://github.com/hbftechnologies/starlanenotes/releases/tag/v1.0.0

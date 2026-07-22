@@ -1,0 +1,19 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "main",
+  "description": "Permissions for the main Starlane Notes webview.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "dialog:allow-open",
+    "deep-link:default",
+    "notification:default",
+    "shell:default",
+    "store:default",
+    "updater:default",
+    "haptics:allow-impact-feedback",
+    "haptics:allow-notification-feedback",
+    "haptics:allow-selection-feedback",
+    "haptics:allow-vibrate"
+  ]
+}

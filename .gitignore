@@ -1,0 +1,59 @@
+# Dependencies
+node_modules/
+.npm
+
+# Build outputs
+target/
+apps/web/dist/
+apps/docs/dist/
+apps/docs/src/content/docs/
+apps/docs/.astro/
+server/web-dist/
+docs/site/
+
+# Environment
+.env
+.env.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Rust
+*.pdb
+
+# TypeScript build info
+*.tsbuildinfo
+apps/web/vite.config.d.ts
+apps/web/vite.config.js
+
+# Data
+data/
+server/data/
+storage/
+*.db
+*.db-journal
+*.db-wal
+
+# OS
+.DS_Store
+**/.DS_Store
+._.DS_Store
+**/._.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Local agent/test artifacts
+artifacts/
+
+# Temporary files
+*.tmp
+*.swp
+*.swo
+*~
+.playwright-mcp/

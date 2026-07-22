@@ -1,0 +1,66 @@
+[package]
+name = "starlane-notes-server"
+version = "1.3.0"
+edition = "2021"
+license = "MIT"
+description = "Starlane Notes - Self-hosted document management server"
+
+[dependencies]
+# Web framework
+axum = { version = "0.8", features = ["ws", "multipart", "macros"] }
+axum-extra = { version = "0.10", features = ["cookie", "typed-header"] }
+tower = { version = "0.5", features = ["full"] }
+tower-http = { version = "0.6", features = ["cors", "fs", "trace", "compression-gzip"] }
+tokio = { version = "1", features = ["full"] }
+hyper = { version = "1", features = ["full"] }
+
+# Database
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "postgres", "any", "migrate", "chrono", "uuid"] }
+
+# Auth
+jsonwebtoken = "9"
+argon2 = "0.5"
+oauth2 = "4"
+openidconnect = "3"
+webauthn-rs = { version = "0.5", features = ["danger-allow-state-serialisation"] }
+totp-rs = { version = "5", features = ["qr", "gen_secret"] }
+rand = "0.8"
+
+# CRDT
+automerge = "0.5"
+
+# Search
+tantivy = "0.22"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+
+# Utilities
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+dotenvy = "0.15"
+thiserror = "2"
+anyhow = "1"
+futures = "0.3"
+base64 = "0.22"
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+lettre = { version = "0.11", features = ["tokio1-native-tls", "builder"] }
+reqwest = { version = "0.12", features = ["json"] }
+mime_guess = "2"
+urlencoding = "2"
+
+# Rate limiting
+tower_governor = "0.8"
+
+# Static file embedding (for serving React app)
+include_dir = "0.7"
+
+# OpenAPI
+utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid"] }
+utoipa-scalar = { version = "0.2", features = ["axum"] }

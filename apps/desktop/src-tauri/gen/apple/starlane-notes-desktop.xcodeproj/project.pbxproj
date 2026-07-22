@@ -1,0 +1,515 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0D7A6BAE246C8D218B6EF011 /* BackgroundTasks.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0D7A6BAC246C8D218B6EF011 /* BackgroundTasks.framework */; };
+		0D7A6BAF246C8D218B6EF011 /* BackgroundReplayScheduler.mm in Sources */ = {isa = PBXBuildFile; fileRef = 0D7A6BAD246C8D218B6EF011 /* BackgroundReplayScheduler.mm */; };
+		115A21AE9CACF76F70748ABD /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C5B1A38AF3B656E4B81ECD9E /* Metal.framework */; };
+		1A60F0F697937E9A3D67A934 /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1E36BCB6C1AB8309A99BB5EA /* main.mm */; };
+		2FD3208E0F3B7AF8AFC0E2B5 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8BF1494A930E8B030EC49750 /* Security.framework */; };
+		6A3C335CF39CFEC16BD2DBFA /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AADECCAB185BF1B3FC2CE0E5 /* UIKit.framework */; };
+		6FCD415FD168C88376101865 /* assets in Resources */ = {isa = PBXBuildFile; fileRef = 77A6C873DA7FDCBD597F63F9 /* assets */; };
+		77BDA003B48EC15DD80CCE34 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A58AAA04838A1157BB508EF7 /* QuartzCore.framework */; };
+		7F71556FADD3C92B1E34DDD5 /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D6B7C56A797913FCC0FC2D3F /* CoreGraphics.framework */; };
+		A542EB9D55001E5011D84B32 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504027F01756A00E7E37E6DD /* Assets.xcassets */; };
+		CD09B8E8A7BA202059C21FBF /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1215FC5B22864774014A3D52 /* WebKit.framework */; };
+		CE5B890A92A8CDB55D1565E8 /* libapp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 30CDE63C434A7102F6A249E5 /* libapp.a */; };
+		D0AB18C27A5FA4596C30226B /* starlane_notes_apple.icon in Resources */ = {isa = PBXBuildFile; fileRef = 13FD8E5B7C7C1AD0EE8153A6 /* starlane_notes_apple.icon */; };
+		DB33BAECC6186BE530557554 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 7F51A33A1B49ED1FC9040F0D /* LaunchScreen.storyboard */; };
+		F70E2D110DB5D3EEAFD0D0CE /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6A06B035E036FE5990C661F2 /* MetalKit.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		0D7A6BAB246C8D218B6EF011 /* BackgroundReplayScheduler.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BackgroundReplayScheduler.h; sourceTree = "<group>"; };
+		0D7A6BAC246C8D218B6EF011 /* BackgroundTasks.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = BackgroundTasks.framework; path = System/Library/Frameworks/BackgroundTasks.framework; sourceTree = SDKROOT; };
+		0D7A6BAD246C8D218B6EF011 /* BackgroundReplayScheduler.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = BackgroundReplayScheduler.mm; sourceTree = "<group>"; };
+		1215FC5B22864774014A3D52 /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
+		13FD8E5B7C7C1AD0EE8153A6 /* starlane_notes_apple.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = starlane_notes_apple.icon; sourceTree = "<group>"; };
+		1E36BCB6C1AB8309A99BB5EA /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
+		30CDE63C434A7102F6A249E5 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
+		504027F01756A00E7E37E6DD /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		5EB6BC344CA977067094C6E4 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		6A06B035E036FE5990C661F2 /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
+		77A6C873DA7FDCBD597F63F9 /* assets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = assets; sourceTree = SOURCE_ROOT; };
+		7F51A33A1B49ED1FC9040F0D /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
+		8731F243247DAF1452EC266E /* Starlane Notes.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Starlane Notes.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		8BF1494A930E8B030EC49750 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+		A58AAA04838A1157BB508EF7 /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
+		AADECCAB185BF1B3FC2CE0E5 /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
+		B0491ECFCBE1E48BFF2EF1B9 /* main.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = main.rs; sourceTree = "<group>"; };
+		BAD488A8E8ADD5B6E4DB13F4 /* starlane-notes-desktop_iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "starlane-notes-desktop_iOS.entitlements"; sourceTree = "<group>"; };
+		C5ADB25E9112A4E8879C4115 /* bindings.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bindings.h; sourceTree = "<group>"; };
+		C5B1A38AF3B656E4B81ECD9E /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
+		D6B7C56A797913FCC0FC2D3F /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		B71E4DDC79F9CF33B153D78C /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CE5B890A92A8CDB55D1565E8 /* libapp.a in Frameworks */,
+				0D7A6BAE246C8D218B6EF011 /* BackgroundTasks.framework in Frameworks */,
+				7F71556FADD3C92B1E34DDD5 /* CoreGraphics.framework in Frameworks */,
+				115A21AE9CACF76F70748ABD /* Metal.framework in Frameworks */,
+				F70E2D110DB5D3EEAFD0D0CE /* MetalKit.framework in Frameworks */,
+				77BDA003B48EC15DD80CCE34 /* QuartzCore.framework in Frameworks */,
+				2FD3208E0F3B7AF8AFC0E2B5 /* Security.framework in Frameworks */,
+				6A3C335CF39CFEC16BD2DBFA /* UIKit.framework in Frameworks */,
+				CD09B8E8A7BA202059C21FBF /* WebKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		2FAB8B9624F85B1388CB94ED /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				0D7A6BAC246C8D218B6EF011 /* BackgroundTasks.framework */,
+				D6B7C56A797913FCC0FC2D3F /* CoreGraphics.framework */,
+				30CDE63C434A7102F6A249E5 /* libapp.a */,
+				C5B1A38AF3B656E4B81ECD9E /* Metal.framework */,
+				6A06B035E036FE5990C661F2 /* MetalKit.framework */,
+				A58AAA04838A1157BB508EF7 /* QuartzCore.framework */,
+				8BF1494A930E8B030EC49750 /* Security.framework */,
+				AADECCAB185BF1B3FC2CE0E5 /* UIKit.framework */,
+				1215FC5B22864774014A3D52 /* WebKit.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		33E6A450AC3716DE313DE513 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				E233A825BEC3519F7A5D7F86 /* starlane-notes-desktop */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		5367CD45CCB7732D9654EDEA /* bindings */ = {
+			isa = PBXGroup;
+			children = (
+				C5ADB25E9112A4E8879C4115 /* bindings.h */,
+			);
+			path = bindings;
+			sourceTree = "<group>";
+		};
+		556574FBB3568C1C9718413C /* starlane-notes-desktop_iOS */ = {
+			isa = PBXGroup;
+			children = (
+				5EB6BC344CA977067094C6E4 /* Info.plist */,
+				BAD488A8E8ADD5B6E4DB13F4 /* starlane-notes-desktop_iOS.entitlements */,
+			);
+			path = "starlane-notes-desktop_iOS";
+			sourceTree = "<group>";
+		};
+		797615DDFD9A070EE8ACAD06 /* app-icons */ = {
+			isa = PBXGroup;
+			children = (
+				13FD8E5B7C7C1AD0EE8153A6 /* starlane_notes_apple.icon */,
+			);
+			name = "app-icons";
+			path = "../../../../../images/app-icons";
+			sourceTree = "<group>";
+		};
+		818567173AFAD4FC427710E1 /* src */ = {
+			isa = PBXGroup;
+			children = (
+				B0491ECFCBE1E48BFF2EF1B9 /* main.rs */,
+			);
+			name = src;
+			path = ../../src;
+			sourceTree = "<group>";
+		};
+		8E5CEFC482C459A7FF99D1CD = {
+			isa = PBXGroup;
+			children = (
+				77A6C873DA7FDCBD597F63F9 /* assets */,
+				504027F01756A00E7E37E6DD /* Assets.xcassets */,
+				7F51A33A1B49ED1FC9040F0D /* LaunchScreen.storyboard */,
+				797615DDFD9A070EE8ACAD06 /* app-icons */,
+				9F2C4A0C3468429C7F1EDA38 /* Externals */,
+				33E6A450AC3716DE313DE513 /* Sources */,
+				818567173AFAD4FC427710E1 /* src */,
+				556574FBB3568C1C9718413C /* starlane-notes-desktop_iOS */,
+				2FAB8B9624F85B1388CB94ED /* Frameworks */,
+				E35F09C7D8B7988B4CE01A3C /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		9F2C4A0C3468429C7F1EDA38 /* Externals */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = Externals;
+			sourceTree = "<group>";
+		};
+		E233A825BEC3519F7A5D7F86 /* starlane-notes-desktop */ = {
+			isa = PBXGroup;
+			children = (
+				0D7A6BAB246C8D218B6EF011 /* BackgroundReplayScheduler.h */,
+				0D7A6BAD246C8D218B6EF011 /* BackgroundReplayScheduler.mm */,
+				1E36BCB6C1AB8309A99BB5EA /* main.mm */,
+				5367CD45CCB7732D9654EDEA /* bindings */,
+			);
+			path = "starlane-notes-desktop";
+			sourceTree = "<group>";
+		};
+		E35F09C7D8B7988B4CE01A3C /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				8731F243247DAF1452EC266E /* Starlane Notes.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		584E003631D19A33CD91EEFC /* starlane-notes-desktop_iOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 212463D1699995B0620AF256 /* Build configuration list for PBXNativeTarget "starlane-notes-desktop_iOS" */;
+			buildPhases = (
+				7E3183608E3841A5F7156C4E /* Build Rust Code */,
+				D297F6624C799C018EED2A42 /* Sources */,
+				DE6F9897D8DBCFFB2DF95E1D /* Resources */,
+				B71E4DDC79F9CF33B153D78C /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "starlane-notes-desktop_iOS";
+			packageProductDependencies = (
+			);
+			productName = "starlane-notes-desktop_iOS";
+			productReference = 8731F243247DAF1452EC266E /* Starlane Notes.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		F2707B5BFD5317D114A8360F /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 2700;
+			};
+			buildConfigurationList = E20BB3F932D1CC6750708481 /* Build configuration list for PBXProject "starlane-notes-desktop" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 8E5CEFC482C459A7FF99D1CD;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = E35F09C7D8B7988B4CE01A3C /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				584E003631D19A33CD91EEFC /* starlane-notes-desktop_iOS */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		DE6F9897D8DBCFFB2DF95E1D /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A542EB9D55001E5011D84B32 /* Assets.xcassets in Resources */,
+				DB33BAECC6186BE530557554 /* LaunchScreen.storyboard in Resources */,
+				6FCD415FD168C88376101865 /* assets in Resources */,
+				D0AB18C27A5FA4596C30226B /* starlane_notes_apple.icon in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		7E3183608E3841A5F7156C4E /* Build Rust Code */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build Rust Code";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(SRCROOT)/Externals/x86_64/${CONFIGURATION}/libapp.a",
+				"$(SRCROOT)/Externals/arm64/${CONFIGURATION}/libapp.a",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "export PATH=\"$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"\ncd \"${SRCROOT}/../..\"\ncargo tauri ios xcode-script -v --platform ${PLATFORM_DISPLAY_NAME:?} --sdk-root ${SDKROOT:?} --framework-search-paths \"${FRAMEWORK_SEARCH_PATHS:?}\" --header-search-paths \"${HEADER_SEARCH_PATHS:?}\" --gcc-preprocessor-definitions \"${GCC_PREPROCESSOR_DEFINITIONS:-}\" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?}";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		D297F6624C799C018EED2A42 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0D7A6BAF246C8D218B6EF011 /* BackgroundReplayScheduler.mm in Sources */,
+				1A60F0F697937E9A3D67A934 /* main.mm in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		3E0C208425A136C2BBBD31B2 /* debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = starlane_notes_apple;
+				CODE_SIGN_ENTITLEMENTS = "starlane-notes-desktop_iOS/starlane-notes-desktop_iOS.entitlements";
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 0.1.0;
+				DEVELOPMENT_TEAM = "H9FVZ6838A";
+				ENABLE_BITCODE = NO;
+				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\".\"",
+				);
+				INFOPLIST_FILE = "starlane-notes-desktop_iOS/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Starlane Notes";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"LIBRARY_SEARCH_PATHS[arch=arm64]" = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION)",
+					"$(SDKROOT)/usr/lib/swift",
+					"$(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME)",
+					"$(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)",
+				);
+				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION)",
+					"$(SDKROOT)/usr/lib/swift",
+					"$(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME)",
+					"$(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)",
+				);
+				MARKETING_VERSION = 1.0.11;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.starlane.notes;
+				PRODUCT_NAME = "Starlane Notes";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALID_ARCHS = arm64;
+			};
+			name = debug;
+		};
+		6C67BC9BC47549EF37787ED6 /* release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = starlane_notes_apple;
+				CODE_SIGN_ENTITLEMENTS = "starlane-notes-desktop_iOS/starlane-notes-desktop_iOS.entitlements";
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 0.1.0;
+				DEVELOPMENT_TEAM = "H9FVZ6838A";
+				ENABLE_BITCODE = NO;
+				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\".\"",
+				);
+				INFOPLIST_FILE = "starlane-notes-desktop_iOS/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Starlane Notes";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"LIBRARY_SEARCH_PATHS[arch=arm64]" = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION)",
+					"$(SDKROOT)/usr/lib/swift",
+					"$(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME)",
+					"$(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)",
+				);
+				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION)",
+					"$(SDKROOT)/usr/lib/swift",
+					"$(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME)",
+					"$(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)",
+				);
+				MARKETING_VERSION = 1.0.11;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.starlane.notes;
+				PRODUCT_NAME = "Starlane Notes";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALID_ARCHS = arm64;
+			};
+			name = release;
+		};
+		DB481EA49BFC29212A5E454B /* release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = H9FVZ6838A;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = release;
+		};
+		E7F95BAE69CBDBD9E4B11671 /* debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = H9FVZ6838A;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		212463D1699995B0620AF256 /* Build configuration list for PBXNativeTarget "starlane-notes-desktop_iOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3E0C208425A136C2BBBD31B2 /* debug */,
+				6C67BC9BC47549EF37787ED6 /* release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = debug;
+		};
+		E20BB3F932D1CC6750708481 /* Build configuration list for PBXProject "starlane-notes-desktop" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E7F95BAE69CBDBD9E4B11671 /* debug */,
+				DB481EA49BFC29212A5E454B /* release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = F2707B5BFD5317D114A8360F /* Project object */;
+}
