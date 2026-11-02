@@ -1,9 +1,23 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+} from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { forceCenter, forceLink, forceManyBody, forceSimulation } from "d3-force";
 import { Link2, Loader2, Maximize2, Minus, Plus, RefreshCw, RotateCcw } from "lucide-react";
 import { SearchInput } from "@/components/ui/search-input";
 import { Select } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  CONTROL_CHROME_ACTION_CLASS,
+  CONTROL_CHROME_RAIL_CLASS,
+} from "@/components/ui/control-chrome";
+import { useMenuKeyboardNavigation } from "@/components/ui/useMenuKeyboardNavigation";
 import { dataClient, type GraphNodeRecord, type GraphRecord } from "@/lib/dataClient";
 import { addGraphDirtyListener } from "@/lib/graphEvents";
 import { buildDocumentRoutePath } from "@/lib/lastViewedDocument";
@@ -124,6 +138,7 @@ export function graphVisibleStats(graph: GraphRecord, visibleNodeIds: Set<string
   };
 }
 
+
 export function graphNeighborsByNode(
   nodes: Array<Pick<GraphNodeRecord, "id">>,
   edges: GraphRecord["edges"],
@@ -229,6 +244,76 @@ async function saveLayoutCache(spaceId: string, entry: CachedLayoutEntry): Promi
   }
 }
 
+function GraphNodeContextMenu({
+  nodeTitle,
+  open,
+  pinned,
+  onOpenChange,
+  onOpen,
+  onOpenInNewTab,
+  onShowConnections,
+  onTogglePin,
+  children,
+}: {
+  nodeTitle: string;
+  open: boolean;
+  pinned: boolean;
+  onOpenChange: (open: boolean) => void;
+  onOpen: () => void;
+  onOpenInNewTab: () => void;
+  onShowConnections: () => void;
+  onTogglePin: () => void;
+  children: ReactNode;
+}) {
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const handleMenuKeyDown = useMenuKeyboardNavigation(menuRef);
+
+  return (
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <PopoverTrigger asChild>{children}</PopoverTrigger>
+      <PopoverContent
+        align="start"
+        side="bottom"
+        sideOffset={6}
+        className="w-48 p-1"
+        role="menu"
+        aria-label={`${nodeTitle} actions`}
+      >
+        <div ref={menuRef} onKeyDown={handleMenuKeyDown}>
+          <button type="button" role="menuitem" onClick={onOpen} className="starlane-menu-item">
+            Open
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={onOpenInNewTab}
+            className="starlane-menu-item"
+          >
+            Open in new tab
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={onShowConnections}
+            className="starlane-menu-item"
+          >
+            Show connections
+          </button>
+          <button
+            type="button"
+            role="menuitemcheckbox"
+            aria-checked={pinned}
+            onClick={onTogglePin}
+            className="starlane-menu-item"
+          >
+            {pinned ? "Unpin node" : "Pin node"}
+          </button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 export function GraphPage() {
   const navigate = useNavigate();
   const { spaceId } = useParams<{ spaceId: string }>();
@@ -240,11 +325,7 @@ export function GraphPage() {
   const [folders, setFolders] = useState<FolderItem[]>([]);
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
   const [pinnedNodes, setPinnedNodes] = useState<Record<string, boolean>>({});
-  const [menuState, setMenuState] = useState<{
-    x: number;
-    y: number;
-    nodeId: string;
-  } | null>(null);
+  const [menuNodeId, setMenuNodeId] = useState<string | null>(null);
   const [showOrphans, setShowOrphans] = useState(true);
   const [folderFilter, setFolderFilter] = useState<string>("all");
   const [minConnections, setMinConnections] = useState(0);
@@ -258,7 +339,13 @@ export function GraphPage() {
   const [workerLayout, setWorkerLayout] = useState<GraphLayoutWorkerResult | null>(null);
   const [workerLayoutBusy, setWorkerLayoutBusy] = useState(false);
 
-  const dragStateRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
+  const dragStateRef = useRef<{
+    pointerId: number;
+    x: number;
+    y: number;
+    panX: number;
+    panY: number;
+  } | null>(null);
   const incrementalRefreshTimerRef = useRef<number | null>(null);
 
   const reloadGraph = useCallback(
@@ -543,10 +630,24 @@ export function GraphPage() {
 
   const stats = useMemo(() => graphVisibleStats(graph, visibleNodeIds), [graph, visibleNodeIds]);
 
-  const menuNode = useMemo(
-    () => (menuState ? (layout.nodes.find((node) => node.id === menuState.nodeId) ?? null) : null),
-    [layout.nodes, menuState],
-  );
+  const closeGraphMenu = useCallback(() => setMenuNodeId(null), []);
+
+  const handleGraphNodeKeyDown = (
+    event: ReactKeyboardEvent<SVGCircleElement>,
+    nodeId: string,
+  ) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      event.stopPropagation();
+      setSelectedNodeId(nodeId);
+      closeGraphMenu();
+      return;
+    }
+    if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setMenuNodeId(nodeId);
+  };
 
   const viewportRect = useMemo(() => {
     const x = clamp(-pan.x / zoom, 0, VIEW_WIDTH);
@@ -558,19 +659,19 @@ export function GraphPage() {
 
   const openNode = (nodeId: string) => {
     if (spaceId) navigate(getGraphDocumentPath(spaceId, nodeId));
-    setMenuState(null);
+    setMenuNodeId(null);
   };
 
   const openNodeInNewTab = (nodeId: string) => {
     if (spaceId) {
       window.open(getGraphDocumentPath(spaceId, nodeId), "_blank", "noopener,noreferrer");
     }
-    setMenuState(null);
+    setMenuNodeId(null);
   };
 
   const showConnections = (nodeId: string) => {
     setFocusNodeId(nodeId);
-    setMenuState(null);
+    setMenuNodeId(null);
   };
 
   const togglePinNode = (nodeId: string) => {
@@ -578,7 +679,7 @@ export function GraphPage() {
       ...prev,
       [nodeId]: !prev[nodeId],
     }));
-    setMenuState(null);
+    setMenuNodeId(null);
   };
 
   const handleGraphWheel = (e: React.WheelEvent<SVGSVGElement>) => {
@@ -587,9 +688,13 @@ export function GraphPage() {
     setZoom((prev) => clamp(Number((prev + direction).toFixed(2)), ZOOM_MIN, ZOOM_MAX));
   };
 
-  const handleGraphMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
-    if (e.button !== 0) return;
+  const handleGraphPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (!e.isPrimary || (e.pointerType === "mouse" && e.button !== 0)) return;
+    if ((e.target as Element).closest("[data-graph-node]")) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
     dragStateRef.current = {
+      pointerId: e.pointerId,
       x: e.clientX,
       y: e.clientY,
       panX: pan.x,
@@ -597,29 +702,24 @@ export function GraphPage() {
     };
   };
 
-  useEffect(() => {
-    const onMouseMove = (e: MouseEvent) => {
-      const drag = dragStateRef.current;
-      if (!drag) return;
-      const dx = e.clientX - drag.x;
-      const dy = e.clientY - drag.y;
-      setPan({
-        x: drag.panX + dx,
-        y: drag.panY + dy,
-      });
-    };
+  const handleGraphPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    const drag = dragStateRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    e.preventDefault();
+    setPan({
+      x: drag.panX + e.clientX - drag.x,
+      y: drag.panY + e.clientY - drag.y,
+    });
+  };
 
-    const onMouseUp = () => {
-      dragStateRef.current = null;
-    };
-
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
-    return () => {
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
-    };
-  }, []);
+  const finishGraphPointerDrag = (e: React.PointerEvent<SVGSVGElement>) => {
+    const drag = dragStateRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+    dragStateRef.current = null;
+  };
 
   const handleMinimapClick = useCallback(
     (e: React.MouseEvent<SVGSVGElement>) => {
@@ -658,7 +758,7 @@ export function GraphPage() {
     <div
       className="bg-bg relative flex h-full min-h-0 flex-col"
       onClick={() => {
-        if (menuState) setMenuState(null);
+        if (menuNodeId) closeGraphMenu();
       }}
     >
       <div className="border-border border-b px-4 py-3">
@@ -736,11 +836,15 @@ export function GraphPage() {
             <option value={5}>5+ links</option>
           </Select>
 
-          <div className="rounded-input border-border bg-surface flex items-center gap-1 border px-1.5 py-1">
+          <div
+            role="group"
+            aria-label="Graph zoom controls"
+            className={`${CONTROL_CHROME_RAIL_CLASS} px-1.5 py-1`}
+          >
             <button
               type="button"
               onClick={() => setZoom((prev) => clamp(prev - 0.1, ZOOM_MIN, ZOOM_MAX))}
-              className="rounded-button text-text-muted hover:bg-surface-raised hover:text-text p-1 transition-colors duration-100"
+              className={`${CONTROL_CHROME_ACTION_CLASS} p-1`}
               aria-label="Zoom out"
             >
               <Minus size={12} />
@@ -751,18 +855,22 @@ export function GraphPage() {
             <button
               type="button"
               onClick={() => setZoom((prev) => clamp(prev + 0.1, ZOOM_MIN, ZOOM_MAX))}
-              className="rounded-button text-text-muted hover:bg-surface-raised hover:text-text p-1 transition-colors duration-100"
+              className={`${CONTROL_CHROME_ACTION_CLASS} p-1`}
               aria-label="Zoom in"
             >
               <Plus size={12} />
             </button>
           </div>
 
-          <div className="rounded-input border-border bg-surface flex items-center gap-1 border px-1.5 py-1">
+          <div
+            role="group"
+            aria-label="Graph viewport controls"
+            className={`${CONTROL_CHROME_RAIL_CLASS} px-1.5 py-1`}
+          >
             <button
               type="button"
               onClick={fitVisibleGraph}
-              className="rounded-button text-text-muted hover:bg-surface-raised hover:text-text p-1 transition-colors duration-100"
+              className={`${CONTROL_CHROME_ACTION_CLASS} p-1`}
               aria-label="Fit graph to view"
             >
               <Maximize2 size={12} />
@@ -770,7 +878,7 @@ export function GraphPage() {
             <button
               type="button"
               onClick={resetGraphView}
-              className="rounded-button text-text-muted hover:bg-surface-raised hover:text-text p-1 transition-colors duration-100"
+              className={`${CONTROL_CHROME_ACTION_CLASS} p-1`}
               aria-label="Reset graph view"
             >
               <RotateCcw size={12} />
@@ -820,11 +928,18 @@ export function GraphPage() {
             <div className="rounded-card border-border bg-surface relative h-full border">
               <svg
                 viewBox={`0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}`}
-                className="h-full w-full"
-                role="img"
+                className="h-full w-full touch-none select-none"
+                role="group"
                 aria-label="Document relationship graph"
                 onWheel={handleGraphWheel}
-                onMouseDown={handleGraphMouseDown}
+                onPointerDown={handleGraphPointerDown}
+                onPointerMove={handleGraphPointerMove}
+                onPointerUp={finishGraphPointerDrag}
+                onPointerCancel={finishGraphPointerDrag}
+                onLostPointerCapture={() => {
+                  dragStateRef.current = null;
+                }}
+                onDragStart={(event) => event.preventDefault()}
                 onContextMenu={(e) => e.preventDefault()}
               >
                 <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
@@ -866,48 +981,61 @@ export function GraphPage() {
 
                       return (
                         <g key={node.id}>
-                          <circle
-                            cx={node.x}
-                            cy={node.y}
-                            r={node.r}
-                            fill={fill}
-                            fillOpacity={
-                              node.orphan
-                                ? queryDimmed || neighborDimmed
-                                  ? 0.16
-                                  : 0.45
-                                : queryDimmed || neighborDimmed
-                                  ? 0.2
-                                  : 0.95
-                            }
-                            stroke={
-                              isSelected || isFocused || isPinned || matchActive
-                                ? "var(--primary)"
-                                : "var(--border)"
-                            }
-                            strokeWidth={isSelected || isFocused || isPinned || matchActive ? 2 : 1}
-                            className="cursor-pointer transition-all duration-100"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedNodeId(node.id);
-                              setMenuState(null);
-                            }}
-                            onDoubleClick={(e) => {
-                              e.stopPropagation();
-                              setFocusNodeId(node.id);
-                            }}
-                            onContextMenu={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              setMenuState({
-                                x: e.clientX,
-                                y: e.clientY,
-                                nodeId: node.id,
-                              });
-                            }}
+                          <GraphNodeContextMenu
+                            nodeTitle={node.title}
+                            open={menuNodeId === node.id}
+                            pinned={isPinned}
+                            onOpenChange={(open) => setMenuNodeId(open ? node.id : null)}
+                            onOpen={() => openNode(node.id)}
+                            onOpenInNewTab={() => openNodeInNewTab(node.id)}
+                            onShowConnections={() => showConnections(node.id)}
+                            onTogglePin={() => togglePinNode(node.id)}
                           >
-                            <title>{node.title}</title>
-                          </circle>
+                            <circle
+                              data-graph-node
+                              cx={node.x}
+                              cy={node.y}
+                              r={node.r}
+                              fill={fill}
+                              fillOpacity={
+                                node.orphan
+                                  ? queryDimmed || neighborDimmed
+                                    ? 0.16
+                                    : 0.45
+                                  : queryDimmed || neighborDimmed
+                                    ? 0.2
+                                    : 0.95
+                              }
+                              stroke={
+                                isSelected || isFocused || isPinned || matchActive
+                                  ? "var(--primary)"
+                                  : "var(--border)"
+                              }
+                              strokeWidth={isSelected || isFocused || isPinned || matchActive ? 2 : 1}
+                              className="cursor-pointer transition-all duration-100 focus-visible:stroke-primary focus-visible:stroke-[3]"
+                              role="button"
+                              tabIndex={0}
+                              aria-label={`Select ${node.title}`}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setSelectedNodeId(node.id);
+                                closeGraphMenu();
+                              }}
+                              onDoubleClick={(e) => {
+                                e.stopPropagation();
+                                setFocusNodeId(node.id);
+                              }}
+                              onContextMenu={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setMenuNodeId(node.id);
+                              }}
+                              onKeyDown={(event) => handleGraphNodeKeyDown(event, node.id)}
+                            >
+                              <title>{node.title}</title>
+                            </circle>
+                          </GraphNodeContextMenu>
                         </g>
                       );
                     })}
@@ -1020,42 +1148,6 @@ export function GraphPage() {
         </div>
       )}
 
-      {menuState && menuNode && (
-        <div
-          className="rounded-card border-border bg-surface shadow-card fixed z-40 min-w-[170px] border p-1"
-          style={{ left: `${menuState.x}px`, top: `${menuState.y}px` }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <button
-            type="button"
-            onClick={() => openNode(menuNode.id)}
-            className="rounded-button text-text-muted hover:bg-surface-raised hover:text-text w-full px-2 py-1.5 text-left text-xs transition-colors duration-100"
-          >
-            Open
-          </button>
-          <button
-            type="button"
-            onClick={() => openNodeInNewTab(menuNode.id)}
-            className="rounded-button text-text-muted hover:bg-surface-raised hover:text-text w-full px-2 py-1.5 text-left text-xs transition-colors duration-100"
-          >
-            Open in new tab
-          </button>
-          <button
-            type="button"
-            onClick={() => showConnections(menuNode.id)}
-            className="rounded-button text-text-muted hover:bg-surface-raised hover:text-text w-full px-2 py-1.5 text-left text-xs transition-colors duration-100"
-          >
-            Show connections
-          </button>
-          <button
-            type="button"
-            onClick={() => togglePinNode(menuNode.id)}
-            className="rounded-button text-text-muted hover:bg-surface-raised hover:text-text w-full px-2 py-1.5 text-left text-xs transition-colors duration-100"
-          >
-            {pinnedNodes[menuNode.id] ? "Unpin node" : "Pin node"}
-          </button>
-        </div>
-      )}
     </div>
   );
 }

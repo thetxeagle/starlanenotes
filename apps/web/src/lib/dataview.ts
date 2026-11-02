@@ -1,6 +1,9 @@
 export interface DataviewDocument {
   id: string;
   title: string;
+  human_identifier?: string | null;
+  maintenance_user_id?: string | null;
+  maintenance_group_id?: string | null;
   content?: string;
   space_id?: string;
   space_name?: string;
@@ -262,7 +265,23 @@ function evaluatePredicate(
   document: DataviewDocument,
   predicate: Extract<DataviewExpression, { type: "predicate" }>,
 ): boolean {
-  const field = predicate.field ? normalizeFieldName(predicate.field) : undefined;
+  const field = predicate.field
+    ? ["page.identifier", "page.maintenance_user", "page.maintenance_group"].includes(
+        predicate.field.trim().toLowerCase(),
+      )
+      ? predicate.field.trim().toLowerCase()
+      : normalizeFieldName(predicate.field)
+    : undefined;
+  if (field === "page.maintenance_user" || field === "page.maintenance_group") {
+    const actual = valuesForField(document, field)[0] ?? "";
+    if (predicate.operator === "is_not") return actual !== predicate.value;
+    if (predicate.operator === "is" || predicate.operator === "equals")
+      return actual === predicate.value;
+    if (predicate.operator === "fuzzy") return fuzzyIncludes(actual, predicate.value);
+    return predicate.value.includes("*")
+      ? wildcardMatches(actual, predicate.value)
+      : actual.includes(predicate.value);
+  }
   const expected = normalizeComparable(predicate.value);
   const values = field ? valuesForField(document, field) : valuesForFreeText(document);
 
@@ -277,6 +296,9 @@ function valuesForFreeText(document: DataviewDocument): string[] {
 }
 
 function valuesForField(document: DataviewDocument, field: string): string[] {
+  if (field === "page.identifier") return [document.human_identifier ?? ""];
+  if (field === "page.maintenance_user") return [document.maintenance_user_id ?? ""];
+  if (field === "page.maintenance_group") return [document.maintenance_group_id ?? ""];
   if (field === "title" || field === "name") return [document.title];
   if (field === "content" || field === "text") return [document.content ?? ""];
   if (field === "space" || field === "spaceid") {
@@ -287,9 +309,7 @@ function valuesForField(document: DataviewDocument, field: string): string[] {
   if (field === "updated" || field === "updatedat") return [document.updated_at ?? ""];
 
   const properties = document.properties ?? {};
-  const matching = Object.entries(properties).find(
-    ([key]) => normalizeFieldName(key) === field,
-  );
+  const matching = Object.entries(properties).find(([key]) => normalizeFieldName(key) === field);
   if (!matching) return [];
   const value = matching[1];
   return Array.isArray(value) ? value.map(String) : [String(value ?? "")];

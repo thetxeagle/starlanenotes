@@ -133,10 +133,18 @@ describe("local MCP transport listeners", () => {
     const responses: string[] = [];
     const listener = startLocalMcpStdioListener(
       {
-        input: lines([JSON.stringify({
-          id: "host-write-1", transport: "stdio", tool: "starlane.documents.create",
-          request: { capability_token: token, confirmation_text: "confirm local mcp starlane.documents.create", input: { space_id: space.id, title: "Host created" } },
-        })]),
+        input: lines([
+          JSON.stringify({
+            id: "host-write-1",
+            transport: "stdio",
+            tool: "starlane.documents.create",
+            request: {
+              capability_token: token,
+              confirmation_text: "confirm local mcp starlane.documents.create",
+              input: { space_id: space.id, title: "Host created" },
+            },
+          }),
+        ]),
         write: (line) => {
           responses.push(line);
         },
@@ -147,11 +155,22 @@ describe("local MCP transport listeners", () => {
     await listener.drain();
     await listener.stop();
     expect(responses[0]).toContain('"read_only":false');
-    expect(await dataClient.listDocuments(space.id)).toHaveLength(1);
+    expect(await dataClient.listDocuments(space.id)).toEqual([
+      expect.objectContaining({
+        title: "Host created",
+        published_at: undefined,
+        draft_id: expect.any(String),
+      }),
+    ]);
+    expect(await dataClient.listDocumentDrafts(space.id)).toHaveLength(1);
   });
 });
 
-async function issueAndAccept(transport: "stdio" | "sse", token: string, tool = "starlane.spaces.list"): Promise<void> {
+async function issueAndAccept(
+  transport: "stdio" | "sse",
+  token: string,
+  tool = "starlane.spaces.list",
+): Promise<void> {
   await issueLocalMcpCapabilityToken(
     {
       request_id: `listener-${transport}-token`,

@@ -53,6 +53,11 @@ targets:
           - dev.starlane.notes.background-replay.none
           - dev.starlane.notes.background-replay.icloud-drive
           - dev.starlane.notes.background-replay.google-drive
+        CFBundleURLTypes:
+          - CFBundleTypeRole: Editor
+            CFBundleURLName: dev.starlane.notes
+            CFBundleURLSchemes:
+              - starlane
         UIBackgroundModes:
           - background-fetch
           - processing

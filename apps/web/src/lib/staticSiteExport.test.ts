@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { unzipSync } from "fflate";
 import { execFileSync } from "node:child_process";
 import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -398,7 +399,7 @@ describe("static site export", () => {
 
   it("rewrites non-embedded document attachment references when asset bytes are available", () => {
     const imageUrl = "data:image/png;base64,aGVsbG8=";
-    const vaultPath = "/Users/eagle/Starlane/attachments/doc-1/asset-1-diagram.png";
+    const vaultPath = "/Users/example/Starlane/attachments/doc-1/asset-1-diagram.png";
     const starlaneUrl = "starlane://asset/asset-1";
     const snapshot = makeSnapshot({
       documents: [
@@ -525,7 +526,7 @@ describe("static site export", () => {
 
   it("records skipped static-site assets against documents that reference local attachment paths", () => {
     const assetUrl = "asset://localhost/%2FUsers%2Feagle%2FStarlane%2Fattachments%2Fdoc-1%2Fasset-1-diagram.png";
-    const vaultPath = "/Users/eagle/Starlane/attachments/doc-1/asset-1-diagram.png";
+    const vaultPath = "/Users/example/Starlane/attachments/doc-1/asset-1-diagram.png";
     const snapshot = makeSnapshot({
       documents: [
         {
@@ -680,4 +681,145 @@ describe("static site export", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+});
+
+
+describe("exact immutable asset reference export", () => {
+  const asset = (id: string, name: string, body: string) => ({
+    id,
+    name,
+    mime_type: "application/octet-stream",
+    size: body.length,
+    url: `data:application/octet-stream;base64,${Buffer.from(body).toString("base64")}`,
+    source: "browser" as const,
+    created_at: "2026-10-10T00:00:00Z",
+  });
+  const snapshot = (content: string, assets: LocalVaultSnapshot["assets"]) =>
+    makeSnapshot({ documents: [{ ...makeSnapshot().documents[0], content }], assets });
+  const html = (input: LocalVaultSnapshot) =>
+    buildStaticSiteBundle(input).files.find((f) => f.path.startsWith("documents/"))!
+      .content as string;
+  it("keeps both equal-name different-byte explicit pins and leaves plain filename text alone", () => {
+    const input = snapshot(
+      "[Old](starlane://asset/version-1)\n\n[New](starlane://asset/version-2)\n\nPlain starlane://asset/same.bin",
+      [asset("version-1", "same.bin", "OLD"), asset("version-2", "same.bin", "NEW")],
+    );
+    const before = JSON.stringify(input);
+    const bundle = buildStaticSiteBundle(input);
+    const page = html(input);
+    expect(page).toContain('href="../assets/same.bin"');
+    expect(page).toContain('href="../assets/same-2.bin"');
+    expect(page).toContain("Plain starlane://asset/same.bin");
+    expect(
+      Array.from(bundle.files.find((f) => f.path === "assets/same.bin")!.content as Uint8Array),
+    ).toEqual([...Buffer.from("OLD")]);
+    expect(
+      Array.from(bundle.files.find((f) => f.path === "assets/same-2.bin")!.content as Uint8Array),
+    ).toEqual([...Buffer.from("NEW")]);
+    expect(JSON.stringify(input)).toBe(before);
+  });
+  it("refuses a referenced ambiguous filename instead of selecting the last version", () => {
+    const input = snapshot("[Ambiguous](starlane://asset/same.bin)", [
+      asset("version-1", "same.bin", "OLD"),
+      asset("version-2", "same.bin", "NEW"),
+    ]);
+    const before = JSON.stringify(input);
+    expect(() => buildStaticSiteBundle(input)).toThrow(/ambiguous/i);
+    expect(JSON.stringify(input)).toBe(before);
+  });
+  it("does not corrupt a longer immutable ID with a shorter ID prefix", () => {
+    const input = snapshot(
+      "[One](starlane://asset/version-1)\n\n[Ten](starlane://asset/version-10)",
+      [asset("version-1", "one.bin", "ONE"), asset("version-10", "ten.bin", "TEN")],
+    );
+    const page = html(input);
+    expect(page).toContain('href="../assets/one.bin"');
+    expect(page).toContain('href="../assets/ten.bin"');
+    expect(page).not.toContain("one.bin0");
+  });
+  it("rewrites accepted reference definitions without changing code, prose, titles or rejected duplicate definitions", () => {
+    const pin = "starlane://asset/version-1";
+    const body = `Plain ${pin}\r\n\r\n\`${pin}\`\r\n\r\n[Read][owned]\r\n\r\n[owned]: <${pin}> "${pin}"\r\n[owned]: ${pin}\r\n`;
+    const page = html(snapshot(body, [asset("version-1", "one.bin", "ONE")]));
+    expect(page).toContain('href="../assets/one.bin"');
+    expect(page).toContain(`title="${pin}"`);
+    expect(page).toContain(`<code>${pin}</code>`);
+    expect(page).toContain(`Plain ${pin}`);
+  });
+  it("gives an exact immutable ID priority over another asset's filename alias", () => {
+    const page = html(
+      snapshot("[Exact](starlane://asset/version-1)", [
+        asset("version-1", "one.bin", "ONE"),
+        asset("version-2", "version-1", "TWO"),
+      ]),
+    );
+    expect(page).toContain('href="../assets/one.bin"');
+  });
+});
+
+describe("skipped asset exact alias ownership", () => {
+  const local = {
+    id: "local",
+    name: "remote",
+    mime_type: "application/octet-stream",
+    size: 3,
+    url: "data:application/octet-stream;base64,T05F",
+    source: "browser" as const,
+    created_at: "2026-10-10T00:00:00Z",
+  };
+  const remote = {
+    id: "remote",
+    name: "remote.bin",
+    mime_type: "application/octet-stream",
+    size: 3,
+    url: "https://example.invalid/remote.bin",
+    source: "browser" as const,
+    created_at: "2026-10-10T00:00:00Z",
+  };
+  const input = (body: string, assets: LocalVaultSnapshot["assets"]) =>
+    makeSnapshot({ documents: [{ ...makeSnapshot().documents[0], content: body }], assets });
+  it("does not let a local filename impersonate a skipped remote exact ID", () => {
+    const bundle = buildStaticSiteBundle(
+      input("[Remote](starlane://asset/remote)", [local, remote]),
+    );
+    const html = bundle.files.find((f) => f.path.startsWith("documents/"))!.content as string;
+    expect(html).toContain('href="starlane://asset/remote"');
+    expect(html).not.toContain('href="../assets/remote"');
+    expect(bundle.skipped_asset_count).toBe(1);
+  });
+  it("refuses a filename alias claimed by both exported and skipped versions", () => {
+    expect(() =>
+      buildStaticSiteBundle(
+        input("[Ambiguous](starlane://asset/same.bin)", [
+          { ...local, name: "same.bin" },
+          { ...remote, name: "same.bin" },
+        ]),
+      ),
+    ).toThrow(/ambiguous/);
+  });
+  it("refuses duplicate exact IDs even if only one copy can be embedded", () => {
+    expect(() =>
+      buildStaticSiteBundle(
+        input("[Ambiguous](starlane://asset/local)", [local, { ...remote, id: "local" }]),
+      ),
+    ).toThrow(/ambiguous/);
+  });
+});
+
+it("exports the pinned retained version bytes without retargeting a same-name newest version", () => {
+  const pinned="11111111-1111-4111-8111-111111111111", newest="22222222-2222-4222-8222-222222222222";
+  const snapshot=makeSnapshot({documents:[{id:"doc-moved-twice",space_id:"space-1",title:"Retained pin",content:`[file:Same name](starlane-attachment://${pinned})`,created_at:"2026-10-11T00:00:00Z",updated_at:"2026-10-11T00:00:00Z"}],assets:[
+    {id:pinned,source:"browser",space_id:"space-1",name:"same.bin",url:"data:application/octet-stream;base64,AAH/",mime_type:"application/octet-stream",size:3,created_at:"2026-10-10T00:00:00Z"},
+    {id:newest,source:"browser",space_id:"space-1",name:"same.bin",url:"data:application/octet-stream;base64,TkVX",mime_type:"application/octet-stream",size:3,created_at:"2026-10-11T00:00:00Z"}
+  ]});
+  const bundle=buildStaticSiteBundle(snapshot);
+  const html=bundle.files.find(f=>f.path.startsWith("documents/")&&f.path.endsWith(".html"))!.content as string;
+  expect(html).not.toContain(`starlane-attachment://${pinned}`);
+  expect(html).toContain("../assets/same.bin");
+  const original=bundle.files.find(f=>f.path=="assets/same.bin")!.content;
+  expect(Array.from(original as Uint8Array)).toEqual([0,1,255]);
+  const archive=unzipSync(buildStaticSiteZipArchive(bundle));
+  expect(Array.from(archive["assets/same.bin"])).toEqual([0,1,255]);
+  expect(Array.from(archive["assets/same-2.bin"])).toEqual([78,69,87]);
+  expect(Array.from(bundle.files.find(f=>f.path=="assets/same-2.bin")!.content as Uint8Array)).toEqual([78,69,87]);
 });

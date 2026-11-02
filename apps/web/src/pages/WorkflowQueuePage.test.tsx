@@ -33,6 +33,7 @@ import {
   writeWorkflowReassignmentRules,
   WORKFLOW_QUEUE_ERROR_CLASS,
   WorkflowQueuePage,
+  WorkflowStageShortcuts,
 } from "./WorkflowQueuePage";
 import type {
   DocumentRecord,
@@ -112,7 +113,7 @@ describe("WorkflowQueuePage queue helpers", () => {
     expect(approvers[0].approver_id).toBe("owner");
   });
 
-  it("renders workflow queue header filters with shared form controls", () => {
+  it("renders a workflow queue navbar with compact status, search, filters, and actions", () => {
     const html = renderToStaticMarkup(
       <MemoryRouter initialEntries={["/spaces/space-1/workflows"]}>
         <Routes>
@@ -122,10 +123,40 @@ describe("WorkflowQueuePage queue helpers", () => {
     );
 
     expect(html).toContain('aria-label="Search workflow queue"');
-    expect(html).toContain('aria-label="Workflow status"');
-    expect(html).toContain('aria-label="Sort workflow queue"');
+    expect(html).toContain('aria-label="Workflow queue navigation"');
+    expect(html).toContain('aria-label="Workflow queue status"');
+    expect(html).toContain('aria-label="Open workflow filters"');
+    expect(html).toContain('aria-label="Workflow queue actions"');
+    expect(html).toContain('aria-label="Save workflow queue view"');
+    expect(html).toContain('aria-label="Refresh workflow queue"');
+    expect(html).toContain('aria-pressed="true"');
     expect(html).toContain("focus:ring-2");
     expect(html).not.toContain("Search size");
+  });
+
+  it("exposes the labelled stage shortcut group and tracks the active stage", () => {
+    const stages = [
+      { id: "draft", name: "Draft", count: 3 },
+      { id: "review", name: "Review", count: 1 },
+    ];
+    const renderShortcuts = (activeStageId: string) =>
+      renderToStaticMarkup(
+        <WorkflowStageShortcuts
+          stages={stages}
+          activeStageId={activeStageId}
+          onSelect={() => undefined}
+        />,
+      );
+
+    const initialHtml = renderShortcuts("draft");
+    expect(initialHtml).toContain('role="group"');
+    expect(initialHtml).toContain('aria-label="Workflow stage shortcuts"');
+    expect(initialHtml).toMatch(/aria-pressed="true"[^>]*>.*Draft/s);
+    expect(initialHtml).toMatch(/aria-pressed="false"[^>]*>.*Review/s);
+
+    const changedHtml = renderShortcuts("review");
+    expect(changedHtml).toMatch(/aria-pressed="false"[^>]*>.*Draft/s);
+    expect(changedHtml).toMatch(/aria-pressed="true"[^>]*>.*Review/s);
   });
 
   it("falls back to global approvers when a stage has no scoped approvers", () => {

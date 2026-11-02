@@ -1,22 +1,45 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
-  BookOpen,
-  CalendarDays,
+  ArrowRight,
+  Check,
   Clock3,
-  FileText,
-  Folder,
-  LayoutDashboard,
-  ListChecks,
+  Pencil,
   Plus,
-  Workflow,
+  Star,
+  X,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { dataClient, type DocumentRecord, type FolderRecord } from "@/lib/dataClient";
-import { emitGraphDirty } from "@/lib/graphEvents";
-import { buildDocumentRoutePath } from "@/lib/lastViewedDocument";
+import { Button, RESPONSIVE_TOUCH_ACTION_CLASS } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { DocumentIdentityIcon } from "@/components/DocumentIdentityIcon";
+import {
+  dataClient,
+  type DocumentRecord,
+  type SpaceRecord,
+} from "@/lib/dataClient";
+import { formatDateMetadata } from "@/lib/dateMetadata";
+import { getCurrentLaunchMode } from "@/lib/launchMode";
+import { useWorkspaceCreateAction } from "@/components/layout/workspaceCreateActions";
+import {
+  buildDocumentRoutePath,
+  readLastViewedDocumentRoute,
+  type LastViewedDocumentRoute,
+} from "@/lib/lastViewedDocument";
+import { loadStarredDocuments, type StarredDocumentRecord } from "@/lib/starredDocuments";
 
 export type SpaceHomeSection = "journal" | "recent" | "graph" | "workflows";
+export const SPACE_HOME_TOUCH_ACTION_CLASS = RESPONSIVE_TOUCH_ACTION_CLASS;
+export const SPACE_DESCRIPTION_MAX_LENGTH = 1000;
+const EMPTY_HOME_DOCUMENTS: DocumentRecord[] = [];
+const EMPTY_HOME_STARRED_DOCUMENTS: StarredDocumentRecord[] = [];
+
+export function canEditSpaceDescription(memberRole?: string): boolean {
+  return ["admin", "owner", "space_admin"].includes(memberRole ?? "");
+}
+
+export function normalizeSpaceDescription(value: string): string {
+  return value.trim();
+}
 
 export function getSpaceHomeDocumentPath(spaceId: string, documentId: string): string {
   return buildDocumentRoutePath(spaceId, documentId);
@@ -34,250 +57,500 @@ export function sortSpaceHomeDocuments(documents: DocumentRecord[]): DocumentRec
   });
 }
 
-export function rootSpaceHomeFolders(folders: FolderRecord[]): FolderRecord[] {
-  return [...folders]
-    .filter((folder) => !folder.parent_id)
-    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+export function getSpaceHomeContinueDocument(
+  spaceId: string,
+  documents: DocumentRecord[],
+  lastViewed: LastViewedDocumentRoute | null,
+): DocumentRecord | undefined {
+  if (!lastViewed || lastViewed.spaceId !== spaceId) return undefined;
+  return documents.find((document) => document.id === lastViewed.docId);
+}
+
+export function getSpaceHomeQuickAccessDocuments(
+  spaceId: string,
+  documents: DocumentRecord[],
+  starred: StarredDocumentRecord[],
+  excludedDocumentId?: string,
+): DocumentRecord[] {
+  const documentById = new Map(documents.map((document) => [document.id, document]));
+  return starred
+    .filter((item) => item.spaceId === spaceId)
+    .map((item) => documentById.get(item.id))
+    .filter((document): document is DocumentRecord => Boolean(document))
+    .filter((document) => document.id !== excludedDocumentId)
+    .slice(0, 4);
+}
+
+export function getSpaceHomeRecentDocuments(
+  documents: DocumentRecord[],
+  continueDocument: DocumentRecord | undefined,
+  quickAccessDocuments: DocumentRecord[],
+): DocumentRecord[] {
+  const excludedIds = new Set(quickAccessDocuments.map((document) => document.id));
+  if (continueDocument) excludedIds.add(continueDocument.id);
+
+  return documents.filter((document) => !excludedIds.has(document.id)).slice(0, 6);
+}
+
+export function shouldShowContinueWorking(document: DocumentRecord | undefined): boolean {
+  return Boolean(document);
+}
+
+export function shouldShowQuickAccess(documents: DocumentRecord[]): boolean {
+  return documents.length > 0;
+}
+
+export function shouldShowRecentPages(documents: DocumentRecord[]): boolean {
+  return documents.length > 0;
+}
+
+export function shouldShowStartWriting(
+  hasLoadedCurrentSpace: boolean,
+  documents: DocumentRecord[],
+): boolean {
+  return hasLoadedCurrentSpace && isEmptySpaceHome(documents);
+}
+
+export async function settleCurrentSpaceHomeRequest<T>(
+  request: Promise<T>,
+  isCurrent: () => boolean,
+  onSuccess: (result: T) => void | Promise<void>,
+  onError: () => void | Promise<void>,
+  onSettled: () => void | Promise<void>,
+): Promise<void> {
+  try {
+    const result = await request;
+    if (isCurrent()) await onSuccess(result);
+  } catch {
+    if (isCurrent()) await onError();
+  } finally {
+    if (isCurrent()) await onSettled();
+  }
+}
+
+export function getSpaceHomeContextLabel(space: SpaceRecord, localMode: boolean): string {
+  if (localMode) return "Local space · Owner";
+
+  const visibilityLabels: Record<string, string> = {
+    private: "Private",
+    internal: "Internal",
+    public: "Public",
+  };
+  const roleLabels: Record<string, string> = {
+    admin: "Admin",
+    owner: "Owner",
+    space_admin: "Space admin",
+    editor: "Editor",
+    viewer: "Viewer",
+  };
+  const visibility = visibilityLabels[space.visibility ?? ""] ?? "Visibility unavailable";
+  const role = roleLabels[space.member_role ?? ""] ?? "Access role unavailable";
+  return `${visibility} · ${role}`;
+}
+
+export function isEmptySpaceHome(documents: DocumentRecord[]): boolean {
+  return documents.length === 0;
+}
+
+export function shouldShowSpaceHomeHeaderCreateAction(documents: DocumentRecord[]): boolean {
+  return !isEmptySpaceHome(documents);
+}
+
+export function getSpaceDescriptionActionLabel(description?: string): "Add description" | "Edit" {
+  return description?.trim() ? "Edit" : "Add description";
 }
 
 export function SpaceHomePage() {
   const { spaceId } = useParams<{ spaceId: string }>();
   const navigate = useNavigate();
-  const [spaceName, setSpaceName] = useState("Space");
+  const [space, setSpace] = useState<SpaceRecord | null>(null);
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
-  const [folders, setFolders] = useState<FolderRecord[]>([]);
+  const [starredDocuments, setStarredDocuments] = useState<StarredDocumentRecord[]>([]);
+  const [loadedSpaceId, setLoadedSpaceId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [editingDescription, setEditingDescription] = useState(false);
+  const [descriptionDraft, setDescriptionDraft] = useState("");
+  const [descriptionError, setDescriptionError] = useState("");
+  const [savingDescription, setSavingDescription] = useState(false);
+  const requestWorkspaceCreateAction = useWorkspaceCreateAction();
+  const homeRequestIdRef = useRef(0);
+  const activeSpaceIdRef = useRef(spaceId);
+  activeSpaceIdRef.current = spaceId;
 
   const refresh = async () => {
     if (!spaceId) return;
+    const requestId = ++homeRequestIdRef.current;
+    const requestSpaceId = spaceId;
     setLoading(true);
     setError("");
-    try {
-      const [space, nextDocuments, nextFolders] = await Promise.all([
-        dataClient.getSpace(spaceId),
-        dataClient.listDocuments(spaceId, { include_nested: true }),
-        dataClient.listFolders(spaceId),
-      ]);
-      setSpaceName(space.name);
-      setDocuments(sortSpaceHomeDocuments(nextDocuments));
-      setFolders(nextFolders);
-    } catch {
-      setError("Unable to load this space.");
-    } finally {
-      setLoading(false);
-    }
+    const request = Promise.all([
+      dataClient.getSpace(spaceId),
+      dataClient.listDocuments(spaceId, { include_nested: true }),
+      loadStarredDocuments(spaceId),
+    ] as const);
+    await settleCurrentSpaceHomeRequest(
+      request,
+      () =>
+        requestId === homeRequestIdRef.current &&
+        requestSpaceId === activeSpaceIdRef.current,
+      ([nextSpace, nextDocuments, nextStarredDocuments]) => {
+        setSpace(nextSpace);
+        setDescriptionDraft(nextSpace.description ?? "");
+        setDocuments(sortSpaceHomeDocuments(nextDocuments));
+        setStarredDocuments(nextStarredDocuments);
+        setLoadedSpaceId(requestSpaceId);
+      },
+      () => {
+        setLoadedSpaceId(null);
+        setError("Unable to load this space.");
+      },
+      () => setLoading(false),
+    );
   };
 
   useEffect(() => {
     void refresh();
+    return () => {
+      homeRequestIdRef.current += 1;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spaceId]);
 
-  const recentDocuments = useMemo(() => documents.slice(0, 6), [documents]);
-  const rootFolders = useMemo(() => rootSpaceHomeFolders(folders).slice(0, 6), [folders]);
+  const hasLoadedCurrentSpace = Boolean(spaceId) && loadedSpaceId === spaceId;
+  const currentSpace = hasLoadedCurrentSpace ? space : null;
+  const currentDocuments = useMemo(
+    () => (hasLoadedCurrentSpace ? documents : EMPTY_HOME_DOCUMENTS),
+    [documents, hasLoadedCurrentSpace],
+  );
+  const currentStarredDocuments = useMemo(
+    () => (hasLoadedCurrentSpace ? starredDocuments : EMPTY_HOME_STARRED_DOCUMENTS),
+    [hasLoadedCurrentSpace, starredDocuments],
+  );
 
-  const createDocument = async () => {
-    if (!spaceId) return;
-    const doc = await dataClient.createDocument(spaceId, { title: "Untitled" });
-    emitGraphDirty(spaceId, "document-created");
-    navigate(getSpaceHomeDocumentPath(spaceId, doc.id));
+  const continueDocument = useMemo(
+    () =>
+      getSpaceHomeContinueDocument(spaceId ?? "", currentDocuments, readLastViewedDocumentRoute()),
+    [currentDocuments, spaceId],
+  );
+  const quickAccessDocuments = useMemo(
+    () =>
+      getSpaceHomeQuickAccessDocuments(
+        spaceId ?? "",
+        currentDocuments,
+        currentStarredDocuments,
+        continueDocument?.id,
+      ),
+    [continueDocument?.id, currentDocuments, currentStarredDocuments, spaceId],
+  );
+  const recentDocuments = useMemo(
+    () => getSpaceHomeRecentDocuments(currentDocuments, continueDocument, quickAccessDocuments),
+    [currentDocuments, continueDocument, quickAccessDocuments],
+  );
+  const emptySpaceHome = shouldShowStartWriting(hasLoadedCurrentSpace, currentDocuments);
+  const spaceContextLabel = currentSpace
+    ? getSpaceHomeContextLabel(currentSpace, getCurrentLaunchMode() === "local")
+    : "Space access details unavailable";
+
+  const requestDocumentCreation = () => {
+    requestWorkspaceCreateAction("document");
   };
 
-  if (loading) {
+  const cancelDescriptionEdit = () => {
+    setDescriptionDraft(currentSpace?.description ?? "");
+    setDescriptionError("");
+    setEditingDescription(false);
+  };
+
+  const saveDescription = async () => {
+    if (!spaceId || !currentSpace) return;
+    const description = normalizeSpaceDescription(descriptionDraft);
+    setSavingDescription(true);
+    setDescriptionError("");
+    try {
+      const updated = await dataClient.updateSpace(spaceId, { description });
+      setSpace(updated);
+      setDescriptionDraft(updated.description ?? "");
+      setEditingDescription(false);
+    } catch (saveError) {
+      setDescriptionError(
+        saveError instanceof Error ? saveError.message : "Unable to save the space description.",
+      );
+    } finally {
+      setSavingDescription(false);
+    }
+  };
+
+  if (loading || (!hasLoadedCurrentSpace && !error)) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-text-muted">
+      <div className="text-text-muted flex h-full items-center justify-center text-sm">
         Loading space...
       </div>
     );
   }
 
   return (
-    <div className="min-h-full bg-bg">
-      <div className="mx-auto max-w-6xl px-4 py-3 sm:px-6 sm:py-5 lg:px-8">
+    <div className="bg-bg min-h-full">
+      <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6 sm:py-10">
         {error && (
-          <div className="mb-4 rounded-input border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">
+          <div className="rounded-input border-danger/30 bg-danger/10 text-danger mb-6 border px-3 py-2 text-sm">
             {error}
           </div>
         )}
 
-        <header className="mb-3 flex flex-wrap items-end justify-between gap-2 border-b border-border pb-3 sm:mb-5 sm:items-start sm:gap-3 sm:pb-4">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 text-xs text-text-muted">
-              <LayoutDashboard size={14} />
-              Space home
+        <header className="border-border border-b pb-6">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <h1 className="text-text break-words text-2xl font-semibold tracking-tight sm:text-3xl">
+                {currentSpace?.name ?? "Space"}
+              </h1>
+              <p className="text-text-muted mt-1 text-xs">{spaceContextLabel}</p>
+              {editingDescription ? (
+                <form
+                  className="mt-4 grid gap-3"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void saveDescription();
+                  }}
+                >
+                  <label htmlFor="space-overview-description" className="sr-only">
+                    Space description
+                  </label>
+                  <Textarea
+                    id="space-overview-description"
+                    value={descriptionDraft}
+                    onChange={(event) => {
+                      setDescriptionDraft(event.target.value);
+                      setDescriptionError("");
+                    }}
+                    maxLength={SPACE_DESCRIPTION_MAX_LENGTH}
+                    rows={4}
+                    placeholder="Describe this space and what belongs here."
+                    autoFocus
+                  />
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <span className="text-text-muted text-xs">
+                      {descriptionDraft.length} / {SPACE_DESCRIPTION_MAX_LENGTH}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        className={SPACE_HOME_TOUCH_ACTION_CLASS}
+                        onClick={cancelDescriptionEdit}
+                        disabled={savingDescription}
+                      >
+                        <X size={14} aria-hidden="true" />
+                        Cancel
+                      </Button>
+                      <Button
+                        type="submit"
+                        size="sm"
+                        className={SPACE_HOME_TOUCH_ACTION_CLASS}
+                        disabled={savingDescription}
+                      >
+                        <Check size={14} aria-hidden="true" />
+                        {savingDescription ? "Saving..." : "Save"}
+                      </Button>
+                    </div>
+                  </div>
+                  {descriptionError && (
+                    <div
+                      role="alert"
+                      className="rounded-input border-danger/30 bg-danger/10 text-danger border px-3 py-2 text-sm"
+                    >
+                      {descriptionError}
+                    </div>
+                  )}
+                </form>
+              ) : (
+                <div className="mt-3 flex items-start gap-2">
+                  {currentSpace?.description?.trim() ? (
+                    <p className="text-text-muted min-w-0 flex-1 whitespace-pre-wrap text-sm leading-6 sm:text-base">
+                      {currentSpace.description.trim()}
+                    </p>
+                  ) : !canEditSpaceDescription(currentSpace?.member_role) ? (
+                    <p className="text-text-muted min-w-0 flex-1 text-sm leading-6 sm:text-base">
+                      No description has been added yet.
+                    </p>
+                  ) : null}
+                  {canEditSpaceDescription(currentSpace?.member_role) && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className={`${
+                        currentSpace?.description?.trim() ? "shrink-0" : "-ml-2"
+                      } ${SPACE_HOME_TOUCH_ACTION_CLASS}`}
+                      onClick={() => {
+                        setDescriptionDraft(currentSpace?.description ?? "");
+                        setDescriptionError("");
+                        setEditingDescription(true);
+                      }}
+                    >
+                      <Pencil size={14} aria-hidden="true" />
+                      {getSpaceDescriptionActionLabel(currentSpace?.description)}
+                    </Button>
+                  )}
+                </div>
+              )}
             </div>
-            <h1 className="mt-0.5 truncate text-xl font-semibold text-text sm:mt-1 sm:text-2xl">
-              {spaceName}
-            </h1>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={() => {
-                if (spaceId) navigate(getSpaceHomeSectionPath(spaceId, "journal"));
-              }}
-            >
-              <CalendarDays size={14} />
-              Journal
-            </Button>
-            <Button type="button" variant="primary" size="sm" onClick={() => void createDocument()}>
-              <Plus size={14} />
-              New document
-            </Button>
+            {hasLoadedCurrentSpace && shouldShowSpaceHomeHeaderCreateAction(currentDocuments) && (
+              <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:pt-1">
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  className={SPACE_HOME_TOUCH_ACTION_CLASS}
+                  onClick={requestDocumentCreation}
+                >
+                  <Plus size={14} />
+                  New page
+                </Button>
+              </div>
+            )}
           </div>
         </header>
 
-        <section className="mb-4 grid gap-2 sm:gap-3 md:grid-cols-3">
-          <SpaceHomeLink
-            icon={Clock3}
-            title="Recent"
-            detail={`${documents.length} documents`}
-            onClick={() => {
-              if (spaceId) navigate(getSpaceHomeSectionPath(spaceId, "recent"));
-            }}
-          />
-          <SpaceHomeLink
-            icon={Workflow}
-            title="Graph"
-            detail="Map connections"
-            onClick={() => {
-              if (spaceId) navigate(getSpaceHomeSectionPath(spaceId, "graph"));
-            }}
-          />
-          <SpaceHomeLink
-            icon={ListChecks}
-            title="Workflows"
-            detail="Review queues"
-            onClick={() => {
-              if (spaceId) navigate(getSpaceHomeSectionPath(spaceId, "workflows"));
-            }}
-          />
-        </section>
-
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
-          <section className="rounded-card border border-border bg-surface">
-            <div className="flex items-center justify-between border-b border-border px-4 py-3">
-              <div>
-                <h2 className="text-base font-semibold text-text">Overview</h2>
-                <p className="text-xs text-text-muted">A starter space home layout.</p>
+        <main className="pt-8">
+          {shouldShowContinueWorking(continueDocument) && continueDocument && (
+            <section className="border-border border-b pb-7" aria-labelledby="continue-working-title">
+              <div className="mb-3 flex items-center gap-2">
+                <Clock3 size={16} className="text-text-muted" aria-hidden="true" />
+                <h2 id="continue-working-title" className="text-text text-base font-semibold">
+                  Continue working
+                </h2>
               </div>
-              <BookOpen size={16} className="text-text-muted" />
-            </div>
-            <div className="grid gap-3 p-4 md:grid-cols-2">
-              <div className="rounded-input border border-border bg-bg p-3">
-                <p className="text-sm font-medium text-text">Start here</p>
-                <p className="mt-1 text-sm leading-6 text-text-muted">
-                  Pin an introduction, team notes, or the current project brief here.
-                </p>
-              </div>
-              <div className="rounded-input border border-border bg-bg p-3">
-                <p className="text-sm font-medium text-text">Key links</p>
-                <p className="mt-1 text-sm leading-6 text-text-muted">
-                  Add shortcuts to important pages, folders, dashboards, or runbooks.
-                </p>
-              </div>
-            </div>
-          </section>
+              <button
+                type="button"
+                onClick={() => {
+                  if (spaceId) navigate(getSpaceHomeDocumentPath(spaceId, continueDocument.id));
+                }}
+                className="hover:bg-surface-raised focus-ring flex min-h-16 w-full items-center gap-3 text-left transition-colors"
+              >
+                <DocumentIdentityIcon icon={continueDocument.icon} />
+                <span className="min-w-0 flex-1">
+                  <span className="text-text block truncate text-sm font-medium">
+                    {continueDocument.title}
+                  </span>
+                  <span className="text-text-muted block truncate text-xs">
+                    {formatDateMetadata(
+                      continueDocument.updated_at,
+                      "Updated",
+                      "Update date unavailable",
+                    )}
+                  </span>
+                </span>
+                <ArrowRight size={16} className="text-text-muted shrink-0" aria-hidden="true" />
+              </button>
+            </section>
+          )}
 
-          <aside className="rounded-card border border-border bg-surface">
-            <div className="border-b border-border px-4 py-3">
-              <h2 className="text-base font-semibold text-text">Folders</h2>
-              <p className="text-xs text-text-muted">{folders.length} total</p>
-            </div>
-            <div className="p-2">
-              {rootFolders.length === 0 ? (
-                <p className="px-2 py-2 text-sm text-text-muted">No folders yet.</p>
-              ) : (
-                rootFolders.map((folder) => (
-                  <div
-                    key={folder.id}
-                    className="flex items-center gap-2 rounded-button px-2 py-1.5 text-sm text-text-muted"
-                  >
-                    <Folder size={14} className="shrink-0" />
-                    <span className="truncate">{folder.name}</span>
-                  </div>
-                ))
-              )}
-            </div>
-          </aside>
-        </div>
-
-        <section className="mt-4 rounded-card border border-border bg-surface">
-          <div className="flex items-center justify-between border-b border-border px-4 py-3">
-            <h2 className="text-base font-semibold text-text">Recently updated</h2>
-            <button
-              type="button"
-              onClick={() => {
-                if (spaceId) navigate(getSpaceHomeSectionPath(spaceId, "recent"));
-              }}
-              className="rounded-button px-2 py-1 text-sm text-primary hover:bg-surface-raised"
-            >
-              View all
-            </button>
-          </div>
-          <div className="divide-y divide-border">
-            {recentDocuments.length === 0 ? (
-              <p className="px-4 py-4 text-sm text-text-muted">No documents yet.</p>
-            ) : (
-              recentDocuments.map((document) => (
+          {shouldShowQuickAccess(quickAccessDocuments) && (
+            <section className="border-border border-b py-7" aria-labelledby="quick-access-title">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <span className="flex items-center gap-2">
+                  <Star size={16} className="text-text-muted" aria-hidden="true" />
+                  <h2 id="quick-access-title" className="text-text text-base font-semibold">
+                    Favorites
+                  </h2>
+                </span>
                 <button
-                  key={document.id}
                   type="button"
                   onClick={() => {
-                    if (spaceId) navigate(getSpaceHomeDocumentPath(spaceId, document.id));
+                    if (spaceId) navigate(`/spaces/${encodeURIComponent(spaceId)}/starred`);
                   }}
-                  className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-surface-raised"
+                  className={`text-primary hover:bg-surface-raised focus-ring rounded-button px-2 py-1 text-sm ${SPACE_HOME_TOUCH_ACTION_CLASS}`}
                 >
-                  <FileText size={15} className="shrink-0 text-text-muted" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium text-text">
-                      {document.icon ? `${document.icon} ` : ""}
+                  Favorites
+                </button>
+              </div>
+              <div className="divide-border divide-y">
+                {quickAccessDocuments.map((document) => (
+                  <button
+                    key={document.id}
+                    type="button"
+                    onClick={() => {
+                      if (spaceId) navigate(getSpaceHomeDocumentPath(spaceId, document.id));
+                    }}
+                    className="hover:bg-surface-raised focus-ring flex min-h-11 w-full items-center gap-3 text-left transition-colors"
+                  >
+                    <DocumentIdentityIcon icon={document.icon} />
+                    <span className="text-text min-w-0 flex-1 truncate text-sm font-medium">
                       {document.title}
                     </span>
-                    <span className="block truncate text-xs text-text-muted">
-                      Updated {formatSpaceHomeDate(document.updated_at)}
-                    </span>
-                  </span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {emptySpaceHome ? (
+            <section className="border-border border-b py-10" aria-labelledby="start-writing-title">
+              <h2 id="start-writing-title" className="text-text text-lg font-semibold">
+                Start writing
+              </h2>
+              <p className="text-text-muted mt-2 max-w-xl text-sm leading-6">
+                Create the first page in this space to give your work a home.
+              </p>
+              <Button
+                type="button"
+                variant="primary"
+                size="sm"
+                className={`mt-5 ${SPACE_HOME_TOUCH_ACTION_CLASS}`}
+                onClick={requestDocumentCreation}
+              >
+                <Plus size={14} />
+                New page
+              </Button>
+            </section>
+          ) : shouldShowRecentPages(recentDocuments) ? (
+            <section className="border-border border-b py-7" aria-labelledby="recent-pages-title">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <h2 id="recent-pages-title" className="text-text text-base font-semibold">
+                  Recent pages
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (spaceId) navigate(getSpaceHomeSectionPath(spaceId, "recent"));
+                  }}
+                  className={`text-primary hover:bg-surface-raised focus-ring rounded-button px-2 py-1 text-sm ${SPACE_HOME_TOUCH_ACTION_CLASS}`}
+                >
+                  View all
                 </button>
-              ))
-            )}
-          </div>
-        </section>
+              </div>
+              <div className="divide-border divide-y">
+                {recentDocuments.map((document) => (
+                  <button
+                    key={document.id}
+                    type="button"
+                    onClick={() => {
+                      if (spaceId) navigate(getSpaceHomeDocumentPath(spaceId, document.id));
+                    }}
+                    className="hover:bg-surface-raised focus-ring flex min-h-14 w-full items-center gap-3 text-left transition-colors"
+                  >
+                    <DocumentIdentityIcon icon={document.icon} />
+                    <span className="min-w-0 flex-1">
+                      <span className="text-text block truncate text-sm font-medium">
+                        {document.title}
+                      </span>
+                      <span className="text-text-muted block truncate text-xs">
+                        {formatDateMetadata(
+                          document.updated_at,
+                          "Updated",
+                          "Update date unavailable",
+                        )}
+                      </span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          ) : null}
+        </main>
       </div>
     </div>
   );
-}
-
-function SpaceHomeLink({
-  icon: Icon,
-  title,
-  detail,
-  onClick,
-}: {
-  icon: typeof Clock3;
-  title: string;
-  detail: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="rounded-card border border-border bg-surface p-3 text-left transition-colors duration-100 hover:bg-surface-raised sm:p-4"
-    >
-      <Icon size={17} className="text-primary" />
-      <span className="mt-2 block text-sm font-semibold text-text sm:mt-3">{title}</span>
-      <span className="mt-1 block text-xs text-text-muted">{detail}</span>
-    </button>
-  );
-}
-
-function formatSpaceHomeDate(value?: string): string {
-  if (!value) return "unknown date";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "unknown date";
-  return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }

@@ -2,8 +2,36 @@ import { describe, expect, it } from "vitest";
 import { formatSearchQueryInput, parseSearchQueryInput } from "./searchQuery";
 
 describe("searchQuery", () => {
+  it("round trips exact responsibility IDs without reinterpreting author or Owner properties", () => {
+    const input =
+      "policy maintenance-user:Person-A maintenance-group:Engineering-A user:Author-A property:Owner=Legacy";
+    const parsed = parseSearchQueryInput(input);
+    expect(parsed.filters).toEqual({
+      maintenance_user: "Person-A",
+      maintenance_group: "Engineering-A",
+      user: "Author-A",
+      property_name: "Owner",
+      property_value: "Legacy",
+    });
+    expect(parsed.query).toBe("policy");
+    expect(formatSearchQueryInput(parsed.query, parsed.filters)).toBe(input);
+    expect(parseSearchQueryInput("maintenance-user: maintenance-group:").filters).toEqual({});
+  });
+  it("round trips canonical identifiers separately from existing custom properties", () => {
+    const input = "handoff identifier:Ops-17 property:Identifier=Legacy-9";
+    const parsed = parseSearchQueryInput(input);
+    expect(parsed).toEqual({
+      query: "handoff",
+      filters: { identifier: "Ops-17", property_name: "Identifier", property_value: "Legacy-9" },
+      starredOnly: false,
+    });
+    expect(formatSearchQueryInput(parsed.query, parsed.filters)).toBe(input);
+    expect(parseSearchQueryInput("identifier:").filters).toEqual({});
+  });
   it("extracts tag and space tokens from query text", () => {
-    expect(parseSearchQueryInput('roadmap tag:Planning space:space-1 folder:Project "launch notes"')).toEqual({
+    expect(
+      parseSearchQueryInput('roadmap tag:Planning space:space-1 folder:Project "launch notes"'),
+    ).toEqual({
       query: "roadmap launch notes",
       filters: {
         tag: "Planning",
@@ -22,6 +50,18 @@ describe("searchQuery", () => {
       },
       starredOnly: false,
     });
+  });
+
+  it("extracts and formats user filters with author as a typed alias", () => {
+    expect(parseSearchQueryInput('handoff user:"Harley Frank"')).toEqual({
+      query: "handoff",
+      filters: { user: "Harley Frank" },
+      starredOnly: false,
+    });
+    expect(parseSearchQueryInput("author:user-123").filters).toEqual({ user: "user-123" });
+    expect(formatSearchQueryInput("handoff", { user: "Harley Frank" })).toBe(
+      'handoff user:"Harley Frank"',
+    );
   });
 
   it("extracts property tokens with equals or colon separators", () => {
@@ -66,11 +106,20 @@ describe("searchQuery", () => {
   });
 
   it("extracts the SNQL starred directive without sending it to document search", () => {
-    expect(parseSearchQueryInput('release notes is:starred tag:planning')).toEqual({
+    expect(parseSearchQueryInput("release notes is:starred tag:planning")).toEqual({
       query: "release notes",
       filters: { tag: "planning" },
       starredOnly: true,
     });
+  });
+
+  it("extracts and formats the private draft directive", () => {
+    expect(parseSearchQueryInput("launch is:draft")).toEqual({
+      query: "launch",
+      filters: { is_draft: "true" },
+      starredOnly: false,
+    });
+    expect(formatSearchQueryInput("launch", { is_draft: "true" })).toBe("launch is:draft");
   });
 
   it("extracts the attachment type directive for local and server search", () => {
@@ -159,17 +208,13 @@ describe("searchQuery", () => {
       filters: { is_locked: "true" },
       starredOnly: false,
     });
-    expect(formatSearchQueryInput("handoff", { is_locked: "true" })).toBe(
-      "handoff is:locked",
-    );
+    expect(formatSearchQueryInput("handoff", { is_locked: "true" })).toBe("handoff is:locked");
     expect(parseSearchQueryInput("handoff is:unlocked")).toEqual({
       query: "handoff",
       filters: { is_locked: "false" },
       starredOnly: false,
     });
-    expect(formatSearchQueryInput("handoff", { is_locked: "false" })).toBe(
-      "handoff is:unlocked",
-    );
+    expect(formatSearchQueryInput("handoff", { is_locked: "false" })).toBe("handoff is:unlocked");
   });
 
   it("extracts metadata date directives for local and server search", () => {
@@ -190,9 +235,7 @@ describe("searchQuery", () => {
   });
 
   it("accepts metadata date aliases for typed-query and API-field compatibility", () => {
-    expect(
-      parseSearchQueryInput("handoff created_on:2026-07-14 updated_on:2026-07-15"),
-    ).toEqual({
+    expect(parseSearchQueryInput("handoff created_on:2026-07-14 updated_on:2026-07-15")).toEqual({
       query: "handoff",
       filters: {
         created_on: "2026-07-14",

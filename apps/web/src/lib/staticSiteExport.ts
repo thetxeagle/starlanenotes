@@ -1,3 +1,4 @@
+import { rewriteExactAssetReferences } from "./nativeArchiveReferences";
 import MarkdownIt from "markdown-it";
 import type {
   LocalVaultSnapshot,
@@ -147,6 +148,14 @@ export function buildStaticSiteBundle(
   snapshot: LocalVaultSnapshot,
   options: StaticSiteExportOptions = {},
 ): StaticSiteExportBundle {
+  return renderStaticSiteBundle(snapshot, options);
+}
+
+function renderStaticSiteBundle(
+  snapshot: LocalVaultSnapshot,
+  options: StaticSiteExportOptions,
+  owned?: ReturnType<typeof buildStaticSiteAssetFiles>,
+): StaticSiteExportBundle {
   const generatedAt = options.generatedAt ?? new Date().toISOString();
   const title = options.title ?? inferSiteTitle(snapshot);
   const description = options.description?.trim() ?? "";
@@ -159,7 +168,8 @@ export function buildStaticSiteBundle(
   const propertiesByDocument = buildPropertiesByDocument(snapshot);
   const usedPaths = new Set<string>();
   const documentPaths = new Map<string, string>();
-  const extractedAssets = buildStaticSiteAssetFiles(snapshot.assets, usedPaths);
+  const extractedAssets = owned ?? buildStaticSiteAssetFiles(snapshot.assets, usedPaths);
+  for (const asset of extractedAssets.manifestAssets) usedPaths.add(asset.path);
   const skippedAssetsByDocument = buildSkippedAssetsByDocument(
     documents,
     extractedAssets.skippedAssets,
@@ -253,12 +263,13 @@ export function buildStaticSiteBundle(
     <article class="document">
       <header>
         <p class="eyebrow">${escapeHtml(space?.name ?? "Unknown space")}${folder ? ` / ${escapeHtml(folder.name)}` : ""}</p>
+        ${document.cover_image && extractedAssets.urlMap.has(document.cover_image) ? `<img class="document-cover" alt="Cover" src="../${escapeHtmlAttribute(extractedAssets.urlMap.get(document.cover_image)!)}" />` : ""}
         <h1>${escapeHtml(document.title)}</h1>
         <p class="meta">Updated ${formatDate(document.updated_at)}${document.created_at ? ` / Created ${formatDate(document.created_at)}` : ""}</p>
         ${tags.length > 0 ? `<div class="tags">${tags.map(renderTag).join("")}</div>` : ""}
         ${properties.length > 0 ? `<dl class="properties">${properties.map(renderProperty).join("")}</dl>` : ""}
       </header>
-      <div class="content">${markdown.render(rewriteContentAssetUrls(document.content || "", extractedAssets.urlMap, "../"))}</div>
+      <div class="content">${markdown.render(rewriteContentAssetUrls(document.content || "", extractedAssets.urlMap, "../", extractedAssets.ambiguousReferences))}</div>
     </article>
   </main>
 </body>
@@ -266,6 +277,13 @@ export function buildStaticSiteBundle(
     });
   }
 
+  if (owned) return {
+    filename: `${slugify(title) || "starlane-site"}.zip`,
+    document_count: documents.length,
+    asset_count: owned.manifestAssets.length,
+    skipped_asset_count: 0,
+    files,
+  };
   files.push(...extractedAssets.files);
   files.push({
     path: "integrity.json",
@@ -359,6 +377,59 @@ export function buildStaticSiteZipArchive(bundle: StaticSiteExportBundle): Uint8
   return concatBytes([...localChunks, ...centralChunks, endRecord], localSize + centralSize + endRecord.length);
 }
 
+export interface OwnedStaticSiteAsset {
+  id: string;
+  name: string;
+  path: string;
+  media_type: string;
+  size: number;
+  references: readonly string[];
+}
+export interface StaticSiteIntegrityRecord {
+  path: string;
+  media_type: string;
+  size: number;
+  checksum_crc32: string;
+}
+/** Text planning never fabricates binary payloads. Asset checksums come from actual transfers. */
+export function buildOwnedStaticSiteTextPlan(snapshot: LocalVaultSnapshot,
+  assets: readonly OwnedStaticSiteAsset[], options: StaticSiteExportOptions = {}) {
+  const generatedAt = options.generatedAt ?? new Date().toISOString();
+  const title = options.title ?? inferSiteTitle(snapshot);
+  const urlMap = new Map<string,string>(), paths = new Set<string>();
+  for (const asset of assets) {
+    if (!/^assets\/[0-9a-f-]{36}\.[a-z0-9]{1,16}$/.test(asset.path) || paths.has(asset.path) ||
+      !Number.isSafeInteger(asset.size) || asset.size < 0) throw new Error("Static archive requires unique exact asset descriptors");
+    paths.add(asset.path);
+    for (const reference of asset.references) {
+      const previous = urlMap.get(reference);
+      if (previous && previous !== asset.path) throw new Error("Static archive reference has conflicting exact ownership");
+      urlMap.set(reference,asset.path);
+    }
+  }
+  const bundle = renderStaticSiteBundle(snapshot,{...options,generatedAt}, {
+    files: [],manifestAssets: assets.map(({references: _references,...asset})=>asset),
+    skippedAssets: [],urlMap,ambiguousReferences: new Set(),
+  });
+  const descriptors = [...bundle.files.map(file=>({path:file.path,media_type:file.media_type,size:estimateBundleContentSize(file.content)})),
+    ...assets.map(asset=>({path:asset.path,media_type:asset.media_type,size:asset.size}))];
+  const finish = (records: readonly StaticSiteIntegrityRecord[]): StaticSiteBundleFile[] => {
+    if (records.length !== descriptors.length || records.some((record,i)=>record.path!==descriptors[i].path ||
+      record.size!==descriptors[i].size || record.media_type!==descriptors[i].media_type || !/^[0-9a-f]{8}$/.test(record.checksum_crc32)))
+      throw new Error("Static archive requires complete actual byte integrity evidence");
+    const integrity: StaticSiteBundleFile = {path:"integrity.json",media_type:"application/json;charset=utf-8",content:JSON.stringify({
+      schema_version:1,generated_at:generatedAt,checksum_algorithm:"crc32",file_count:records.length,files:records},null,2)+"\n"};
+    const paths = [...descriptors,integrity];
+    const local: StaticSiteBundleFile = {path:"deploy-local.sh",media_type:"text/x-shellscript;charset=utf-8",content:buildStaticSiteLocalDeployScript(paths)};
+    const rsync: StaticSiteBundleFile = {path:"deploy-rsync.sh",media_type:"text/x-shellscript;charset=utf-8",content:buildStaticSiteRsyncDeployScript([...paths,local])};
+    const files = [...descriptors.map(file=>({...file,byte_length:file.size})),integrity,local,rsync];
+    const deploy: StaticSiteBundleFile = {path:"deploy.json",media_type:"application/json;charset=utf-8",content:buildStaticSiteDeployPlan({
+      title,generatedAt,documentCount:bundle.document_count,assetCount:assets.length,skippedAssetCount:0,skippedAssets:[],files,deployHookPaths:[local.path,rsync.path]})};
+    return [integrity,local,rsync,deploy];
+  };
+  return {bundle,descriptors,finish};
+}
+
 function buildStaticSiteAssetFiles(
   assets: VaultAsset[],
   usedPaths: Set<string>,
@@ -373,6 +444,7 @@ function buildStaticSiteAssetFiles(
   }>;
   skippedAssets: StaticSiteSkippedAsset[];
   urlMap: Map<string, string>;
+  ambiguousReferences: Set<string>;
 } {
   const files: StaticSiteBundleFile[] = [];
   const manifestAssets: Array<{
@@ -384,8 +456,10 @@ function buildStaticSiteAssetFiles(
   }> = [];
   const skippedAssets: StaticSiteSkippedAsset[] = [];
   const urlMap = new Map<string, string>();
+  const ambiguousReferences = new Set<string>();
+  const exportedPaths = new Map<number, string>();
 
-  for (const asset of assets) {
+  for (const [index, asset] of assets.entries()) {
     const content = decodeDataUrlAsset(asset.url);
     if (!content) {
       skippedAssets.push({
@@ -412,12 +486,41 @@ function buildStaticSiteAssetFiles(
       media_type: mediaType,
       size: content.byteLength,
     });
-    for (const reference of getAssetSourceReferences(asset)) {
-      urlMap.set(reference, path);
+    exportedPaths.set(index, path);
+  }
+
+  const claims = new Map<string, number>();
+  const bind = (reference: string | undefined, index: number) => {
+    const value = reference?.trim();
+    if (!value || ambiguousReferences.has(value)) return;
+    const previous = claims.get(value);
+    if (previous !== undefined && previous !== index) {
+      urlMap.delete(value);
+      ambiguousReferences.add(value);
+    } else {
+      claims.set(value, index);
+      const path = exportedPaths.get(index);
+      if (path !== undefined) urlMap.set(value, path);
+    }
+  };
+  // Reserve exact identities even for skipped remote/unreadable assets: another
+  // asset's filename must never borrow that unresolved reference.
+  for (const [index, asset] of assets.entries()) {
+    for (const reference of [asset.url, asset.vault_path, `starlane-attachment://${asset.id}`, `starlane://asset/${asset.id}`])
+      bind(reference, index);
+  }
+  const exact = new Set([...claims.keys(), ...ambiguousReferences]);
+  for (const [index, asset] of assets.entries()) {
+    for (const reference of [
+      asset.vault_path ? getPathBasename(asset.vault_path) : undefined,
+      `starlane://asset/${asset.name}`,
+      `starlane://asset/${encodeURIComponent(asset.name)}`,
+    ]) {
+      if (reference && !exact.has(reference.trim())) bind(reference, index);
     }
   }
 
-  return { files, manifestAssets, skippedAssets, urlMap };
+  return { files, manifestAssets, skippedAssets, urlMap, ambiguousReferences };
 }
 
 type StaticSiteSkippedAsset = {
@@ -434,6 +537,7 @@ function getAssetSourceReferences(asset: VaultAsset): string[] {
     asset.url,
     asset.vault_path,
     asset.vault_path ? getPathBasename(asset.vault_path) : undefined,
+    `starlane-attachment://${asset.id}`,
     `starlane://asset/${asset.id}`,
     `starlane://asset/${asset.name}`,
     `starlane://asset/${encodeURIComponent(asset.name)}`,
@@ -497,12 +601,18 @@ function rewriteContentAssetUrls(
   content: string,
   assetUrlMap: Map<string, string>,
   relativePrefix: string,
+  ambiguousReferences: ReadonlySet<string>,
 ): string {
-  let rewritten = content;
-  for (const [sourceUrl, targetPath] of assetUrlMap.entries()) {
-    rewritten = rewritten.split(sourceUrl).join(`${relativePrefix}${targetPath}`);
-  }
-  return rewritten;
+  return rewriteExactAssetReferences(
+    content,
+    new Map(
+      [...assetUrlMap].map(([sourceUrl, targetPath]) => [
+        sourceUrl,
+        `${relativePrefix}${targetPath}`,
+      ]),
+    ),
+    ambiguousReferences,
+  );
 }
 
 function buildStaticSiteBundleManifest(input: {
@@ -569,7 +679,7 @@ function buildStaticSiteDeployPlan(input: {
   assetCount: number;
   skippedAssetCount: number;
   skippedAssets: StaticSiteSkippedAsset[];
-  files: StaticSiteBundleFile[];
+  files: Array<Pick<StaticSiteBundleFile, "path" | "media_type"> & { content?: string | Uint8Array; byte_length?: number }>;
   deployHookPaths?: string[];
 }): string {
   return `${JSON.stringify(
@@ -612,7 +722,7 @@ function buildStaticSiteDeployPlan(input: {
         .map((file) => ({
           path: file.path,
           media_type: file.media_type,
-          size: estimateBundleContentSize(file.content),
+          size: file.byte_length ?? estimateBundleContentSize(file.content ?? ""),
         })),
       guardrails: [
         "Review site.json before publishing.",
@@ -625,7 +735,7 @@ function buildStaticSiteDeployPlan(input: {
   )}\n`;
 }
 
-function buildStaticSiteLocalDeployScript(files: StaticSiteBundleFile[]): string {
+function buildStaticSiteLocalDeployScript(files: Array<Pick<StaticSiteBundleFile, "path">>): string {
   const publishablePaths = files
     .map((file) => file.path)
     .filter((path) => path !== "deploy.json" && path !== "deploy-local.sh" && path !== "deploy-rsync.sh")
@@ -658,7 +768,7 @@ echo "Published ${publishablePaths.length} static export file${publishablePaths.
 `;
 }
 
-function buildStaticSiteRsyncDeployScript(files: StaticSiteBundleFile[]): string {
+function buildStaticSiteRsyncDeployScript(files: Array<Pick<StaticSiteBundleFile, "path">>): string {
   const publishablePaths = files
     .map((file) => file.path)
     .filter((path) => path !== "deploy.json" && path !== "deploy-local.sh" && path !== "deploy-rsync.sh")

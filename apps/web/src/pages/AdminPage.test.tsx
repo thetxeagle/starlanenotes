@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
     user: null as null | {
       id: string;
       role: string;
+      account_kind?: "member" | "guest";
       display_name: string;
       email: string;
     },
@@ -248,6 +249,7 @@ import {
   AdminFormSelect,
   AdminInlineSelect,
   AdminPage,
+  getAvailableAdminSections,
   AdminJsonTextarea,
   AdminTextInput,
   ProviderImportOperationReviewList,
@@ -282,12 +284,15 @@ import {
   getAdminSessionDeviceLabel,
   getAdminSectionDescription,
   getAdminSessionRevokeConfirmationMessage,
+  getAdminGroupDeleteConfirmationMessage,
   getAdminQueuedSyncClearConfirmationMessage,
   getAdminQueuedSyncReplayConfirmationMessage,
   getAdminStorageResetConfirmationMessage,
   getAdminVaultArchiveImportConfirmationMessage,
   getAdminVaultSnapshotImportConfirmationMessage,
   getAdminProviderSpaceRecoveryConfirmationMessage,
+  getAdminAiProviderDraft,
+  getAdminAiProviderStatus,
   getAdminUserVisibleSelectionState,
   getAdminWebhookDeliveryResetState,
   getAdminUserLifecycleFailureState,
@@ -329,6 +334,12 @@ describe("AdminPage", () => {
     expect(html).toContain("Admin access required");
   });
 
+  it("denies actual administrator surface for a known guest despite retained admin role", () => {
+    mocks.auth.user={id:"guest",role:"admin",account_kind:"guest",display_name:"Guest",email:"guest@example.invalid"};
+    const html=renderToStaticMarkup(<AdminPage initialSection="users" />);
+    expect(html).toContain("Admin access required");expect(html).not.toContain("Create user");expect(html).not.toContain("Review guest access");
+  });
+
   it("shows local-mode sync controls in the system section", () => {
     mocks.launch.mode = "local";
     mocks.provider.kind = "google-drive";
@@ -357,6 +368,7 @@ describe("AdminPage", () => {
     expect(html).toContain("OAuth exchange boundary: ready");
     expect(html).toContain("Root execution boundary: ready");
     expect(html).toContain("Refresh token:");
+    expect(html).toContain("SQLite");
     expect(html).toContain("Default sync: disabled");
     expect(html).toContain("Manual Setup Plan");
     expect(html).toContain("Public client ID: missing");
@@ -389,7 +401,7 @@ describe("AdminPage", () => {
     expect(html).toContain("Apply Last Import");
   });
 
-  it("keeps a desktop route back to Notes in the administration rail", () => {
+  it("leaves the desktop return path to the shared destination top bar", () => {
     mocks.auth.user = {
       id: "admin-user",
       role: "admin",
@@ -398,8 +410,9 @@ describe("AdminPage", () => {
     };
 
     const html = renderToStaticMarkup(<AdminPage />);
-    expect(html).toContain('href="/"');
-    expect(html).toContain("Back to Notes");
+    expect(html).not.toContain("Back to Notes");
+    expect(html).toContain("<nav");
+    expect(html).toContain("Admin");
   });
 
   it("renders mobile administration as a settings home with subpage rows", () => {
@@ -417,10 +430,23 @@ describe("AdminPage", () => {
     expect(html).toContain(ADMIN_MOBILE_HOME_CLASS);
     expect(html).toContain(ADMIN_MOBILE_SECTION_LIST_CLASS);
     expect(html).toContain(ADMIN_MOBILE_SECTION_ROW_CLASS);
-    expect(html).toContain(ADMIN_MOBILE_BACK_BUTTON_CLASS);
+    expect(html).not.toContain(ADMIN_MOBILE_BACK_BUTTON_CLASS);
     expect(getAdminSectionDescription("auth", false)).toBe(
       "2FA, signup, OIDC, and login policy.",
     );
+  });
+
+  it("keeps a mobile administration subpage to one page heading", () => {
+    mocks.auth.user = {
+      id: "admin-user",
+      role: "admin",
+      display_name: "Admin",
+      email: "admin@example.com",
+    };
+
+    const html = renderToStaticMarkup(<AdminPage />);
+
+    expect((html.match(/>Users<\/h1>/g) ?? [])).toHaveLength(1);
   });
 
   it("derives Google Drive manual setup step state labels", () => {
@@ -946,7 +972,7 @@ describe("AdminPage", () => {
     ).toBe("0 selected, 3 skipped, 2 failed, 1 unsupported");
   });
 
-  it("uses shared inputs for system application config fields", () => {
+  it("uses a table-and-dialog entry point for system application configuration", () => {
     mocks.auth.user = {
       id: "admin-user",
       role: "admin",
@@ -956,11 +982,13 @@ describe("AdminPage", () => {
 
     const html = renderToStaticMarkup(<AdminPage initialSection="system" />);
     expect(html).toContain("Application Configuration");
-    expect(html).toContain('aria-label="New config key"');
-    expect(html).toContain('placeholder="custom.key"');
-    expect(html).toContain('aria-label="New config value"');
-    expect(html).toContain('placeholder="Value"');
-    expect(html).toContain("focus:ring-2");
+    expect(html).toContain("Docker environment values are locked");
+    expect(html).toContain("Add setting");
+    expect(html).toContain("Effective value");
+    expect(html).toContain("Source");
+    expect(html).toContain("focus-ring");
+    expect(html).toContain("Server-managed");
+    expect(html).not.toContain(">SQLite<");
   });
 
   it("uses the shared textarea control for admin JSON fields", () => {
@@ -1022,10 +1050,12 @@ describe("AdminPage", () => {
     expect(filterHtml).toContain("rounded-input");
     expect(filterHtml).toContain("focus:ring-2");
     expect(filterHtml).toContain("h-9");
+    expect(filterHtml).toContain("min-h-11");
     expect(filterHtml).toContain("All roles");
     expect(themeHtml).toContain('aria-label="Static site export theme"');
-    expect(themeHtml).toContain("Dark theme");
-    expect(themeHtml).toContain("Paper theme");
+    expect(themeHtml).toContain("Light theme");
+    expect(themeHtml).toContain('aria-haspopup="listbox"');
+    expect(themeHtml).not.toContain("<select");
   });
 
   it("uses the shared input control for admin text fields", () => {
@@ -1049,6 +1079,7 @@ describe("AdminPage", () => {
     expect(html).toContain("rounded-input");
     expect(html).toContain("focus:ring-2");
     expect(html).toContain("h-9");
+    expect(html).toContain("min-h-11");
   });
 
   it("uses the shared input control for locked secret admin settings", () => {
@@ -1100,8 +1131,9 @@ describe("AdminPage", () => {
     expect(pickerHtml).toContain("max-w-44");
     expect(pickerHtml).toContain("Select user");
     expect(visibilityHtml).toContain('aria-label="Space visibility"');
-    expect(visibilityHtml).toContain("Signed-in users");
-    expect(visibilityHtml).toContain("Public");
+    expect(visibilityHtml).toContain("Private");
+    expect(visibilityHtml).toContain('aria-haspopup="listbox"');
+    expect(visibilityHtml).not.toContain("<select");
   });
 
   it("uses the shared select control for admin role pickers", () => {
@@ -1115,11 +1147,13 @@ describe("AdminPage", () => {
     expect(permissionHtml).toContain('aria-label="Permission role"');
     expect(permissionHtml).toContain("rounded-input");
     expect(permissionHtml).toContain("focus:ring-2");
-    expect(permissionHtml).toContain("Read/write");
+    expect(permissionHtml).toContain("Viewer");
+    expect(permissionHtml).toContain('aria-haspopup="listbox"');
+    expect(permissionHtml).not.toContain("<select");
     expect(userRoleHtml).toContain('aria-label="User role"');
     expect(userRoleHtml).toContain("rounded-input");
     expect(userRoleHtml).toContain("focus:ring-2");
-    expect(userRoleHtml).toContain("Admin");
+    expect(userRoleHtml).toContain("Member");
   });
 
   it("validates Google Drive OAuth launch URLs", () => {
@@ -1234,7 +1268,6 @@ describe("AdminPage", () => {
     const html = renderToStaticMarkup(<AdminPage initialSection="storage" />);
     expect(html).toContain("Static Site Settings");
     expect(html).toContain("Light theme");
-    expect(html).toContain("Paper theme");
     expect(html).toContain("Queued Sync Replay");
     expect(html).toContain("Native app writes land locally first");
     expect(html).toContain("selected recovery");
@@ -1263,27 +1296,24 @@ describe("AdminPage", () => {
     expect(html).toContain("ZIP");
   });
 
-  it("renders plugin manifest validation controls", () => {
-    mocks.auth.user = {
-      id: "admin-user",
-      role: "admin",
-      display_name: "Admin User",
-      email: "admin@example.com",
-    };
-
+  it("keeps the legacy plugin selection as a read-only archive", () => {
+    mocks.auth.user = { id: "admin-user", role: "admin", display_name: "Admin User", email: "admin@example.com" };
     const html = renderToStaticMarkup(<AdminPage initialSection="plugins" />);
-    expect(html).toContain("Plugins");
-    expect(html).toContain("plugin.json");
-    expect(html).toContain("registry.json");
-    expect(html).toContain("Validate");
-    expect(html).toContain("Contract only");
-    expect(html).toContain("No registry index validated yet.");
-    expect(html).toContain("Installed Plugins");
-    expect(html).toContain("Registry index validation");
-    expect(html).toContain("Admin install records");
-    expect(html).toContain("Install Audit");
-    expect(html).toContain("Local install audit");
-    expect(html).toContain("Deno server sandbox");
+    expect(html).toContain("Legacy plugin archive");
+    expect(html).toContain("Retained install records are not running integrations");
+    expect(html).toContain("Back to Administration");
+    expect(html).not.toContain("Validate Registry");
+    expect(html).not.toContain("Installed Plugins");
+    expect(html).not.toContain("Per-space enablement");
+    expect(html).not.toContain("Plugin manifest JSON");
+  });
+
+  it("omits unfinished plugin controls from normal administration in both modes", () => {
+    for (const localMode of [false, true]) {
+      const ids = getAvailableAdminSections(localMode).map(section => section.id);
+      expect(ids).not.toContain("plugins");
+      expect(ids).toContain("system");
+    }
   });
 
   it("falls back from search reindex in local mode", () => {
@@ -1311,15 +1341,10 @@ describe("AdminPage", () => {
 
     const html = renderToStaticMarkup(<AdminPage initialSection="webhooks" />);
     expect(html).toContain("Manage outbound event deliveries");
-    expect(html).toContain('aria-label="Webhook name"');
-    expect(html).toContain('placeholder="Release automation"');
-    expect(html).toContain('aria-label="Webhook URL"');
-    expect(html).toContain('placeholder="https://example.com/starlane/webhook"');
-    expect(html).toContain('aria-label="Webhook events"');
-    expect(html).toContain('aria-label="Webhook secret"');
-    expect(html).toContain('type="password"');
-    expect(html).toContain('aria-label="Webhook space ID"');
-    expect(html).toContain("focus:ring-2");
+    expect(html).toContain("Create webhook");
+    expect(html).not.toContain('aria-label="Webhook name"');
+    expect(html).not.toContain('type="password"');
+    expect(html).toContain("synthetic test sends no page or draft content");
     expect(html).toContain("Delivery History");
     expect(html).toContain("No webhooks configured.");
     expect(html).not.toContain("Webhooks settings");
@@ -1488,6 +1513,82 @@ describe("AdminPage", () => {
     expect(html).not.toContain("Notifications settings");
   });
 
+  it("renders the backed AI configuration screen instead of a placeholder", () => {
+    mocks.auth.user = {
+      id: "admin-user",
+      role: "admin",
+      display_name: "Admin",
+      email: "admin@example.com",
+    };
+
+    const html = renderToStaticMarkup(<AdminPage initialSection="ai" />);
+    expect(html).toContain("AI Settings");
+    expect(html).toContain("Connect providers, verify access, load models");
+    expect(html).toContain('aria-label="AI Settings"');
+    expect(html).toContain("hidden text-lg font-semibold text-text md:block");
+    expect(html).toContain("Loading AI providers...");
+    expect(html).toContain("Refresh");
+    expect(html).toContain("Add provider");
+    expect(html).toContain("AI availability");
+    expect(html).toContain("Providers");
+    expect(html).not.toContain("AI Settings settings");
+  });
+
+  it("builds styled provider drafts with safe defaults and no retained secret", () => {
+    expect(getAdminAiProviderDraft("openai")).toEqual({
+      id: "openai",
+      base_url: "https://api.openai.com/v1",
+      api_key: "",
+      model: "gpt-4o",
+    });
+    expect(
+      getAdminAiProviderDraft({
+        id: "anthropic",
+        label: "Anthropic",
+        configured: true,
+        source: "database",
+        locked: false,
+        base_url_locked: false,
+        base_url: "https://gateway.example.test/v1",
+        model: "claude-custom",
+        has_api_key: true,
+        api_key_locked: false,
+        removable: true,
+        is_default: false,
+      }),
+    ).toEqual({
+      id: "anthropic",
+      base_url: "https://gateway.example.test/v1",
+      api_key: "",
+      model: "claude-custom",
+    });
+  });
+
+  it("describes configured provider status without inventing a connection result", () => {
+    const provider = {
+      id: "ollama" as const,
+      label: "Ollama",
+      configured: true,
+      source: "environment" as const,
+      locked: true,
+      base_url_locked: true,
+      base_url: "http://ollama:11434",
+      model: "llama3.2",
+      has_api_key: false,
+      api_key_locked: false,
+      removable: false,
+      is_default: false,
+    };
+    expect(getAdminAiProviderStatus(provider)).toEqual({
+      label: "Available",
+      variant: "warning",
+    });
+    expect(getAdminAiProviderStatus({ ...provider, is_default: true })).toEqual({
+      label: "Default",
+      variant: "success",
+    });
+  });
+
   it("falls back from notification SMTP management in local mode", () => {
     mocks.launch.mode = "local";
     mocks.auth.user = {
@@ -1513,8 +1614,9 @@ describe("AdminPage", () => {
     };
 
     const html = renderToStaticMarkup(<AdminPage initialSection="auth" />);
-    expect(html).toContain("Configure server authentication requirements");
-    expect(html).toContain("Login Policy");
+    expect(html).toContain("Configure login policy and your organization");
+    expect(html).toContain("Login policy");
+    expect(html).toContain("Single sign-on");
     expect(html).toContain("Loading authentication settings...");
     expect(html).not.toContain("Authentication settings");
   });
@@ -1558,24 +1660,13 @@ describe("AdminPage", () => {
     };
 
     const html = renderToStaticMarkup(<AdminPage initialSection="api-keys" />);
-    expect(html).toContain("Create and revoke personal API keys");
-    expect(html).toContain("New API Key");
-    expect(html).toContain('aria-label="API key name"');
-    expect(html).toContain('placeholder="Key name"');
-    expect(html).toContain('aria-label="Expiration date"');
-    expect(html).toContain('type="datetime-local"');
-    expect(html).toContain("Scopes");
-    expect(html).toContain("Read");
-    expect(html).toContain("Write");
-    expect(html).toContain("Admin");
-    expect(html).toContain("Active Keys");
-    expect(html).toContain("New Service Account Key");
-    expect(html).toContain('aria-label="Service account key name"');
-    expect(html).toContain('aria-label="Service account expiration date"');
-    expect(html).toContain("focus:ring-2");
-    expect(html).toContain("Service Account Keys");
-    expect(html).toContain("No service account keys created.");
-    expect(html).toContain("No API keys created.");
+    expect(html).toContain("Create and manage keys for API access.");
+    expect(html).toContain("Create key");
+    expect(html).toContain("0 keys active");
+    expect(html).toContain("No API keys yet");
+    expect(html).toContain("scripts, integrations, or service automation");
+    expect(html).toContain("Full values appear only once");
+    expect(html).not.toContain("New Service Account Key");
     expect(html).not.toContain("API Keys settings");
   });
 
@@ -1609,6 +1700,7 @@ describe("AdminPage", () => {
     expect(html).toContain("All statuses");
     expect(html).toContain("Activate selected");
     expect(html).toContain("Deactivate selected");
+    expect(html).toContain("min-h-11");
     expect(html).toContain("Loading users...");
   });
 
@@ -1645,6 +1737,18 @@ describe("AdminPage", () => {
       getAdminSessionRevokeConfirmationMessage("eagle@example.test", "Harley's Mac"),
     ).toBe(
       'Revoke the session for eagle@example.test on "Harley\'s Mac"? That device will need to sign in again.',
+    );
+  });
+
+  it("makes group deletion impact explicit without implying user or space deletion", () => {
+    expect(
+      getAdminGroupDeleteConfirmationMessage({
+        name: "Engineering",
+        member_count: 1,
+        space_grant_count: 2,
+      }),
+    ).toBe(
+      "Delete Engineering? This removes 1 group membership and 2 space access grants. It does not delete users, spaces, or documents.",
     );
   });
 
@@ -1971,7 +2075,7 @@ describe("AdminPage", () => {
     ]);
   });
 
-  it("uses shared inputs for admin group creation fields", () => {
+  it("opens group creation from a dedicated dialog action", () => {
     mocks.auth.user = {
       id: "admin-user",
       role: "admin",
@@ -1981,12 +2085,8 @@ describe("AdminPage", () => {
 
     const html = renderToStaticMarkup(<AdminPage initialSection="groups" />);
     expect(html).toContain("Create group");
-    expect(html).toContain('aria-label="Group name"');
-    expect(html).toContain('placeholder="Group name"');
-    expect(html).toContain('aria-label="Group description"');
-    expect(html).toContain('placeholder="Description"');
-    expect(html).toContain("rounded-input");
-    expect(html).toContain("focus:ring-2");
+    expect(html).toContain("min-h-11");
+    expect(html).not.toContain('aria-label="Group name"');
   });
 
   it("shows storage controls in local mode", () => {

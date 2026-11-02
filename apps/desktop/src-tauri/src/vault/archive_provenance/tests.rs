@@ -1,0 +1,26 @@
+use super::*;
+use std::io::{Cursor, Write};
+fn fixture()->(String,String,String,Vec<u8>){
+ let bytes=b"original retired bytes".to_vec();let raw_version=format!(" {{\n \"byte_length\":{},\"binary_sha256\":\"{}\",\"future\":{{\"retain\":true}} }} ",bytes.len(),sha(&bytes));
+ let asset=json!({"id":"native-download-original","name":"same.bin","source":"tauri","size":bytes.len(),"url":"asset://original","vault_path":"/original","created_at":"original","server_version_provenance":{"format":1,"bytes_sha256":sha(&bytes),"raw_version_record":raw_version,"future":"keep"}});
+ let raw=format!(" {{\n\"format\":1,\"operation_id\":\"original\",\"canonical_committed\":true,\"canonical_revision\":\"original-revision\",\"asset\":{},\"future_receipt\":true}} ",asset);
+ let snapshot=json!({"schema_version":1,"assets":[asset.clone()],"documents":[{"content":"![exact](asset://original)"}]}).to_string();let receipts=serde_json::to_string(&vec![raw]).unwrap();
+ let manifest=json!({"format":1,"canonical_revision":"original-revision","snapshot_sha256":sha(snapshot.as_bytes()),"raw_receipts_sha256":sha(receipts.as_bytes()),"binaries":[{"entry":"assets/native-download-original-same.bin","asset":asset,"byte_length":bytes.len(),"sha256":sha(&bytes),"native_intent_sha256":"a".repeat(64)}]}).to_string();(snapshot,receipts,manifest,bytes)
+}
+fn archive(snapshot:&str,receipts:Option<&str>,manifest:Option<&str>,bytes:&[u8],extra:Option<(&str,&[u8])>)->zip::ZipArchive<Cursor<Vec<u8>>>{
+ let mut writer=zip::ZipWriter::new(Cursor::new(Vec::new()));let options=zip::write::SimpleFileOptions::default();
+ for(name,raw)in[("vault.json",Some(snapshot)),(RECEIPTS,receipts),(MANIFEST,manifest)]{if let Some(raw)=raw{writer.start_file(name,options).unwrap();writer.write_all(raw.as_bytes()).unwrap();}}
+ writer.start_file("assets/native-download-original-same.bin",options).unwrap();writer.write_all(bytes).unwrap();if let Some((name,raw))=extra{writer.start_file(name,options).unwrap();writer.write_all(raw).unwrap();}zip::ZipArchive::new(writer.finish().unwrap()).unwrap()
+}
+#[test]fn exact_strings_are_provenance_only_and_never_serving_authority(){let(s,r,m,b)=fixture();let result=inspect(&mut archive(&s,Some(&r),Some(&m),&b,None),&s).unwrap().unwrap();assert_eq!(result["raw_receipts_json"],r);assert_eq!(result["manifest_json"],m);assert_eq!(result["authority"],"portable_provenance_only");assert!(result.get("canonical_committed").is_none());}
+#[test]fn missing_or_copied_id_only_sidecars_refuse(){let(s,r,m,b)=fixture();for (receipts,manifest) in [(None,None),(Some(r.as_str()),None),(None,Some(m.as_str()))]{assert!(inspect(&mut archive(&s,receipts,manifest,&b,None),&s).is_err());}}
+#[test]fn changed_equal_length_bytes_snapshot_or_receipts_refuse(){let(s,r,m,b)=fixture();let mut altered=b.clone();altered[0]^=1;assert!(inspect(&mut archive(&s,Some(&r),Some(&m),&altered,None),&s).is_err());for (snapshot,receipts) in [(format!("{s} "),r.clone()),(s.clone(),format!("{r} "))]{assert!(inspect(&mut archive(&snapshot,Some(&receipts),Some(&m),&b,None),&snapshot).is_err());}}
+#[test]fn duplicate_omitted_extra_and_unbound_native_metadata_refuse(){let(s,r,m,b)=fixture();assert!(inspect(&mut archive(&s,Some(&r),Some(&m),&b,Some(("unrelated",b"foreign"))),&s).is_err());assert!(inspect(&mut archive(&s,Some(&r),Some(&m),&b,Some(("starlane-native/serve.json",b"{}"))),&s).is_err());let mut manifest:Value=serde_json::from_str(&m).unwrap();manifest["binaries"][0]["native_intent_sha256"]=Value::Null;assert!(inspect(&mut archive(&s,Some(&r),Some(&manifest.to_string()),&b,None),&s).is_err());let mut receipts:Vec<String>=serde_json::from_str(&r).unwrap();receipts.push(receipts[0].clone());let r=serde_json::to_string(&receipts).unwrap();manifest["raw_receipts_sha256"]=json!(sha(r.as_bytes()));assert!(inspect(&mut archive(&s,Some(&r),Some(&manifest.to_string()),&b,None),&s).is_err());}
+#[test]fn oversized_declared_binary_refuses_before_transfer(){let(s,r,m,b)=fixture();let mut manifest:Value=serde_json::from_str(&m).unwrap();manifest["binaries"][0]["byte_length"]=json!(MAX_BINARY+1);assert!(inspect(&mut archive(&s,Some(&r),Some(&manifest.to_string()),&b,None),&s).is_err());}
+
+#[test]fn actual_prepare_refuses_missing_provenance_before_destination_and_sparse_source_before_capture(){
+ let _guard=super::super::archive_admission::TEST_SERIAL.lock().unwrap_or_else(|e|e.into_inner());
+ let root=std::env::temp_dir().join(format!("starlane-provenance-negative-{}-{}",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));std::fs::create_dir(&root).unwrap();
+ let(s,_,_,b)=fixture();let source=root.join("bad.zip");std::fs::write(&source,archive(&s,None,None,&b,None).into_inner().into_inner()).unwrap();let destination=root.join("new-vault/assets");assert!(super::super::archive_admission::prepare("none",&source,&destination).err().unwrap().contains("complete original provenance"));assert!(!root.join("new-vault").exists());
+ let sparse=root.join("oversized.zip");let file=std::fs::File::create(&sparse).unwrap();file.set_len(4096u64*MAX_BINARY+128*1024*1024+1).unwrap();drop(file);assert!(super::super::archive_admission::prepare("none",&sparse,&destination).err().unwrap().contains("compressed-source budget"));assert!(!root.join("new-vault").exists());std::fs::remove_dir_all(root).unwrap();
+}

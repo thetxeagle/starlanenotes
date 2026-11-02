@@ -1,3 +1,4 @@
+import { isPreferredJournalTemplate, JOURNAL_TEMPLATE_KEY } from "@/lib/journalTemplatePreference";
 import type { FolderRecord, TemplateRecord } from "@/lib/dataClient";
 
 const DAILY_TEMPLATE_NAMES = new Set(["_daily", "daily", "daily note"]);
@@ -11,13 +12,28 @@ export interface TemplateRenderContext {
   properties?: Record<string, unknown>;
 }
 
+export interface TemplatePresentation {
+  icon?: string;
+  cover_image?: string;
+  custom_css?: string;
+  page_width?: "standard" | "wide" | "full";
+}
+
+export const TEMPLATE_PRESENTATION_KEY = "__starlane_presentation";
+export const TEMPLATE_EXPERIENCE_KEY = "__starlane_template";
+
 export interface RenderedTemplate {
   content: string;
   cursorOffset?: number;
 }
 
+export function getTemplateEditorPath(spaceId: string, templateId?: string): string {
+  const base = `/spaces/${encodeURIComponent(spaceId)}/templates`;
+  return templateId ? `${base}/${encodeURIComponent(templateId)}/edit` : `${base}/new`;
+}
+
 export function findDailyTemplate(templates: TemplateRecord[]): TemplateRecord | undefined {
-  return templates.find((template) => {
+  return templates.find(isPreferredJournalTemplate) ?? templates.find((template) => {
     const name = template.name.trim().toLowerCase();
     return DAILY_TEMPLATE_NAMES.has(name) || template.tags.some((tag) => tag.toLowerCase() === "daily");
   });
@@ -74,7 +90,58 @@ export function renderTemplateContent(
 
 export function templatePropertiesAsRecord(value: unknown): Record<string, unknown> | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-  return value as Record<string, unknown>;
+  const record = value as Record<string, unknown>;
+  const properties = { ...record };
+  delete properties[TEMPLATE_PRESENTATION_KEY];
+  delete properties[TEMPLATE_EXPERIENCE_KEY];
+  delete properties[JOURNAL_TEMPLATE_KEY];
+  return Object.keys(properties).length > 0 ? properties : undefined;
+}
+
+export function templatePresentationAsRecord(value: unknown): TemplatePresentation {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const raw = (value as Record<string, unknown>)[TEMPLATE_PRESENTATION_KEY];
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const presentation = raw as Record<string, unknown>;
+  return {
+    icon: typeof presentation.icon === "string" && presentation.icon.trim() ? presentation.icon : undefined,
+    cover_image:
+      typeof presentation.cover_image === "string" && presentation.cover_image.trim()
+        ? presentation.cover_image
+        : undefined,
+    custom_css:
+      typeof presentation.custom_css === "string"
+        ? presentation.custom_css
+        : undefined,
+    page_width:
+      presentation.page_width === "standard" ||
+      presentation.page_width === "wide" ||
+      presentation.page_width === "full"
+        ? presentation.page_width
+        : undefined,
+  };
+}
+
+export function withTemplatePresentation(
+  properties: Record<string, unknown> | undefined,
+  presentation: TemplatePresentation,
+): Record<string, unknown> | undefined {
+  const storedPresentation = properties?.[TEMPLATE_PRESENTATION_KEY];
+  const hadStoredCss = Boolean(storedPresentation && typeof storedPresentation === "object" &&
+    !Array.isArray(storedPresentation) &&
+    typeof (storedPresentation as Record<string, unknown>).custom_css === "string");
+  const hasPresentation = Object.entries(presentation).some(([key, value]) =>
+    key === "page_width" ? Boolean(value) : key === "custom_css"
+      ? typeof value === "string" && (value.length > 0 || hadStoredCss)
+      : Boolean((value as string | undefined)?.trim()),
+  );
+  const next = { ...(properties ?? {}) };
+  if (hasPresentation) {
+    next[TEMPLATE_PRESENTATION_KEY] = presentation;
+  } else {
+    delete next[TEMPLATE_PRESENTATION_KEY];
+  }
+  return Object.keys(next).length > 0 ? next : undefined;
 }
 
 export function formatDateStamp(date = new Date()): string {

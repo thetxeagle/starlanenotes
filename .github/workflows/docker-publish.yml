@@ -29,10 +29,6 @@ jobs:
             dockerfile: docker/Dockerfile
             title: Starlane Notes
             description: Self-hosted, offline-first document management platform
-          - image: starlanenotes-docs
-            dockerfile: docker/docs.Dockerfile
-            title: Starlane Notes documentation
-            description: Static documentation portal for Starlane Notes
     steps:
       - name: Check out source
         uses: actions/checkout@v4

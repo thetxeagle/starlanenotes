@@ -4,9 +4,9 @@ import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import {
   getOfflineServerWorkspaceStatus,
   OFFLINE_SERVER_WORKSPACE_CHANGED_EVENT,
-  serverCacheScopeForToken,
+  serverCacheScopeForSession,
 } from "@/lib/offlineServerCache";
-import { getCurrentLaunchMode } from "@/lib/launchMode";
+import { getCurrentLaunchMode, type AppLaunchMode } from "@/lib/launchMode";
 
 interface OfflineBarProps {
   zoomPercent?: number;
@@ -17,7 +17,7 @@ function readLinkedServerWorkspaceStatus() {
   try {
     const serverUrl = globalThis.localStorage?.getItem("server_url");
     if (!serverUrl) return null;
-    return getOfflineServerWorkspaceStatus(`${serverUrl.replace(/\/+$/, "")}/api/v1`, serverCacheScopeForToken(api.getToken()));
+    return getOfflineServerWorkspaceStatus(`${serverUrl.replace(/\/+$/, "")}/api/v1`, serverCacheScopeForSession(api.getToken(), api.getRefreshToken()));
   } catch {
     return null;
   }
@@ -36,6 +36,10 @@ function subscribeToWorkspaceStatus(listener: () => void) {
   };
 }
 
+export function shouldShowOfflineMessage(online: boolean, launchMode: AppLaunchMode): boolean {
+  return !online && launchMode === "server";
+}
+
 export function OfflineBar({ zoomPercent }: OfflineBarProps) {
   const online = useOnlineStatus();
   const workspace = useSyncExternalStore(
@@ -44,12 +48,13 @@ export function OfflineBar({ zoomPercent }: OfflineBarProps) {
     () => null,
   );
   const showZoom = zoomPercent !== undefined && zoomPercent !== 100;
+  const showOffline = shouldShowOfflineMessage(online, getCurrentLaunchMode());
 
-  if (online && !showZoom) return null;
+  if (!showOffline && !showZoom) return null;
 
   return (
-    <div className="flex h-6 shrink-0 items-center border-t border-border bg-surface-raised px-3 text-xs text-text-muted">
-      {!online && (
+    <div className="starlane-status-bar flex h-6 shrink-0 items-center border-t border-border bg-surface-raised px-3 text-xs text-text-muted">
+      {showOffline && (
         <span>
           {workspace?.ready
             ? `Offline — downloaded workspace ready${workspace.queuedMutationCount ? ` · ${workspace.queuedMutationCount} change${workspace.queuedMutationCount === 1 ? "" : "s"} queued` : ""}`
@@ -57,7 +62,7 @@ export function OfflineBar({ zoomPercent }: OfflineBarProps) {
         </span>
       )}
       {showZoom && (
-        <span className={!online ? "ml-auto" : "ml-auto"}>
+        <span className="ml-auto">
           Zoom: {zoomPercent}%
         </span>
       )}

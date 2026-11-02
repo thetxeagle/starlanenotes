@@ -12,10 +12,16 @@ export function formatSearchQueryInput(
   starredOnly = false,
 ): string {
   const parts = [query.trim()];
+  if (filters.maintenance_user?.trim())
+    parts.push(`maintenance-user:${formatTermValue(filters.maintenance_user)}`);
+  if (filters.maintenance_group?.trim())
+    parts.push(`maintenance-group:${formatTermValue(filters.maintenance_group)}`);
+  if (filters.identifier?.trim()) parts.push(`identifier:${formatTermValue(filters.identifier)}`);
   if (filters.title?.trim()) parts.push(`title:${formatTermValue(filters.title)}`);
   if (filters.tag?.trim()) parts.push(`tag:${formatTermValue(filters.tag)}`);
   if (filters.space_id?.trim()) parts.push(`space:${formatTermValue(filters.space_id)}`);
   if (filters.folder?.trim()) parts.push(`folder:${formatTermValue(filters.folder)}`);
+  if (filters.user?.trim()) parts.push(`user:${formatTermValue(filters.user)}`);
   if (filters.property_name?.trim()) {
     const property = filters.property_value?.trim()
       ? `${filters.property_name.trim()}=${filters.property_value.trim()}`
@@ -29,6 +35,7 @@ export function formatSearchQueryInput(
   appendPresenceFilter(parts, "property", filters.has_property);
   if (filters.is_locked === "true") parts.push("is:locked");
   if (filters.is_locked === "false") parts.push("is:unlocked");
+  if (filters.is_draft === "true") parts.push("is:draft");
   if (filters.created_on?.trim()) parts.push(`created:${formatTermValue(filters.created_on)}`);
   if (filters.updated_on?.trim()) parts.push(`updated:${formatTermValue(filters.updated_on)}`);
   if (starredOnly) parts.push("is:starred");
@@ -44,6 +51,7 @@ export function parseSearchQueryInput(input: string): ParsedSearchQuery {
   for (const token of tokens) {
     const normalized = stripQuotes(token);
     const lower = normalized.toLowerCase();
+    if (lower === "and") continue;
     if (lower === "is:starred" || lower === "starred:true") {
       starredOnly = true;
       continue;
@@ -56,6 +64,10 @@ export function parseSearchQueryInput(input: string): ParsedSearchQuery {
       filters.is_locked = "false";
       continue;
     }
+    if (lower === "is:draft" || lower === "draft:true") {
+      filters.is_draft = "true";
+      continue;
+    }
     const presenceFilter = parsePresenceFilter(lower);
     if (presenceFilter) {
       filters[presenceFilter.key] = presenceFilter.value;
@@ -63,6 +75,18 @@ export function parseSearchQueryInput(input: string): ParsedSearchQuery {
     }
     if (lower.startsWith("tag:")) {
       filters.tag = stripQuotes(normalized.slice(4).trim());
+      continue;
+    }
+    if (lower.startsWith("maintenance-user:")) {
+      filters.maintenance_user = stripQuotes(normalized.slice(17).trim());
+      continue;
+    }
+    if (lower.startsWith("maintenance-group:")) {
+      filters.maintenance_group = stripQuotes(normalized.slice(18).trim());
+      continue;
+    }
+    if (lower.startsWith("identifier:")) {
+      filters.identifier = stripQuotes(normalized.slice(11).trim());
       continue;
     }
     if (lower.startsWith("title:")) {
@@ -79,6 +103,11 @@ export function parseSearchQueryInput(input: string): ParsedSearchQuery {
     }
     if (lower.startsWith("folder_id:")) {
       filters.folder = stripQuotes(normalized.slice(10).trim());
+      continue;
+    }
+    if (lower.startsWith("user:") || lower.startsWith("author:")) {
+      const separator = normalized.indexOf(":");
+      filters.user = stripQuotes(normalized.slice(separator + 1).trim());
       continue;
     }
     if (lower.startsWith("property:")) {
@@ -134,7 +163,7 @@ function parseDateFilterValue(
 
 function formatTermValue(value: string): string {
   const trimmed = value.trim();
-  return /\s/.test(trimmed) ? `"${trimmed.replace(/"/g, "\\\"")}"` : trimmed;
+  return /\s/.test(trimmed) ? `"${trimmed.replace(/"/g, '\\"')}"` : trimmed;
 }
 
 type PresenceFilterKey =
@@ -176,10 +205,7 @@ function parsePresenceFilter(
 function splitPropertyFilter(value: string): [string, string] {
   const separatorIndex = value.search(/[:=]/);
   if (separatorIndex === -1) return [value.trim(), ""];
-  return [
-    value.slice(0, separatorIndex).trim(),
-    value.slice(separatorIndex + 1).trim(),
-  ];
+  return [value.slice(0, separatorIndex).trim(), value.slice(separatorIndex + 1).trim()];
 }
 
 function stripQuotes(value: string): string {

@@ -3,7 +3,10 @@ import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import {
   canSubmitPasskeyLogin,
+  getLoginServerUrl,
+  getLoginSuccessPath,
   getLoginTwoFactorCodeForSubmit,
+  isLikelyLoginEmail,
   getPasskeyLoginDisabledReason,
   getPasswordLoginDisabledReason,
   isLoginTwoFactorCodeFormat,
@@ -21,15 +24,25 @@ import {
   LoginPage,
   PasskeyUnavailableNotice,
   shouldResetTwoFactorPrompt,
+  switchLoginConnection,
   TwoFactorLoginCodeInput,
   TwoFactorRequiredNotice,
 } from "./LoginPage";
-import { ApiError } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 
 const passkeySupportMock = vi.hoisted(() => ({
   supported: false,
 }));
 const nativeAppMock = vi.hoisted(() => ({ native: false }));
+const authConfigMock = vi.hoisted(() => ({
+  config: {
+    google_enabled: false,
+    github_enabled: false,
+    oidc_enabled: false,
+    setup_completed: true,
+    allow_public_signups: false,
+  },
+}));
 
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
@@ -40,11 +53,7 @@ vi.mock("@/hooks/useAuth", () => ({
   useAuth: () => ({
     login: vi.fn(),
     loginWithPasskey: vi.fn(),
-    config: {
-      google_enabled: false,
-      github_enabled: false,
-      oidc_enabled: false,
-    },
+    config: authConfigMock.config,
   }),
 }));
 
@@ -60,40 +69,158 @@ function renderLoginPage(): string {
   );
 }
 
+function createMemoryStorage(entries: Record<string, string> = {}): Storage {
+  const values = new Map(Object.entries(entries));
+  return {
+    get length() {
+      return values.size;
+    },
+    clear: () => values.clear(),
+    getItem: (key) => values.get(key) ?? null,
+    key: (index) => [...values.keys()][index] ?? null,
+    removeItem: (key) => values.delete(key),
+    setItem: (key, value) => values.set(key, value),
+  };
+}
+
 describe("LoginPage passkey affordance", () => {
-  it("keeps passkey sign-in hidden when the browser or webview lacks support", () => {
+  it("recognizes complete email addresses for automatic credential discovery", () => {
+    expect(isLikelyLoginEmail("eagle@example.test")).toBe(true);
+    expect(isLikelyLoginEmail(" eagle@example.test ")).toBe(true);
+    expect(isLikelyLoginEmail("eagle@example")).toBe(false);
+    expect(isLikelyLoginEmail("eagle example.test")).toBe(false);
+  });
+
+  it("resolves the active web server and hides signup when public registration is disabled", () => {
+    nativeAppMock.native = false;
+    authConfigMock.config.allow_public_signups = false;
+
+    const html = renderLoginPage();
+
+    expect(getLoginServerUrl(false, null, "https://notes.example.test")).toBe(
+      "https://notes.example.test",
+    );
+    expect(html).not.toContain("Don't have an account?");
+    expect(html).not.toContain('href="/register"');
+  });
+
+  it("shows signup only when the connected server explicitly enables public registration", () => {
+    authConfigMock.config.allow_public_signups = true;
+
+    const html = renderLoginPage();
+
+    expect(html).toContain('href="/register"');
+    expect(html).toContain("Sign up");
+    authConfigMock.config.allow_public_signups = false;
+  });
+
+  it("keeps initial owner registration reachable before server setup is complete", () => {
+    authConfigMock.config.setup_completed = false;
+    authConfigMock.config.allow_public_signups = false;
+
+    const html = renderLoginPage();
+
+    expect(html).toContain('href="/register"');
+    authConfigMock.config.setup_completed = true;
+  });
+
+  it("shows native controls for switching to a local vault or another server", () => {
+    nativeAppMock.native = true;
+
+    const html = renderLoginPage();
+
+    expect(getLoginServerUrl(true, "https://notes.example.test/")).toBe(
+      "https://notes.example.test",
+    );
+    expect(html).toContain("Use local vault");
+    expect(html).toContain("Change server");
+
+    nativeAppMock.native = false;
+  });
+
+  it("keeps native connection controls out of the web sign-in surface", () => {
+    nativeAppMock.native = false;
+
+    const html = renderLoginPage();
+
+    expect(html).not.toContain("Use local vault");
+    expect(html).not.toContain("Change server");
+  });
+
+  it("clears prior credentials and routes native connection changes without deleting vault data", () => {
+    const localStorage = createMemoryStorage({
+      server_url: "https://old.example.test",
+      starlane_storage_mode: "server",
+      starlane_sync_provider: "google-drive",
+      preserved_vault_record: "keep",
+    });
+    const replace = vi.fn();
+    vi.stubGlobal("window", {
+      localStorage,
+      location: { origin: "https://old.example.test", replace },
+    });
+    vi.stubGlobal("localStorage", localStorage);
+    const tokenSpy = vi.spyOn(api, "setToken").mockImplementation(() => undefined);
+    const refreshSpy = vi.spyOn(api, "setRefreshToken").mockImplementation(() => undefined);
+
+    switchLoginConnection("server");
+
+    expect(tokenSpy).toHaveBeenCalledWith(null);
+    expect(refreshSpy).toHaveBeenCalledWith(null);
+    expect(localStorage.getItem("server_url")).toBeNull();
+    expect(localStorage.getItem("starlane_storage_mode")).toBe("server");
+    expect(localStorage.getItem("starlane_sync_provider")).toBe("none");
+    expect(localStorage.getItem("preserved_vault_record")).toBe("keep");
+    expect(replace).toHaveBeenCalledWith("/");
+
+    switchLoginConnection("local");
+
+    expect(localStorage.getItem("starlane_storage_mode")).toBeNull();
+    expect(localStorage.getItem("starlane_sync_provider")).toBeNull();
+    expect(localStorage.getItem("preserved_vault_record")).toBe("keep");
+
+    tokenSpy.mockRestore();
+    refreshSpy.mockRestore();
+    vi.unstubAllGlobals();
+  });
+
+  it("returns browser handoffs to the dedicated app sign-in page after login", () => {
+    expect(getLoginSuccessPath("")).toBe("/");
+    expect(getLoginSuccessPath("?native_handoff=handoff-1")).toBe(
+      "/app-signin/?handoff_id=handoff-1",
+    );
+  });
+
+  it("starts with the email identity step when passkey support is unavailable", () => {
     passkeySupportMock.supported = false;
     nativeAppMock.native = false;
 
     const html = renderLoginPage();
 
-    expect(html).not.toContain("Sign in with passkey");
-    expect(html).not.toContain("passkey-login-help");
-    expect(html).toContain("Passkey sign-in is unavailable in this browser or webview.");
+    expect(html).toContain("Continue");
+    expect(html).toContain('id="email"');
+    expect(html).not.toContain('id="password"');
   });
 
-  it("keeps browser passkey sign-in available in the native app without WebAuthn support", () => {
+  it("keeps the native browser-passkey path behind email discovery", () => {
     passkeySupportMock.supported = false;
     nativeAppMock.native = true;
     const html = renderLoginPage();
-    expect(html).toContain("Sign in with passkey in browser");
-    expect(html).not.toContain("Passkey sign-in is unavailable in this browser or webview.");
+    expect(html).toContain("Continue");
+    expect(html).toContain('id="email"');
     nativeAppMock.native = false;
   });
 
-  it("shows passkey sign-in as an email-first action when passkeys are supported", () => {
+  it("uses an email-first passkey discovery step when passkeys are supported", () => {
     passkeySupportMock.supported = true;
 
     const html = renderLoginPage();
 
-    expect(html).toContain("Sign in with passkey");
-    expect(html).toContain("disabled");
-    expect(html).toContain("passkey-login-help");
-    expect(html).toContain("role=\"status\"");
-    expect(html).toContain("Enter your email first");
+    expect(html).toContain("Continue");
+    expect(html).toContain('id="email"');
+    expect(html).not.toContain('id="password"');
     expect(html).toContain("rounded-button");
     expect(html).toContain("focus-ring");
-    expect(html).toContain("h-10 w-full");
     expect(html).toContain("font-medium");
     expect(html).toContain("border-border");
     expect(html).toContain("bg-surface");

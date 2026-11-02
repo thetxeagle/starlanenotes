@@ -1,6 +1,11 @@
 import { renderToStaticMarkup } from "react-dom/server";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
+  createMobileFolderCatalog,
+  createMobilePageCatalog,
+  settleMobilePageCreation,
   canCreateMobileChildFolder,
   canDisableMobileTotp,
   canRefreshNativeVaultFolders,
@@ -16,6 +21,7 @@ import {
   getMobilePasskeyDeleteHelpId,
   getMobilePasskeyDateLabel,
   getMobilePasskeyAddDisabledReason,
+  getMobilePasskeyManagementMode,
   getMobileResetAppConfirmationMessage,
   getMobileSessionRevokeConfirmationMessage,
   getMobileTotpDisableConfirmationMessage,
@@ -27,15 +33,18 @@ import {
   getMobileVaultTrashConfirmationMessage,
   getMobileJournalPath,
   getMobileFolderDepth,
+  getMobileTemplatePickerTarget,
   getMobilePrimaryCreateActions,
   getMobileDailyDocuments,
   getProfileSettingsFrameClass,
   mergeMobileNotificationPages,
   getProfileSettingsVisibility,
   isDailyDocumentTitle,
+  MobileSearchScreen,
   MobileNotificationsScreen,
   MobilePasskeyRow,
   MobileProfileScreen,
+  MobileSpaceNameDialog,
   MOBILE_TREE_ICON_SIZE,
   MOBILE_TREE_TOGGLE_LANE_CLASS,
   MOBILE_REQUIRED_2FA_ENROLLMENT_NOTICE_COPY,
@@ -55,8 +64,11 @@ import {
   MobileTextInput,
   MobilePreferenceSelect,
   ProfilePasskeyUnavailableNotice,
+  ProfilePasskeyBrowserManagedNotice,
   normalizeMobileServerVaultUrl,
+  sessionClientLabel,
   sessionDeviceLabel,
+  sessionReference,
   shouldShowMobileCreateSpace,
   shouldShowMobileNotifications,
   shouldShowMobileSpaceSwitcher,
@@ -88,6 +100,14 @@ const authMock = vi.hoisted(() => ({
 const passkeySupportMock = vi.hoisted(() => ({
   supported: false,
 }));
+
+function expectClassTokens(html: string, tokens: string[]) {
+  const classNames = Array.from(html.matchAll(/class="([^"]*)"/g), (match) =>
+    match[1].split(/\s+/),
+  );
+
+  expect(classNames.some((classes) => tokens.every((token) => classes.includes(token)))).toBe(true);
+}
 
 vi.mock("@tauri-apps/plugin-haptics", () => ({
   impactFeedback: vi.fn(),
@@ -192,10 +212,7 @@ describe("MobileScreens daily note helpers", () => {
       { id: "m", name: "Middle", parent_id: "other" },
     ];
 
-    expect(flattenFolderChildren(folders, "root").map((folder) => folder.id)).toEqual([
-      "a",
-      "z",
-    ]);
+    expect(flattenFolderChildren(folders, "root").map((folder) => folder.id)).toEqual(["a", "z"]);
     expect(flattenFolderChildren(folders).map((folder) => folder.id)).toEqual(["root"]);
   });
 
@@ -216,7 +233,7 @@ describe("MobileScreens daily note helpers", () => {
 
     expect(canCreateMobileChildFolder(folders, "root")).toBe(true);
     expect(canCreateMobileChildFolder(folders, "child")).toBe(true);
-    expect(canCreateMobileChildFolder(folders, "grandchild")).toBe(false);
+    expect(canCreateMobileChildFolder(folders, "grandchild")).toBe(true);
     expect(canCreateMobileChildFolder(folders, "missing")).toBe(false);
   });
 
@@ -235,10 +252,7 @@ describe("MobileScreens daily note helpers", () => {
     ];
     const folders = [{ id: "daily", name: "_daily" }];
 
-    expect(getMobileDailyDocuments(documents, folders).map((doc) => doc.id)).toEqual([
-      "a",
-      "b",
-    ]);
+    expect(getMobileDailyDocuments(documents, folders).map((doc) => doc.id)).toEqual(["a", "b"]);
   });
 
   it("keeps server-mode sync and vault switching visible while hiding native-only storage rows", () => {
@@ -440,9 +454,7 @@ describe("MobileScreens daily note helpers", () => {
   });
 
   it("normalizes mobile passkey delete helper ids for accessibility linkage", () => {
-    expect(getMobilePasskeyDeleteHelpId("passkey-1")).toBe(
-      "mobile-passkey-delete-passkey-1-help",
-    );
+    expect(getMobilePasskeyDeleteHelpId("passkey-1")).toBe("mobile-passkey-delete-passkey-1-help");
     expect(getMobilePasskeyDeleteHelpId(" credential/id with spaces ")).toBe(
       "mobile-passkey-delete-credential-id-with-spaces-help",
     );
@@ -490,13 +502,15 @@ describe("MobileScreens daily note helpers", () => {
     expect(html).toContain('id="mobile-passkey-delete-phone-help"');
     expect(html).toContain('role="status"');
     expect(html).toContain("Finish the current action before deleting a passkey.");
-    expect(html).toContain("rounded-card border border-border bg-bg");
+    expectClassTokens(html, ["rounded-card", "border", "border-border", "bg-bg"]);
     expect(html).not.toMatch(/bg-red-|text-red-|rounded-xl/);
   });
 
   it("explains disabled mobile passkey add actions", () => {
     expect(getMobilePasskeyAddDisabledReason("", null)).toBe("Name this passkey before adding it.");
-    expect(getMobilePasskeyAddDisabledReason("   ", null)).toBe("Name this passkey before adding it.");
+    expect(getMobilePasskeyAddDisabledReason("   ", null)).toBe(
+      "Name this passkey before adding it.",
+    );
     expect(getMobilePasskeyAddDisabledReason("Phone Face ID", "passkey-add")).toBe(
       "Passkey setup is already in progress.",
     );
@@ -515,12 +529,16 @@ describe("MobileScreens daily note helpers", () => {
       id: "session-1",
       device_name: "Harley's iPhone",
       ip_address: "100.64.0.2",
+      client_platform: "mobile_app" as const,
+      is_current: true,
       last_seen_at: "2026-07-16T04:00:00Z",
       expires_at: "2026-07-17T04:00:00Z",
       created_at: "2026-07-15T04:00:00Z",
     };
 
     expect(sessionDeviceLabel(session)).toBe("Harley's iPhone");
+    expect(sessionClientLabel(session)).toBe("Mobile app");
+    expect(sessionReference(session)).toBe("Session session-1");
     expect(getMobileSessionRevokeConfirmationMessage(sessionDeviceLabel(session))).toBe(
       'Revoke the session for "Harley\'s iPhone"? That device will need to sign in again.',
     );
@@ -616,7 +634,62 @@ describe("MobileScreens daily note helpers", () => {
   });
 
   it("keeps primary mobile create actions paired", () => {
-    expect(getMobilePrimaryCreateActions()).toEqual(["New Doc", "New Folder"]);
+    expect(getMobilePrimaryCreateActions()).toEqual(["New page", "New folder"]);
+  });
+
+  it("carries the entered title and target into mobile template selection", () => {
+    expect(
+      getMobileTemplatePickerTarget(
+        { folderId: "projects", parentId: "parent-page" },
+        "  Project brief  ",
+      ),
+    ).toEqual({
+      folderId: "projects",
+      parentId: "parent-page",
+      title: "Project brief",
+    });
+  });
+
+  it("uses the shared dialog shell for mobile space and folder naming", () => {
+    const html = renderToStaticMarkup(
+      <MobileSpaceNameDialog
+        title="New folder"
+        description="Create a root folder in this space."
+        inputId="mobile-new-folder-name"
+        inputLabel="New folder name"
+        inputPlaceholder="Folder name"
+        actionLabel="Create Folder"
+        value=""
+        onChange={() => undefined}
+        onClose={() => undefined}
+        onSubmit={() => undefined}
+      />,
+    );
+
+    expect(html).toContain('role="dialog"');
+    expect(html).toContain('aria-labelledby="mobile-new-folder-name-title"');
+    expect(html).toContain('aria-label="New folder name"');
+    expect(html).toContain('aria-label="Close"');
+    expect(html).toContain('type="submit"');
+  });
+
+  it("opens the new document dialog with an empty value", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "src/components/mobile/MobileScreens.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain('setNewDocumentTitle("");');
+    expect(source).not.toContain('setNewDocumentTitle("Untitled");');
+  });
+
+  it("loads nested documents for mobile space and recent lists", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "src/components/mobile/MobileScreens.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain("listDocuments(space.id, { include_nested: true })");
   });
 
   it("hides mobile notifications in local mode", () => {
@@ -652,13 +725,70 @@ describe("MobileScreens daily note helpers", () => {
     ]);
   });
 
+  it("guards mobile mark-all-read with busy and retryable error feedback", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "src/components/mobile/MobileScreens.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain("if (markingAllRead) return;");
+    expect(source).toContain("disabled={markingAllRead}");
+    expect(source).toContain("aria-busy={markingAllRead}");
+    expect(source).toContain('{markingAllRead ? "Marking…" : "Mark all read"}');
+    expect(source).toContain('role="alert"');
+  });
+
+  it("publishes only the current mobile notification-filter request", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "src/components/mobile/MobileScreens.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain("const notificationsRequestIdRef = useRef(0);");
+    expect(source).toContain("const requestId = ++notificationsRequestIdRef.current;");
+    expect(source).toContain("if (requestId !== notificationsRequestIdRef.current) return;");
+    expect(source).toContain("notificationsRequestIdRef.current += 1;");
+  });
+
+  it("keeps late mobile pagination results inside their originating filter", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "src/components/mobile/MobileScreens.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain("const notificationPageRequestIdRef = useRef(0);");
+    expect(source).toContain("const activeNotificationFilterRef = useRef(unreadOnly);");
+    expect(source).toContain("const requestUnreadOnly = unreadOnly;");
+    expect(source).toContain("requestUnreadOnly !== activeNotificationFilterRef.current");
+  });
+
+  it("prevents duplicate mobile mark-read mutations per notification", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "src/components/mobile/MobileScreens.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain("const [markingReadIds, setMarkingReadIds]");
+    expect(source).toContain("if (item.read || markingReadIds.has(item.id)) return;");
+    expect(source).toContain("disabled={markingReadIds.has(item.id)}");
+    expect(source).toContain("aria-busy={markingReadIds.has(item.id)}");
+  });
+
+  it("names mobile notification rows with their read state", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "src/components/mobile/MobileScreens.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain(
+      'aria-label={`${item.read ? "Read" : "Unread"} notification: ${item.title}`}',
+    );
+    expect(source).toContain('aria-hidden="true"');
+  });
+
   it("uses the shared select control for mobile preference pickers", () => {
     const html = renderToStaticMarkup(
-      <MobilePreferenceSelect
-        value="both"
-        onChange={() => undefined}
-        ariaLabel="Comments delivery"
-      >
+      <MobilePreferenceSelect value="both" onChange={() => undefined} ariaLabel="Comments delivery">
         <option value="both">In-app + email</option>
       </MobilePreferenceSelect>,
     );
@@ -668,6 +798,18 @@ describe("MobileScreens daily note helpers", () => {
     expect(html).toContain("focus:ring-2");
     expect(html).toContain("max-w-[48%]");
     expect(html).toContain("In-app + email");
+  });
+
+  it("uses anchored notification pickers with explicit enable checkboxes", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "src/components/mobile/MobileScreens.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain("function NotificationChannelPicker");
+    expect(source).toContain('<PopoverContent align="end" sideOffset={6}');
+    expect(source).toContain('role="checkbox"');
+    expect(source).toContain('aria-checked={preference.channel !== "none"}');
   });
 
   it("uses the shared input control for mobile profile fields", () => {
@@ -697,18 +839,18 @@ describe("MobileScreens daily note helpers", () => {
     expect(html).toContain("autofocus");
   });
 
-  it("places account security controls in profile settings", () => {
+  it("places account security controls on the dedicated security screen", () => {
     authMock.totpEnabled = false;
-    const html = renderToStaticMarkup(<MobileProfileScreen scope="profile" />);
+    const html = renderToStaticMarkup(<MobileProfileScreen scope="security" />);
 
-    expect(html).toContain("Profile settings");
+    expect(html).toContain(">Security<");
     expect(html).not.toContain("App settings");
     expect(html).toContain("max-w-3xl");
     expect(html).toContain("Security");
     expect(html).toContain("Two-factor authentication");
     expect(html).toContain("Set up authenticator app");
     expect(html).toContain("Not enabled yet.");
-    expect(html).toContain("rounded-full");
+    expect(html).toContain("rounded-input");
     expect(html).toContain("border-border");
     expect(html).toContain("Passkeys");
     expect(html).toContain("Passkeys are unavailable in this browser or webview.");
@@ -718,14 +860,20 @@ describe("MobileScreens daily note helpers", () => {
     authMock.totpEnabled = false;
     authMock.require2fa = false;
     passkeySupportMock.supported = false;
-    const html = renderToStaticMarkup(<MobileProfileScreen scope="profile" />);
+    const html = renderToStaticMarkup(<MobileProfileScreen scope="security" />);
 
     expect(html).toContain("Protect this server account with an authenticator app and passkeys.");
-    expect(html).toContain("h-11 rounded-button border border-border bg-surface-raised");
+    expectClassTokens(html, [
+      "h-11",
+      "rounded-button",
+      "border",
+      "border-border",
+      "bg-surface-raised",
+    ]);
     expect(html).toContain("Set up authenticator app");
-    expect(html).toContain("rounded-full border px-2 py-1 text-xs");
-    expect(html).toContain("border-border bg-surface-raised text-text-muted");
-    expect(html).toContain("rounded-card border border-border bg-surface-raised");
+    expect(html).toContain("rounded-input inline-flex min-h-5 items-center border");
+    expect(html).toContain("border-border bg-surface text-text-muted");
+    expectClassTokens(html, ["rounded-card", "border", "border-border", "bg-surface-raised"]);
     expect(html).toContain("Passkeys are unavailable in this browser or webview.");
     expect(html).toContain("Use password sign-in with two-factor");
     expect(html).not.toMatch(/bg-blue-|text-red-|border-gray-|rounded-xl/);
@@ -743,24 +891,61 @@ describe("MobileScreens daily note helpers", () => {
     expect(html).toContain("text-text-muted");
   });
 
+  it("keeps native passkey enrollment browser-managed instead of starting a webview ceremony", () => {
+    expect(getMobilePasskeyManagementMode(true, true)).toBe("browser");
+    expect(getMobilePasskeyManagementMode(true, false)).toBe("browser");
+    expect(getMobilePasskeyManagementMode(false, true)).toBe("in-app");
+    expect(getMobilePasskeyManagementMode(false, false)).toBe("unavailable");
+
+    const html = renderToStaticMarkup(<ProfilePasskeyBrowserManagedNotice />);
+    expect(html).toContain('role="status"');
+    expect(html).toContain("Passkey enrollment and deletion happen in your Starlane server");
+    expect(html).toContain("this app uses browser sign-in to use them.");
+    expect(html).toContain("rounded-card");
+    expect(html).toContain("border-border");
+    expect(html).toContain("bg-surface-raised");
+  });
+
+  it("renders browser-managed passkey guidance instead of in-webview controls for a native runtime", () => {
+    runtimeMock.runtime = "tauri-mobile";
+    passkeySupportMock.supported = true;
+
+    const html = renderToStaticMarkup(<MobileProfileScreen scope="security" />);
+
+    expect(html).toContain("Passkey enrollment and deletion happen in your Starlane server");
+    expect(html).toContain("this app uses browser sign-in to use them.");
+    expect(html).not.toContain("Passkey name");
+    expect(html).not.toContain("Add passkey");
+
+    runtimeMock.runtime = "web";
+    passkeySupportMock.supported = false;
+  });
+
   it("renders supported passkey management with the server-aligned name limit", () => {
     authMock.totpEnabled = false;
     authMock.require2fa = false;
     passkeySupportMock.supported = true;
-    const html = renderToStaticMarkup(<MobileProfileScreen scope="profile" />);
+    const html = renderToStaticMarkup(<MobileProfileScreen scope="security" />);
 
     expect(html).toContain("Passkey name");
     expect(html).toContain("sm:grid-cols-[minmax(0,1fr)_auto]");
-    expect(html).toContain("maxLength=\"80\"");
-    expect(html).toContain("autoComplete=\"off\"");
-    expect(html).toContain("aria-describedby=\"passkey-name-help\"");
+    expect(html).toContain('maxLength="80"');
+    expect(html).toContain('autoComplete="off"');
+    expect(html).toContain('aria-describedby="passkey-name-help"');
     expect(html).toContain("Passkey names can be up to 80 characters.");
-    expect(html).toContain('id="passkey-name-help" class="text-xs leading-5 text-text-muted sm:col-span-2"');
+    expect(html).toContain('id="passkey-name-help"');
+    expectClassTokens(html, ["text-xs", "leading-5", "text-text-muted", "sm:col-span-2"]);
     expect(html).toContain("Add passkey");
-    expect(html).toContain("aria-describedby=\"passkey-add-help\"");
+    expect(html).toContain('aria-describedby="passkey-add-help"');
     expect(html).toContain("Name this passkey before adding it.");
     expect(html).toContain('role="status"');
-    expect(html).toContain("h-11 rounded-button border border-border bg-surface-raised");
+    expectClassTokens(html, [
+      "h-11",
+      "rounded-button",
+      "border",
+      "border-border",
+      "bg-surface-raised",
+    ]);
     expect(html).not.toContain("Passkeys are unavailable in this browser or webview.");
     expect(html).not.toMatch(/bg-blue-|border-gray-|rounded-xl/);
 
@@ -770,7 +955,7 @@ describe("MobileScreens daily note helpers", () => {
   it("shows a semantic enrollment notice when the server requires 2FA", () => {
     authMock.totpEnabled = false;
     authMock.require2fa = true;
-    const html = renderToStaticMarkup(<MobileProfileScreen scope="profile" />);
+    const html = renderToStaticMarkup(<MobileProfileScreen scope="security" />);
 
     expect(html).toContain(MOBILE_REQUIRED_2FA_ENROLLMENT_NOTICE_COPY);
     expect(html).toContain("Set up an authenticator app");
@@ -784,7 +969,7 @@ describe("MobileScreens daily note helpers", () => {
   it("shows a policy notice instead of disable controls when required 2FA is already enabled", () => {
     authMock.totpEnabled = true;
     authMock.require2fa = true;
-    const html = renderToStaticMarkup(<MobileProfileScreen scope="profile" />);
+    const html = renderToStaticMarkup(<MobileProfileScreen scope="security" />);
 
     expect(html).toContain("Enabled for password sign-in.");
     expect(html).not.toContain("This server requires two-factor authentication.");
@@ -803,7 +988,7 @@ describe("MobileScreens daily note helpers", () => {
   it("lets enabled mobile 2FA disable accept authenticator or recovery codes when policy allows it", () => {
     authMock.totpEnabled = true;
     authMock.require2fa = false;
-    const html = renderToStaticMarkup(<MobileProfileScreen scope="profile" />);
+    const html = renderToStaticMarkup(<MobileProfileScreen scope="security" />);
 
     expect(html).toContain("Enabled for password sign-in.");
     expect(html).not.toContain("This server requires two-factor authentication.");
@@ -813,13 +998,13 @@ describe("MobileScreens daily note helpers", () => {
     expect(html).toContain(
       'aria-label="Authenticator or recovery code to disable two-factor authentication"',
     );
-    expect(html).toContain("maxLength=\"9\"");
-    expect(html).toContain("inputMode=\"text\"");
-    expect(html).toContain("autoCapitalize=\"none\"");
-    expect(html).toContain("autoCorrect=\"off\"");
-    expect(html).toContain("aria-describedby=\"totp-disable-help\"");
+    expect(html).toContain('maxLength="9"');
+    expect(html).toContain('inputMode="text"');
+    expect(html).toContain('autoCapitalize="none"');
+    expect(html).toContain('autoCorrect="off"');
+    expect(html).toContain('aria-describedby="totp-disable-help"');
     expect(html).toContain("Enter an authenticator or recovery code to disable 2FA.");
-    expect(html).toContain("h-11 rounded-button border border-danger");
+    expectClassTokens(html, ["h-11", "rounded-button", "border", "border-danger"]);
     expect(html).toContain("active:bg-danger/10");
 
     authMock.totpEnabled = false;
@@ -838,10 +1023,15 @@ describe("MobileScreens daily note helpers", () => {
     expect(html).toContain("Server sync keeps a local device copy first.");
     expect(html).toContain("Sync");
     expect(html).toContain("Server");
+    expect(html).toContain("Device copy");
+    expect(html).toContain("Downloads as opened");
+    expect(html).toContain("Open server content once to make it available offline.");
     expect(html).toContain(SERVER_MODE_VAULT_SWITCH_ROW_COPY.label);
     expect(html).toContain(SERVER_MODE_VAULT_SWITCH_ROW_COPY.description);
     expect(html).toContain(SERVER_MODE_VAULT_SWITCH_ROW_COPY.value);
-    expect(html.indexOf("Sync")).toBeLessThan(html.indexOf(SERVER_MODE_VAULT_SWITCH_ROW_COPY.label));
+    expect(html.indexOf("Sync")).toBeLessThan(
+      html.indexOf(SERVER_MODE_VAULT_SWITCH_ROW_COPY.label),
+    );
     expect(html).toContain("Site administration");
     expect(html).toContain("Manage users, access, authentication, and server settings.");
     expect(html).toContain("Manage");
@@ -919,7 +1109,9 @@ describe("MobileScreens daily note helpers", () => {
     expect(html).toContain(MOBILE_TOTP_VERIFY_GRID_CLASS);
     expect(html).toContain("Copy setup URI");
     expect(html).toContain("Open in authenticator app");
-    expect(html).toContain('href="otpauth://totp/Starlane:user@example.test?secret=ABC&amp;issuer=Starlane"');
+    expect(html).toContain(
+      'href="otpauth://totp/Starlane:user@example.test?secret=ABC&amp;issuer=Starlane"',
+    );
     expect(html).toContain("Authenticator verification code");
     expect(html).toContain("Recovery codes");
     expect(html).toContain("Copy all");
@@ -929,19 +1121,135 @@ describe("MobileScreens daily note helpers", () => {
     expect(html).toContain(MOBILE_TOTP_RECOVERY_ACK_COPY);
     expect(html).toContain(MOBILE_TOTP_RECOVERY_ACK_CLASS);
     expect(html).toContain(MOBILE_TOTP_RECOVERY_ACK_INPUT_CLASS);
-    expect(html).toContain("type=\"checkbox\"");
+    expect(html).toContain('type="checkbox"');
     expect(html).toContain("focus-ring");
-    expect(html).toContain("aria-describedby=\"totp-verify-help\"");
+    expect(html).toContain('aria-describedby="totp-verify-help"');
     expect(html).toContain("Save your recovery codes before verifying setup.");
     expect(html).toContain("1111-2222");
     expect(html).toContain("3333-4444");
     expect(html).toContain("disabled");
-    expect(html).toContain("rounded-button border border-border bg-surface-raised");
-    expect(html).toContain("rounded-button border border-border bg-surface px-2 text-xs");
+    expectClassTokens(html, ["rounded-button", "border", "border-border", "bg-surface-raised"]);
+    expectClassTokens(html, [
+      "rounded-button",
+      "border",
+      "border-border",
+      "bg-surface",
+      "px-2",
+      "text-xs",
+    ]);
     expect(html).toContain(MOBILE_TOTP_RECOVERY_CARD_CLASS);
     expect(html).toContain("text-warning");
     expect(html).toContain(MOBILE_TOTP_VERIFY_BUTTON_CLASS);
     expect(html).toContain("text-on-primary");
     expect(html).not.toMatch(/bg-blue-|border-gray-|rounded-xl/);
+  });
+});
+
+describe("legacy mobile search route", () => {
+  it("reuses the shared full-screen Search surface instead of a parallel filter screen", () => {
+    const html = renderToStaticMarkup(<MobileSearchScreen />);
+
+    expect(html).toContain('aria-modal="true"');
+    expect(html).toContain("Search pages by title or content…");
+    expect(html).toContain('aria-label="Search query builder"');
+    expect(html).toContain("Add a filter");
+    expect(html).toContain('aria-label="Close search"');
+    expect(html).not.toContain('aria-label="Search filters"');
+  });
+});
+
+describe("deep mobile folders", () => {
+  it.each([4, 32, 256])("offers child creation at depth %i without rewriting identity", (depth) => {
+    const folders = Array.from({ length: depth }, (_, i) => ({
+      id: `f${i}`,
+      name: `Folder ${i}`,
+      parent_id: i ? `f${i - 1}` : undefined,
+    }));
+    const before = JSON.stringify(folders);
+    expect(getMobileFolderDepth(folders, `f${depth - 1}`)).toBe(depth);
+    expect(canCreateMobileChildFolder(folders, `f${depth - 1}`)).toBe(true);
+    expect(flattenFolderChildren(folders, `f${depth - 2}`).map((row) => row.id)).toEqual([
+      `f${depth - 1}`,
+    ]);
+    expect(JSON.stringify(folders)).toBe(before);
+  });
+});
+
+describe("shared mobile folder render context", () => {
+  it("provides indexed children and depths across a broad catalog without rebuilding for each row", () => {
+    const folders = [
+      { id: "root", name: "Root" },
+      ...Array.from({ length: 10000 }, (_, n) => ({
+        id: `child-${n}`,
+        name: `Child ${n}`,
+        parent_id: "root",
+      })),
+    ];
+    const before = JSON.stringify(folders);
+    const catalog = createMobileFolderCatalog(folders);
+    expect(catalog.children.get("root")).toHaveLength(10000);
+    for (const folder of catalog.children.get("root")!)
+      expect(catalog.depths.get(folder.id)).toBe(2);
+    expect(catalog.subtreeSizes.get("root")).toBe(10001);
+    expect(JSON.stringify(folders)).toBe(before);
+  });
+});
+
+describe("mobile deep child-page catalog", () => {
+  it.each([4, 32, 256])(
+    "retains %i exact page parents without a recursive per-row scan",
+    (depth) => {
+      const rows = Array.from({ length: depth }, (_, i) => ({
+        id: `p${i}`,
+        title: `Page ${i}`,
+        folder_id: "folder",
+        parent_id: i ? `p${i - 1}` : undefined,
+      }));
+      const catalog = createMobilePageCatalog(rows, "space");
+      expect(catalog.depths.get(`p${depth - 1}`)).toBe(depth);
+      expect(catalog.roots.map((row) => row.id)).toEqual(["p0"]);
+      for (let i = 1; i < depth; i++)
+        expect(catalog.children.get(`p${i - 1}`)?.[0].id).toBe(`p${i}`);
+    },
+  );
+  it("omits inaccessible parent chains, foreign space and folder mismatches", () => {
+    const catalog = createMobilePageCatalog(
+      [
+        { id: "private-child", title: "Private", parent_id: "unlisted" },
+        { id: "foreign", title: "Foreign", space_id: "other" },
+        { id: "a", title: "A", folder_id: "one" },
+        { id: "b", title: "B", folder_id: "two", parent_id: "a" },
+        { id: "cycle", title: "Cycle", parent_id: "cycle" },
+      ],
+      "space",
+    );
+    expect(catalog.order.map((row) => row.id)).toEqual(["a"]);
+  });
+});
+
+describe("mobile pending page creation", () => {
+  it.each(["rejected", "unconfirmed"])("retains pending title/parent context and renders an inline alert after %s creation", async outcome => {
+    const original = { folderId: "folder-32", parentId: "parent-256" }, title = "  Retained title  ";
+    let target: typeof original | null = original, error = "";
+    const create = vi.fn(async () => { if (outcome === "rejected") throw new Error("Parent changed"); return false; });
+    expect(await settleMobilePageCreation(create, () => { target = null; }, message => { error = message; })).toBe(false);
+    expect(target).toBe(original); expect(create).toHaveBeenCalledOnce();
+    const html = renderToStaticMarkup(<MobileSpaceNameDialog title="New page" description="Choose a name" inputId="failure-page-title" inputLabel="Page title" inputPlaceholder="Untitled" actionLabel="Create page" value={title} error={error} onChange={() => undefined} onClose={() => undefined} onSubmit={() => undefined} />);
+    expect(html).toContain('role="alert"'); expect(html).toContain("creation was not confirmed");
+    expect(html).toContain('value="  Retained title  "');
+  });
+  it("does not close while awaiting confirmation and disables pending submission", async () => {
+    let confirm!: (value: boolean) => void;
+    const create = new Promise<boolean>(resolve => { confirm = resolve; });
+    const close = vi.fn(), failed = vi.fn();
+    const pending = settleMobilePageCreation(() => create, close, failed);
+    expect(close).not.toHaveBeenCalled();
+    const html = renderToStaticMarkup(<MobileSpaceNameDialog title="New page" description="Choose a name" inputId="pending-page-title" inputLabel="Page title" inputPlaceholder="Untitled" actionLabel="Create page" value="Pending title" pending onChange={() => undefined} onClose={() => undefined} onSubmit={() => undefined} />);
+    const input = html.match(/<input\b[^>]*id="pending-page-title"[^>]*>/)?.[0];
+    expect(input).toBeDefined();
+    expect(input).toContain('disabled=""');
+    expect(input).toContain('value="Pending title"');
+    expect(html).toMatch(/<button[^>]*type="submit"[^>]*disabled=""/);
+    confirm(true); expect(await pending).toBe(true); expect(close).toHaveBeenCalledOnce(); expect(failed).not.toHaveBeenCalled();
   });
 });

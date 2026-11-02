@@ -12,12 +12,42 @@ export interface NativeLocalDatabaseDescriptor {
   database_path?: string;
   snapshot_path?: string;
   supports_snapshot_bridge: boolean;
+  supports_atomic_snapshot_commit?: boolean;
+  supports_lossless_replay_queue?: boolean;
+  supports_reviewed_move_evidence?: boolean;
+  supports_reviewed_move_destination_binding?: boolean;
+  supports_reviewed_draft_transfer_evidence?: boolean;
   supports_operation_queue: boolean;
   replay_backends: ServerReplayBackend[];
 }
 
+export interface NativeLocalDatabaseCommitReceipt {
+  canonical_committed: true;
+  canonical_revision: string;
+  mirror_pending: boolean;
+  mirror_error: string | null;
+}
+
 export interface NativeLocalDatabaseSnapshotRequest {
   provider: SyncProviderKind;
+}
+
+// Copy from the descriptor accepted by the preview; never refresh to rebase.
+export interface NativeSnapshotExpectedDestination {
+  schema_version: 1;
+  provider: "none";
+  store_kind: "sqlite";
+  database_path: string;
+  supports_reviewed_move_evidence: true;
+}
+
+export interface NativeLocalDatabaseSnapshotCommitRequest extends NativeLocalDatabaseSnapshotWriteRequest {
+  expectedRevision: string | null;
+  expectedDestination?: NativeSnapshotExpectedDestination;
+}
+
+export interface NativeLocalDatabaseSnapshotReadRequest extends NativeLocalDatabaseSnapshotRequest {
+  expectedDestination?: NativeSnapshotExpectedDestination;
 }
 
 export interface NativeLocalDatabaseSnapshotWriteRequest extends NativeLocalDatabaseSnapshotRequest {
@@ -28,6 +58,7 @@ export type NativeLocalDatabaseRecordCollection =
   | "spaces"
   | "folders"
   | "documents"
+  | "drafts"
   | "assets"
   | "templates"
   | "workflow_templates"
@@ -38,6 +69,8 @@ export type NativeLocalDatabaseRecordCollection =
   | "tags"
   | "doc_tags"
   | "search_index"
+  | "reviewed_move_records"
+  | "reviewed_draft_transfer_records"
   | "sync_state"
   | "queued_operations";
 
@@ -46,8 +79,7 @@ export interface NativeLocalDatabaseRecordMutationRequest extends NativeLocalDat
   id: string;
 }
 
-export interface NativeLocalDatabaseRecordUpsertRequest
-  extends NativeLocalDatabaseRecordMutationRequest {
+export interface NativeLocalDatabaseRecordUpsertRequest extends NativeLocalDatabaseRecordMutationRequest {
   payload: unknown;
   rowOrder?: number;
 }
@@ -78,8 +110,10 @@ export const NATIVE_LOCAL_DATABASE_COMMANDS = {
   describe: "describe_native_local_database",
   readSnapshot: "read_native_local_database_snapshot",
   writeSnapshot: "write_native_local_database_snapshot",
+  commitSnapshot: "commit_native_local_database_snapshot",
   upsertRecord: "upsert_native_local_database_record",
   deleteRecord: "delete_native_local_database_record",
+  syncMirror: "sync_native_local_database_mirror",
   reset: "reset_native_local_database",
   packReplayAsset: "pack_native_replay_asset_payload",
 } as const;
@@ -97,9 +131,9 @@ export function buildNativeLocalDatabaseReplayContract(): NativeLocalDatabaseRep
   };
 }
 
-export function sortReplayOperationsForContract<T extends Pick<VaultQueuedSyncOperation, "queued_at" | "id">>(
-  operations: T[],
-): T[] {
+export function sortReplayOperationsForContract<
+  T extends Pick<VaultQueuedSyncOperation, "queued_at" | "id">,
+>(operations: T[]): T[] {
   return [...operations].sort((left, right) => {
     const byQueuedAt = left.queued_at.localeCompare(right.queued_at);
     return byQueuedAt === 0 ? left.id.localeCompare(right.id) : byQueuedAt;
@@ -107,7 +141,9 @@ export function sortReplayOperationsForContract<T extends Pick<VaultQueuedSyncOp
 }
 
 export function preflightReplayOperationsForContract(
-  operations: Array<Pick<VaultQueuedSyncOperation, "id"> & { payload_status: "available" | "missing" }>,
+  operations: Array<
+    Pick<VaultQueuedSyncOperation, "id"> & { payload_status: "available" | "missing" }
+  >,
   contract: NativeLocalDatabaseReplayContract = buildNativeLocalDatabaseReplayContract(),
 ): NativeLocalDatabaseReplayReadiness {
   const blockers: string[] = [];
@@ -119,7 +155,10 @@ export function preflightReplayOperationsForContract(
     blockers.push(`Missing replay payloads: ${missingPayloadIds.join(", ")}`);
   }
 
-  if (!contract.server_backends.includes("sqlite") || !contract.server_backends.includes("postgresql")) {
+  if (
+    !contract.server_backends.includes("sqlite") ||
+    !contract.server_backends.includes("postgresql")
+  ) {
     blockers.push("Replay contract must support both SQLite and PostgreSQL server backends");
   }
 
@@ -130,4 +169,20 @@ export function preflightReplayOperationsForContract(
     blockers,
     target_backends: contract.server_backends,
   };
+}
+
+/** Exact original desktop destination projection; no refreshed descriptor rebasing. */
+export function captureReviewedMoveDestination(descriptor: NativeLocalDatabaseDescriptor | null): NativeSnapshotExpectedDestination {
+  if (!descriptor || descriptor.schema_version !== 1 || descriptor.provider !== "none" || descriptor.store_kind !== "sqlite" || typeof descriptor.database_path !== "string" || !descriptor.database_path.trim() || descriptor.supports_snapshot_bridge !== true || descriptor.supports_atomic_snapshot_commit !== true || descriptor.supports_reviewed_move_evidence !== true || descriptor.supports_reviewed_move_destination_binding !== true) throw new Error("Reviewed native moves require an updated desktop shell with original-destination binding");
+  return Object.freeze({ schema_version: 1, provider: "none", store_kind: "sqlite", database_path: descriptor.database_path, supports_reviewed_move_evidence: true });
+}
+
+/** Exact JSON value equality: object key order is irrelevant, arrays/fields/types are not. */
+export function nativeJsonValueEquals(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (left === null || right === null || typeof left !== "object" || typeof right !== "object") return false;
+  if (Array.isArray(left) || Array.isArray(right)) return Array.isArray(left) && Array.isArray(right) && left.length === right.length && left.every((value, index) => nativeJsonValueEquals(value, right[index]));
+  const a = left as Record<string, unknown>, b = right as Record<string, unknown>;
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length && keys.every(key => Object.prototype.hasOwnProperty.call(b, key) && nativeJsonValueEquals(a[key], b[key]));
 }

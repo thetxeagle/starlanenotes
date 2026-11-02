@@ -1,13 +1,109 @@
-import { markdownToHtml } from "@/components/editor/Editor";
-import { dataClient, type LocalAssetContext, type SearchResultRecord } from "@/lib/dataClient";
+import {releaseBrowserAttachmentImage} from "@/lib/browserAttachmentImage";
+import { saveBrowserPinnedAttachment } from "@/lib/browserAttachmentSave";
+import { isTauri as isNativeAttachmentShell, captureOfflineServerContext as captureAttachmentContext, getApiBase as attachmentApiBase, api as attachmentApi } from "@/lib/api";
+import {verifyOfflineReplayContext as verifyAttachmentContext} from "@/lib/offlineReplayOrigin";
+import {
+  WIKI_DOCUMENT_HREF_PREFIX,
+  markdownToHtml,
+  parseWikiDocumentHref,
+  parseCodeFenceInfo,
+  editorLowlight,
+  highlightedCodeToHtml,
+  type TemplateMarkerRenderMode,
+} from "@/components/editor/Editor";
+import type { SlashTemplateField } from "@/components/editor/SlashCommands";
+import { registerEditorSyntax } from "@/components/editor/editorSyntax";
+import {
+  COLUMNS_END_MARKER,
+  parseColumnsStartMarker,
+  parseSectionStartMarker,
+  parseSectionStartOptions,
+  SECTION_END_MARKER,
+} from "@/components/editor/EditorSection";
+import {
+  CalloutHeader,
+  parseCalloutDirective,
+  type CalloutKind,
+} from "@/components/editor/Callout";
+import { MathBlockDisplay, parseMathBlockDirective } from "@/components/editor/MathBlock";
+import {
+  isTableOfContentsDirective,
+  TableOfContentsList,
+  type TableOfContentsEntry,
+} from "@/components/editor/TableOfContents";
+import {
+  ChildPagesBlock,
+  getDirectChildPages,
+  isChildPagesDirective,
+  parseChildPagesDirective,
+  renderChildPagesHtml,
+  type ChildPagesVariant,
+} from "@/components/editor/ChildPages";
+import {
+  dataClient,
+  type AttachmentRecord,
+  type LocalAssetContext,
+  type SearchResultRecord,
+} from "@/lib/dataClient";
+import { api } from "@/lib/api";
+import { getCurrentLaunchMode } from "@/lib/launchMode";
+import { parseDocumentHeadings } from "@/lib/documentOutline";
 import { buildDocumentRoutePath } from "@/lib/lastViewedDocument";
-import { ExternalLink, X } from "lucide-react";
-import { lazy, Suspense, useEffect, useState, type ComponentType } from "react";
-import { useNavigate } from "react-router-dom";
+import {
+  parsePortableCodeTabs,
+  parsePortableGalleryBlock,
+  parsePortableStatusBlock,
+  parsePortableVideoBlock,
+  PortableCodeTabs,
+  PortableCodeBlock,
+  PortableGallery,
+  PortableStatusBlock,
+  PortableVideoPlayer,
+} from "@/components/editor/PortableBlocks";
+import { useMenuKeyboardNavigation } from "@/components/ui/useMenuKeyboardNavigation";
+import { useOverlayFocusLifecycle } from "@/components/ui/useOverlayFocusLifecycle";
+import {
+  CONTROL_CHROME_ACTION_CLASS,
+  CONTROL_CHROME_RAIL_CLASS,
+} from "@/components/ui/control-chrome";
+import { Button } from "@/components/ui/button";
+import { EditorCommentDialog } from "@/components/editor/EditorCommentDialog";
+import { triggerMediaDownload } from "@/components/editor/EditorMediaActionMenu";
+import {
+  AlertCircle,
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  ExternalLink,
+  MessageSquare,
+  RefreshCw,
+  X,
+} from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
+import {
+  emitDocumentCommentsChanged,
+  listDocumentComments,
+  subscribeToDocumentComments,
+  type DocumentComment,
+} from "@/lib/documentComments";
+
+// Preview rendering can be loaded without the editor route. Register the same
+// supported grammars here so standalone/page-view previews retain highlighting.
+registerEditorSyntax(editorLowlight);
 
 interface MarkdownPreviewProps {
   content: string;
   assetContext?: LocalAssetContext;
+  inlineCommentsVisible?: boolean;
+  spaceId?: string;
+  docId?: string;
+  onInlineCommentOpen?: (commentId: string) => void;
+  onCommentCreated?: () => void;
+  onDocumentNavigate?: (documentId: string) => void;
+  selectionCommentsEnabled?: boolean;
+  templateMarkerMode?: Extract<TemplateMarkerRenderMode, "preview" | "omit">;
+  templateFields?: SlashTemplateField[];
 }
 
 interface PreviewLinkMenu {
@@ -15,36 +111,88 @@ interface PreviewLinkMenu {
   position: { top: number; left: number };
 }
 
-interface PreviewExcalidrawScene {
-  filename: string;
-  scene: {
-    elements: readonly unknown[];
-    appState?: Record<string, unknown>;
-    files?: Record<string, unknown>;
+interface PreviewCommentSelection {
+  selectionText: string;
+  position: { top: number; left: number };
+}
+
+export function replaceMarkdownAttachmentReferences(
+  markdown: string,
+  attachmentUrls: ReadonlyMap<string, string>,
+): string {
+  return markdown.replace(
+    /(!\[[^\]\n]*\]\()starlane-attachment:\/\/([^\s)]+)/gi,
+    (match, prefix, attachmentId) => {
+      const url = attachmentUrls.get(String(attachmentId));
+      return url ? `${prefix}${url}` : match;
+    },
+  );
+}
+
+export function getPreviewSelectionCommentPosition(
+  rect: Pick<DOMRect, "top" | "bottom" | "left" | "right" | "width">,
+  viewportWidth: number,
+  viewportHeight: number,
+): { top: number; left: number } {
+  const size = 36;
+  const topAbove = rect.top - size - 8;
+  const top = topAbove >= 8 ? topAbove : Math.min(rect.bottom + 8, viewportHeight - size - 8);
+  const left = rect.left + rect.width / 2 - size / 2;
+  return {
+    top: Math.max(8, Math.min(top, viewportHeight - size - 8)),
+    left: Math.max(8, Math.min(left, viewportWidth - size - 8)),
   };
 }
 
-interface ExcalidrawComponentProps {
-  initialData?: unknown;
-  viewModeEnabled?: boolean;
+export function wrapPreviewTables(html: string): string {
+  return html.replace(
+    /<table\b([^>]*)>([\s\S]*?)<\/table>/gi,
+    (_match, attributes: string, contents: string) =>
+      `<div data-block-placement="${attributes.match(/data-table-placement="(left|center|right)"/)?.[1] ?? "center"}" class="tableWrapper markdown-table-scroll" role="region" aria-label="Scrollable document table" tabindex="0"><table${attributes}>${contents}</table></div>`,
+  );
 }
 
-const LazyPreviewExcalidraw = lazy(
-  async (): Promise<{ default: ComponentType<ExcalidrawComponentProps> }> => {
-    const module = await import("@excalidraw/excalidraw");
-    return { default: module.Excalidraw as ComponentType<ExcalidrawComponentProps> };
-  },
-);
+export function renderMarkdownPreviewHtml(
+  markdown: string,
+  templateMarkerMode: Extract<TemplateMarkerRenderMode, "preview" | "omit"> = "omit",
+  templateFields: readonly SlashTemplateField[] = [],
+): string {
+  return wrapPreviewTables(markdownToHtml(markdown, false, templateFields, templateMarkerMode)).replace(
+    /<input\b(?=[^>]*\btype="checkbox")([^>]*)>/gi,
+    (input, attributes: string) =>
+      /\sdisabled(?:\s|=|$)/i.test(attributes) ? input : `<input${attributes} disabled>`,
+  );
+}
 
 type MarkdownPreviewPart =
   | { type: "markdown"; content: string; key: string }
-  | { type: "dataview"; query: string; key: string };
+  | { type: "dataview"; query: string; key: string }
+  | { type: "callout"; kind: CalloutKind; content: string; key: string }
+  | { type: "math"; expression: string; key: string }
+  | { type: "toc"; key: string }
+  | { type: "child-pages"; variant: ChildPagesVariant; key: string }
+  | { type: "code-tabs"; source: string; key: string }
+  | { type: "status"; source: string; key: string }
+  | { type: "video"; source: string; key: string }
+  | { type: "gallery"; source: string; key: string }
+  | { type: "carousel"; source: string; key: string }
+  | {
+      type: "code";
+      language: string;
+      title?: string;
+      placement?: import("./blockPlacement").BlockPlacement;
+      code: string;
+      key: string;
+    };
 
 export function splitMarkdownDataviewBlocks(content: string): MarkdownPreviewPart[] {
   const parts: MarkdownPreviewPart[] = [];
-  const lines = content.split("\n");
+  const lines = unwrapPlainSectionsContainingDataview(content).split("\n");
   const markdownBuffer: string[] = [];
   let partIndex = 0;
+  let inGenericFence = false;
+  let inMathFence = false;
+  const containerEnds: string[] = [];
 
   const flushMarkdown = () => {
     if (markdownBuffer.length === 0) return;
@@ -59,7 +207,125 @@ export function splitMarkdownDataviewBlocks(content: string): MarkdownPreviewPar
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
-    if (/^```(?:dataview|dv)\s*$/i.test(line.trim())) {
+    const trimmed = line.trim();
+    const startsSection = !inGenericFence && !inMathFence && parseSectionStartMarker(trimmed);
+    const startsColumns = !inGenericFence && !inMathFence && parseColumnsStartMarker(trimmed);
+    if (startsSection || startsColumns) {
+      containerEnds.push(startsColumns ? COLUMNS_END_MARKER : SECTION_END_MARKER);
+      markdownBuffer.push(line);
+      continue;
+    }
+    if (
+      !inGenericFence &&
+      !inMathFence &&
+      containerEnds.length > 0 &&
+      trimmed === containerEnds[containerEnds.length - 1]
+    ) {
+      containerEnds.pop();
+      markdownBuffer.push(line);
+      continue;
+    }
+    if (containerEnds.length > 0) {
+      if (/^```/.test(trimmed)) inGenericFence = !inGenericFence;
+      if (!inGenericFence && /^\$\$\s*$/.test(trimmed)) inMathFence = !inMathFence;
+      markdownBuffer.push(line);
+      continue;
+    }
+    if (!inGenericFence && !inMathFence && /^\$\$\s*$/.test(line.trim())) {
+      let closingIndex = -1;
+      for (let next = index + 1; next < lines.length; next += 1) {
+        if (/^\$\$\s*$/.test(lines[next].trim())) {
+          closingIndex = next;
+          break;
+        }
+      }
+      if (closingIndex >= 0) {
+        const expression = parseMathBlockDirective(lines.slice(index, closingIndex + 1).join("\n"));
+        if (expression != null) {
+          flushMarkdown();
+          parts.push({ type: "math", expression, key: `math-${partIndex}` });
+          partIndex += 1;
+          index = closingIndex;
+          continue;
+        }
+      }
+    }
+    if (
+      !inGenericFence &&
+      !inMathFence &&
+      /^>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*$/i.test(line.trim())
+    ) {
+      const calloutLines = [line];
+      let closingIndex = index;
+      for (let next = index + 1; next < lines.length && /^>\s?/.test(lines[next]); next += 1) {
+        calloutLines.push(lines[next]);
+        closingIndex = next;
+      }
+      const callout = parseCalloutDirective(calloutLines.join("\n"));
+      if (callout) {
+        flushMarkdown();
+        parts.push({
+          type: "callout",
+          kind: callout.kind,
+          content: callout.content,
+          key: `callout-${partIndex}`,
+        });
+        partIndex += 1;
+        index = closingIndex;
+        continue;
+      }
+    }
+    if (!inGenericFence && !inMathFence && isTableOfContentsDirective(line)) {
+      flushMarkdown();
+      parts.push({ type: "toc", key: `toc-${partIndex}` });
+      partIndex += 1;
+      continue;
+    }
+    if (!inGenericFence && !inMathFence && isChildPagesDirective(line)) {
+      flushMarkdown();
+      parts.push({
+        type: "child-pages",
+        variant: parseChildPagesDirective(line) || "list",
+        key: `child-pages-${partIndex}`,
+      });
+      partIndex += 1;
+      continue;
+    }
+    if (
+      !inGenericFence &&
+      !inMathFence &&
+      /^```(?!(?:dataview|dv|code-tabs|status|video|gallery|carousel)\s*$)([\w-]*(?:\s*title=(?:"[^"]*"|'[^']*'))?(?:\s*placement=(?:left|center|right|expand))?)\s*$/i.test(
+        line.trim(),
+      )
+    ) {
+      const { language, title, placement } = parseCodeFenceInfo(line.trim().slice(3));
+      const codeLines: string[] = [];
+      let closingIndex = -1;
+      for (let next = index + 1; next < lines.length; next += 1) {
+        if (lines[next].trim() === "```") {
+          closingIndex = next;
+          break;
+        }
+        codeLines.push(lines[next]);
+      }
+      if (closingIndex === -1) {
+        markdownBuffer.push(...lines.slice(index));
+        break;
+      }
+      flushMarkdown();
+      parts.push({
+        type: "code",
+        language,
+        title,
+        placement,
+        code: codeLines.join("\n"),
+        key: `code-${partIndex}`,
+      });
+      partIndex += 1;
+      index = closingIndex;
+      continue;
+    }
+    if (!inGenericFence && !inMathFence && /^```(?:dataview|dv)\s*$/i.test(line.trim())) {
       const queryLines: string[] = [];
       let closingIndex = -1;
       for (let next = index + 1; next < lines.length; next += 1) {
@@ -85,11 +351,145 @@ export function splitMarkdownDataviewBlocks(content: string): MarkdownPreviewPar
       index = closingIndex;
       continue;
     }
+    if (
+      !inGenericFence &&
+      !inMathFence &&
+      /^```(?:code-tabs|status|video|gallery|carousel)\s*$/i.test(line.trim())
+    ) {
+      const kind = line.trim().slice(3).toLowerCase() as
+        | "code-tabs"
+        | "status"
+        | "video"
+        | "gallery"
+        | "carousel";
+      const sourceLines: string[] = [];
+      let closingIndex = -1;
+      for (let next = index + 1; next < lines.length; next += 1) {
+        if (lines[next].trim() === "```") {
+          closingIndex = next;
+          break;
+        }
+        sourceLines.push(lines[next]);
+      }
+      if (closingIndex === -1) {
+        markdownBuffer.push(...lines.slice(index));
+        break;
+      }
+      flushMarkdown();
+      parts.push({
+        type: kind,
+        source: sourceLines.join("\n").trim(),
+        key: `${kind}-${partIndex}`,
+      });
+      partIndex += 1;
+      index = closingIndex;
+      continue;
+    }
+    if (/^```/.test(line.trim())) inGenericFence = !inGenericFence;
+    if (!inGenericFence && /^\$\$\s*$/.test(line.trim())) inMathFence = !inMathFence;
     markdownBuffer.push(line);
   }
 
   flushMarkdown();
   return parts;
+}
+
+function unwrapPlainSectionsContainingDataview(content: string): string {
+  const lines = content.split("\n");
+  const removableBoundaries = new Set<number>();
+  const sections: Array<{ startIndex: number; isPlainSingle: boolean }> = [];
+  let inFence = false;
+  let inMathBlock = false;
+
+  lines.forEach((line, index) => {
+    const trimmed = line.trim();
+    if (/^```/.test(trimmed)) {
+      inFence = !inFence;
+      return;
+    }
+    if (!inFence && /^\$\$\s*$/.test(trimmed)) {
+      inMathBlock = !inMathBlock;
+      return;
+    }
+    if (inFence || inMathBlock) return;
+
+    const options = parseSectionStartOptions(trimmed);
+    if (options) {
+      const { style } = options;
+      sections.push({
+        startIndex: index,
+        isPlainSingle:
+          options.layout === "single" &&
+          !style.borderColor &&
+          !style.backgroundColor &&
+          !style.contentBackgroundColor &&
+          !style.headerBackgroundColor &&
+          !style.headerText,
+      });
+      return;
+    }
+
+    if (trimmed !== SECTION_END_MARKER || sections.length === 0) return;
+    const section = sections.pop();
+    if (!section?.isPlainSingle) return;
+    const containsDataview = lines
+      .slice(section.startIndex + 1, index)
+      .some((candidate) => /^```(?:dataview|dv)\s*$/i.test(candidate.trim()));
+    if (containsDataview) {
+      removableBoundaries.add(section.startIndex);
+      removableBoundaries.add(index);
+    }
+  });
+
+  return lines.filter((_line, index) => !removableBoundaries.has(index)).join("\n");
+}
+
+function TableOfContentsPreview({ content }: { content: string }) {
+  const entries: TableOfContentsEntry[] = parseDocumentHeadings(content);
+
+  return (
+    <TableOfContentsList
+      entries={entries}
+      onSelect={(entry) => {
+        const root = document.querySelector(".markdown-preview");
+        if (!root) return;
+        const entryIndex = entries.findIndex((candidate) => candidate.id === entry.id);
+        const headings = Array.from(root.querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6"));
+        const target = headings[entryIndex];
+        if (!target) return;
+        target.tabIndex = -1;
+        target.scrollIntoView({ block: "start" });
+        target.focus({ preventScroll: true });
+      }}
+    />
+  );
+}
+
+function CalloutPreview({ kind, content }: { kind: CalloutKind; content: string }) {
+  return (
+    <aside
+      data-callout="true"
+      data-callout-kind={kind}
+      role="note"
+      aria-label={`${kind} callout`}
+      className="rounded-card border-border bg-surface my-4 border p-4"
+    >
+      <CalloutHeader kind={kind} />
+      <p className="text-text mt-3 whitespace-pre-wrap text-sm leading-6">{content}</p>
+    </aside>
+  );
+}
+
+function MathBlockPreview({ expression }: { expression: string }) {
+  return (
+    <div
+      data-math-block="true"
+      aria-label="Math block"
+      className="rounded-card border-border bg-surface my-4 border px-4 py-2"
+    >
+      <MathBlockDisplay expression={expression} />
+    </div>
+  );
 }
 
 type DataviewBlockView = "table" | "list" | "cards";
@@ -186,8 +586,9 @@ export function parseDataviewBlockConfig(source: string): DataviewBlockConfig {
       const parsed = value
         .split(",")
         .map((item) => item.trim().toLowerCase())
-        .filter((item): item is DataviewBaseColumn =>
-          item === "title" || item === "space" || item === "updated" || item === "excerpt",
+        .filter(
+          (item): item is DataviewBaseColumn =>
+            item === "title" || item === "space" || item === "updated" || item === "excerpt",
         );
       if (parsed.length > 0) columns = parsed;
       continue;
@@ -226,7 +627,9 @@ export function parseDataviewBlockConfig(source: string): DataviewBlockConfig {
   };
 }
 
-function parseDataviewComputedColumn(value: string): Extract<DataviewColumn, { id: string }> | undefined {
+function parseDataviewComputedColumn(
+  value: string,
+): Extract<DataviewColumn, { id: string }> | undefined {
   const match = value.match(/^(.+?)\s*=\s*(.+)$/);
   if (!match) return undefined;
   const label = match[1].trim().slice(0, 40);
@@ -236,7 +639,9 @@ function parseDataviewComputedColumn(value: string): Extract<DataviewColumn, { i
   return { id, label, expression };
 }
 
-function normalizeDataviewComputedExpression(value: string): DataviewComputedExpression | undefined {
+function normalizeDataviewComputedExpression(
+  value: string,
+): DataviewComputedExpression | undefined {
   const normalized = value.trim().replace(/\s+/g, "").toLowerCase();
   if (normalized === "dayssince(updated)" || normalized === "age") return "daysSince(updated)";
   if (normalized === "date(updated)" || normalized === "updated") return "date(updated)";
@@ -249,7 +654,11 @@ function normalizeDataviewComputedExpression(value: string): DataviewComputedExp
   if (normalized === "space") return "space";
   if (normalized === "titlelength" || normalized === "length(title)") return "titleLength";
   if (normalized === "excerptlength" || normalized === "length(excerpt)") return "excerptLength";
-  if (normalized === "titlewords" || normalized === "words(title)" || normalized === "wordcount(title)") {
+  if (
+    normalized === "titlewords" ||
+    normalized === "words(title)" ||
+    normalized === "wordcount(title)"
+  ) {
     return "titleWords";
   }
   if (
@@ -288,7 +697,11 @@ function resolveDataviewComputedSort(
 ): Extract<DataviewColumn, { id: string }> | undefined {
   const directExpression = normalizeDataviewComputedExpression(rawField);
   if (directExpression) {
-    return { id: `computed:sort:${directExpression}`, label: rawField, expression: directExpression };
+    return {
+      id: `computed:sort:${directExpression}`,
+      label: rawField,
+      expression: directExpression,
+    };
   }
 
   const normalizedField = rawField.trim().toLowerCase();
@@ -316,13 +729,14 @@ export function sortDataviewResults(
     if (typeof sort.field !== "string") {
       const aValue = evaluateDataviewComputedSortValue(a, sort.field.expression, now);
       const bValue = evaluateDataviewComputedSortValue(b, sort.field.expression, now);
-      return compareDataviewSortValues(aValue, bValue) * direction || a.title.localeCompare(b.title);
+      return (
+        compareDataviewSortValues(aValue, bValue) * direction || a.title.localeCompare(b.title)
+      );
     }
     if (sort.field === "updated") {
       const aTime = new Date(a.updated_at).getTime();
       const bTime = new Date(b.updated_at).getTime();
-      const comparison =
-        (Number.isNaN(aTime) ? 0 : aTime) - (Number.isNaN(bTime) ? 0 : bTime);
+      const comparison = (Number.isNaN(aTime) ? 0 : aTime) - (Number.isNaN(bTime) ? 0 : bTime);
       return comparison * direction || a.title.localeCompare(b.title);
     }
     const aValue =
@@ -378,80 +792,6 @@ function getPreviewLinkPosition(rect: DOMRect): { top: number; left: number } {
     Math.min(rect.left + rect.width / 2 - width / 2, viewportWidth - width - 8),
   );
   return { top, left };
-}
-
-function readPreviewExcalidrawScene(value: string | null): PreviewExcalidrawScene["scene"] {
-  if (!value) return { elements: [], appState: {}, files: {} };
-  try {
-    return normalizePreviewExcalidrawScene(JSON.parse(decodeURIComponent(value)));
-  } catch {
-    return { elements: [], appState: {}, files: {} };
-  }
-}
-
-function parsePreviewExcalidrawSceneJson(value: string): PreviewExcalidrawScene["scene"] {
-  try {
-    return normalizePreviewExcalidrawScene(JSON.parse(value));
-  } catch {
-    return { elements: [], appState: {}, files: {} };
-  }
-}
-
-function normalizePreviewExcalidrawScene(value: unknown): PreviewExcalidrawScene["scene"] {
-  const parsed = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-  return {
-    elements: Array.isArray(parsed.elements) ? parsed.elements : [],
-    appState:
-      parsed.appState && typeof parsed.appState === "object"
-        ? (parsed.appState as Record<string, unknown>)
-        : {},
-    files:
-      parsed.files && typeof parsed.files === "object"
-        ? (parsed.files as Record<string, unknown>)
-        : {},
-  };
-}
-
-function extractExcalidrawDirectiveFilename(line: string): string | null {
-  const match = line.match(/!\[\[excalidraw:([^\]]+)\]\]/i);
-  return match?.[1]?.trim() || null;
-}
-
-export function getExcalidrawDirectiveFilenames(content: string): string[] {
-  const filenames = new Set<string>();
-  for (const line of content.split("\n")) {
-    const filename = extractExcalidrawDirectiveFilename(line);
-    if (filename) filenames.add(filename);
-  }
-  return [...filenames];
-}
-
-export function applyExcalidrawSidecarScenes(
-  content: string,
-  scenes: ReadonlyMap<string, string>,
-): string {
-  if (scenes.size === 0) return content;
-  const lines = content.split("\n");
-  const next: string[] = [];
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
-    next.push(line);
-    const filename = extractExcalidrawDirectiveFilename(line);
-    if (!filename) continue;
-
-    let lookahead = index + 1;
-    while (lookahead < lines.length && lines[lookahead].trim() === "") {
-      lookahead += 1;
-    }
-    if (/^```excalidraw-json\s*$/i.test(lines[lookahead]?.trim() ?? "")) continue;
-
-    const scene = scenes.get(filename);
-    if (!scene) continue;
-    next.push("", "```excalidraw-json", scene, "```");
-  }
-
-  return next.join("\n");
 }
 
 function formatDataviewDate(value: string): string {
@@ -531,7 +871,9 @@ function evaluateDataviewComputedSortValue(
     case "date(updated)":
       return Number.isNaN(updated.getTime()) ? 0 : updated.getTime();
     case "weekday(updated)":
-      return Number.isNaN(updated.getTime()) ? "" : updated.toLocaleDateString(undefined, { weekday: "short" });
+      return Number.isNaN(updated.getTime())
+        ? ""
+        : updated.toLocaleDateString(undefined, { weekday: "short" });
     case "year(updated)":
       return Number.isNaN(updated.getTime()) ? 0 : updated.getUTCFullYear();
     case "week(updated)": {
@@ -574,11 +916,13 @@ function getUtcIsoWeek(value: Date): { year: number; week: number } {
 }
 
 function DataviewBlock({ query }: { query: string }) {
-  const navigate = useNavigate();
   const config = parseDataviewBlockConfig(query);
   const [results, setResults] = useState<SearchResultRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [errorRetryable, setErrorRetryable] = useState(false);
+  const [requestVersion, setRequestVersion] = useState(0);
+  const [interactiveSort, setInteractiveSort] = useState<DataviewBlockConfig["sort"] | undefined>();
 
   useEffect(() => {
     let canceled = false;
@@ -587,11 +931,13 @@ function DataviewBlock({ query }: { query: string }) {
       setResults([]);
       setLoading(false);
       setError("Add a Dataview query to show matching pages.");
+      setErrorRetryable(false);
       return;
     }
 
     setLoading(true);
     setError("");
+    setErrorRetryable(false);
     dataClient
       .queryDataview(trimmed, config.limit)
       .then((records) => {
@@ -602,6 +948,7 @@ function DataviewBlock({ query }: { query: string }) {
         if (canceled) return;
         setResults([]);
         setError("Dataview query is not available for this storage mode yet.");
+        setErrorRetryable(true);
       })
       .finally(() => {
         if (!canceled) setLoading(false);
@@ -610,12 +957,10 @@ function DataviewBlock({ query }: { query: string }) {
     return () => {
       canceled = true;
     };
-  }, [config.limit, config.query]);
+  }, [config.limit, config.query, requestVersion]);
 
-  const openResult = (result: SearchResultRecord) => {
-    navigate(getDataviewResultPath(result));
-  };
-  const displayResults = sortDataviewResults(results, config.sort);
+  const activeSort = interactiveSort ?? config.sort;
+  const displayResults = sortDataviewResults(results, activeSort);
   const groupedResults = groupDataviewResults(displayResults, config.group);
 
   const renderColumnHeader = (column: DataviewColumn) => {
@@ -643,14 +988,47 @@ function DataviewBlock({ query }: { query: string }) {
       case "space":
         return <span className="text-text-muted">{result.space_name}</span>;
       case "updated":
-        return <span className="text-text-muted whitespace-nowrap">{formatDataviewDate(result.updated_at)}</span>;
+        return (
+          <span className="text-text-muted whitespace-nowrap">
+            {formatDataviewDate(result.updated_at)}
+          </span>
+        );
       case "excerpt":
         return <span className="text-text-muted text-xs leading-5">{result.excerpt}</span>;
     }
   };
+  const toggleColumnSort = (column: DataviewColumn) => {
+    const field: DataviewSortField =
+      typeof column === "string"
+        ? column === "excerpt"
+          ? "title"
+          : column
+        : { type: "computed", expression: column.expression };
+    const sameField = activeSort && JSON.stringify(activeSort.field) === JSON.stringify(field);
+    setInteractiveSort({
+      field,
+      direction: sameField && activeSort?.direction === "asc" ? "desc" : "asc",
+    });
+  };
+  const getColumnSort = (column: DataviewColumn): DataviewSortDirection | undefined => {
+    const field: DataviewSortField =
+      typeof column === "string"
+        ? column === "excerpt"
+          ? "title"
+          : column
+        : { type: "computed", expression: column.expression };
+    return activeSort && JSON.stringify(activeSort.field) === JSON.stringify(field)
+      ? activeSort.direction
+      : undefined;
+  };
 
   return (
-    <div className="border-border bg-surface rounded-card my-4 overflow-hidden border">
+    <div
+      className="border-border bg-surface rounded-card my-4 overflow-hidden border"
+      role="region"
+      aria-label={`${config.name || "Dataview"} collection`}
+      aria-busy={loading}
+    >
       <div className="border-border bg-surface-raised flex items-center justify-between gap-3 border-b px-3 py-2">
         <div>
           <p className="text-text text-sm font-medium">{config.name || "Dataview"}</p>
@@ -658,15 +1036,52 @@ function DataviewBlock({ query }: { query: string }) {
             {config.query || "Add a property or page query"}
           </p>
         </div>
-        <span className="text-text-muted ring-border shrink-0 rounded px-2 py-1 text-xs ring-1">
-          {loading ? "Running" : `${results.length} results`}
+        <span
+          className="text-text-muted ring-border shrink-0 rounded px-2 py-1 text-xs ring-1"
+          role="status"
+          aria-live="polite"
+        >
+          {loading
+            ? "Running"
+            : error
+              ? errorRetryable
+                ? "Unavailable"
+                : "Needs setup"
+              : `${results.length} results`}
         </span>
       </div>
 
       {error ? (
-        <p className="text-text-muted px-3 py-3 text-sm">{error}</p>
+        <div className="flex items-center justify-between gap-3 px-3 py-3" role="alert">
+          <p className="text-text-muted flex min-w-0 items-start gap-2 text-sm">
+            <AlertCircle aria-hidden="true" className="text-danger mt-0.5 shrink-0" size={16} />
+            <span>{error}</span>
+          </p>
+          {errorRetryable ? (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              className="shrink-0"
+              onClick={() => setRequestVersion((version) => version + 1)}
+            >
+              <RefreshCw aria-hidden="true" size={14} />
+              Retry
+            </Button>
+          ) : null}
+        </div>
       ) : loading ? (
-        <p className="text-text-muted px-3 py-3 text-sm">Running query...</p>
+        <div className="space-y-2 px-3 py-3" aria-label="Loading collection results">
+          <span className="sr-only">Running collection query.</span>
+          {["70%", "58%", "64%"].map((width) => (
+            <div
+              key={width}
+              className="border-border bg-surface-raised h-8 rounded border motion-safe:animate-pulse"
+              style={{ width }}
+              aria-hidden="true"
+            />
+          ))}
+        </div>
       ) : results.length === 0 ? (
         <p className="text-text-muted px-3 py-3 text-sm">No matching pages.</p>
       ) : config.view === "list" ? (
@@ -674,25 +1089,27 @@ function DataviewBlock({ query }: { query: string }) {
           {groupedResults.map((group) => (
             <section key={group.key}>
               {config.group ? (
-                <h4 className="bg-surface-raised/50 px-3 py-2 text-xs font-medium uppercase text-text-muted">
+                <h4 className="bg-surface-raised/50 text-text-muted px-3 py-2 text-xs font-medium">
                   {group.label}
                 </h4>
               ) : null}
               {group.results.map((result) => (
-                <button
+                <Link
                   key={`${result.space_id}-${result.document_id}`}
-                  type="button"
-                  onClick={() => openResult(result)}
-                  className="hover:bg-surface-raised/70 block w-full px-3 py-3 text-left transition-colors duration-100"
+                  to={getDataviewResultPath(result)}
+                  aria-label={`Open ${result.title}`}
+                  className="starlane-collection-link focus-ring hover:bg-surface-raised/70 block w-full px-3 py-3 text-left transition-colors duration-100"
                 >
                   <span className="text-text block text-sm font-medium">{result.title}</span>
                   <span className="text-text-muted mt-1 block text-xs">
                     {result.space_name} · {formatDataviewDate(result.updated_at)}
                   </span>
                   {result.excerpt ? (
-                    <span className="text-text-muted mt-2 block text-xs leading-5">{result.excerpt}</span>
+                    <span className="text-text-muted mt-2 block text-xs leading-5">
+                      {result.excerpt}
+                    </span>
                   ) : null}
-                </button>
+                </Link>
               ))}
             </section>
           ))}
@@ -702,24 +1119,26 @@ function DataviewBlock({ query }: { query: string }) {
           {groupedResults.map((group) => (
             <section key={group.key}>
               {config.group ? (
-                <h4 className="mb-2 text-xs font-medium uppercase text-text-muted">{group.label}</h4>
+                <h4 className="text-text-muted mb-2 text-xs font-medium">{group.label}</h4>
               ) : null}
               <div className="grid gap-2 sm:grid-cols-2">
                 {group.results.map((result) => (
-                  <button
+                  <Link
                     key={`${result.space_id}-${result.document_id}`}
-                    type="button"
-                    onClick={() => openResult(result)}
-                    className="border-border hover:bg-surface-raised/70 rounded-card border p-3 text-left transition-colors duration-100"
+                    to={getDataviewResultPath(result)}
+                    aria-label={`Open ${result.title}`}
+                    className="starlane-collection-link focus-ring border-border hover:bg-surface-raised/70 rounded-card border p-3 text-left transition-colors duration-100"
                   >
                     <span className="text-text block text-sm font-medium">{result.title}</span>
                     <span className="text-text-muted mt-1 block text-xs">
                       {result.space_name} · {formatDataviewDate(result.updated_at)}
                     </span>
                     {result.excerpt ? (
-                      <span className="text-text-muted mt-2 block text-xs leading-5">{result.excerpt}</span>
+                      <span className="text-text-muted mt-2 block text-xs leading-5">
+                        {result.excerpt}
+                      </span>
                     ) : null}
-                  </button>
+                  </Link>
                 ))}
               </div>
             </section>
@@ -728,20 +1147,53 @@ function DataviewBlock({ query }: { query: string }) {
       ) : (
         <div className="overflow-x-auto">
           <table className="min-w-full text-left text-sm">
-            <thead className="text-text-muted bg-surface-raised/60 text-xs uppercase">
+            <thead className="text-text-muted bg-surface-raised text-xs">
               <tr>
-                {config.columns.map((column) => (
-                  <th key={dataviewColumnKey(column)} className="px-3 py-2 font-medium">
-                    {renderColumnHeader(column)}
-                  </th>
-                ))}
+                {config.columns.map((column) => {
+                  const columnSort = getColumnSort(column);
+                  return (
+                    <th
+                      key={dataviewColumnKey(column)}
+                      className="px-3 py-2 font-medium"
+                      aria-sort={
+                        columnSort === "asc"
+                          ? "ascending"
+                          : columnSort === "desc"
+                            ? "descending"
+                            : "none"
+                      }
+                    >
+                      <button
+                        type="button"
+                        className="hover:text-text flex items-center gap-1 text-left"
+                        onClick={() => toggleColumnSort(column)}
+                        aria-label={`Sort by ${renderColumnHeader(column)}`}
+                      >
+                        {renderColumnHeader(column)}
+                        {columnSort === "asc" ? (
+                          <ArrowUp size={13} />
+                        ) : columnSort === "desc" ? (
+                          <ArrowDown size={13} />
+                        ) : (
+                          <ArrowUpDown size={13} />
+                        )}
+                      </button>
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody>
               {groupedResults.flatMap((group) => [
                 config.group ? (
-                  <tr key={`${group.key}-heading`} className="border-border border-t bg-surface-raised/40">
-                    <td colSpan={config.columns.length} className="px-3 py-2 text-xs font-medium uppercase text-text-muted">
+                  <tr
+                    key={`${group.key}-heading`}
+                    className="border-border bg-surface-raised/40 border-t"
+                  >
+                    <td
+                      colSpan={config.columns.length}
+                      className="text-text-muted px-3 py-2 text-xs font-medium"
+                    >
                       {group.label}
                     </td>
                   </tr>
@@ -749,14 +1201,26 @@ function DataviewBlock({ query }: { query: string }) {
                 ...group.results.map((result) => (
                   <tr
                     key={`${result.space_id}-${result.document_id}`}
-                    className="border-border hover:bg-surface-raised/70 cursor-pointer border-t transition-colors duration-100"
-                    onClick={() => openResult(result)}
+                    className="border-border hover:bg-surface-raised/70 relative border-t transition-colors duration-100"
                   >
-                    {config.columns.map((column) => (
-                      <td key={dataviewColumnKey(column)} className="px-3 py-2 align-top">
-                        {renderColumn(result, column)}
-                      </td>
-                    ))}
+                    {config.columns.map((column, columnIndex) => {
+                      const content = renderColumn(result, column);
+                      return (
+                        <td key={dataviewColumnKey(column)} className="px-3 py-2 align-top">
+                          {columnIndex === 0 ? (
+                            <Link
+                              to={getDataviewResultPath(result)}
+                              aria-label={`Open ${result.title}`}
+                              className="starlane-collection-link focus-ring block after:absolute after:inset-0 after:content-['']"
+                            >
+                              {content}
+                            </Link>
+                          ) : (
+                            content
+                          )}
+                        </td>
+                      );
+                    })}
                   </tr>
                 )),
               ])}
@@ -768,176 +1232,526 @@ function DataviewBlock({ query }: { query: string }) {
   );
 }
 
-export function MarkdownPreview({ content, assetContext = {} }: MarkdownPreviewProps) {
+export function applyPreviewInlineCommentHighlights(
+  root: HTMLElement,
+  comments: DocumentComment[],
+): () => void {
+  const marks: HTMLElement[] = [];
+  for (const comment of comments) {
+    const selection = comment.selection_text?.trim();
+    if (comment.resolved || !selection) continue;
+
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let current = walker.nextNode();
+    while (current) {
+      const textNode = current as Text;
+      const parent = textNode.parentElement;
+      const index = textNode.data.indexOf(selection);
+      if (
+        index >= 0 &&
+        parent &&
+        !parent.closest("[data-inline-comment-id], pre, code, textarea, input")
+      ) {
+        const selectedNode = textNode.splitText(index);
+        selectedNode.splitText(selection.length);
+        const mark = document.createElement("mark");
+        mark.className = "starlane-inline-comment";
+        mark.dataset.inlineCommentId = comment.id;
+        parent.insertBefore(mark, selectedNode);
+        mark.append(selectedNode);
+        marks.push(mark);
+        break;
+      }
+      current = walker.nextNode();
+    }
+  }
+
+  return () => {
+    for (const mark of marks) {
+      if (!mark.parentNode) continue;
+      mark.replaceWith(document.createTextNode(mark.textContent || ""));
+    }
+    root.normalize();
+  };
+}
+
+export function MarkdownPreview({
+  content,
+  assetContext = {},
+  inlineCommentsVisible = false,
+  spaceId,
+  docId,
+  onInlineCommentOpen,
+  onCommentCreated,
+  onDocumentNavigate,
+  selectionCommentsEnabled = false,
+  templateMarkerMode = "omit",
+  templateFields = [],
+}: MarkdownPreviewProps) {
+  const previewRef = useRef<HTMLElement | null>(null);
+  const commentsAvailable = Boolean(spaceId && docId && selectionCommentsEnabled);
+  const [documentComments, setDocumentComments] = useState<DocumentComment[]>([]);
+  const [commentSelection, setCommentSelection] = useState<PreviewCommentSelection | null>(null);
+  const [commentDialog, setCommentDialog] = useState<{ selectionText: string } | null>(null);
+  const [commentContent, setCommentContent] = useState("");
+  const [commentError, setCommentError] = useState("");
+  const [commentSaving, setCommentSaving] = useState(false);
   const assetSpaceId = assetContext.space_id;
   const assetDocumentId = assetContext.document_id;
+  // selection-owned link preview: this virtual anchor follows the clicked inline link
+  // while preserving the read-only document selection.
   const [linkMenu, setLinkMenu] = useState<PreviewLinkMenu | null>(null);
-  const [excalidrawPreview, setExcalidrawPreview] = useState<PreviewExcalidrawScene | null>(null);
-  const [excalidrawStatus, setExcalidrawStatus] = useState<string | null>(null);
-  const [sidecarScenes, setSidecarScenes] = useState<Map<string, string>>(() => new Map());
-  const hydratedContent = applyExcalidrawSidecarScenes(content, sidecarScenes);
+  const linkMenuTriggerRef = useRef<HTMLAnchorElement | null>(null);
+  const linkMenuRef = useRef<HTMLDivElement | null>(null);
+  const handleLinkMenuKeyDown = useMenuKeyboardNavigation(linkMenuRef);
+  const [attachmentUrls, setAttachmentUrls] = useState<Map<string, string>>(() => new Map());
+  const [attachmentRecords, setAttachmentRecords] = useState<Map<string, AttachmentRecord>>(
+    () => new Map(),
+  );
+  const [attachmentDownloadError, setAttachmentDownloadError] = useState("");
+  const hydratedContent = replaceMarkdownAttachmentReferences(content, attachmentUrls);
   const parts = splitMarkdownDataviewBlocks(hydratedContent);
 
   useEffect(() => {
-    if (!assetDocumentId) {
-      setSidecarScenes(new Map());
+    if (!assetSpaceId || !assetDocumentId || getCurrentLaunchMode() === "local") {
+      setAttachmentUrls(new Map());
+      setAttachmentRecords(new Map());
       return;
     }
 
-    const filenames = getExcalidrawDirectiveFilenames(content);
-    if (filenames.length === 0) {
-      setSidecarScenes(new Map());
+    const ids = Array.from(
+      new Set(
+        Array.from(content.matchAll(/starlane-attachment:\/\/([^\s)]+)/gi)).map(
+          (match) => match[1],
+        ),
+      ),
+    );
+    if (ids.length === 0) {
+      setAttachmentUrls(new Map());
+      setAttachmentRecords(new Map());
+      return;
+    }
+
+    const imageIds = new Set(
+      Array.from(content.matchAll(/!\[[^\]\n]*\]\(starlane-attachment:\/\/([^\s)]+)/gi)).map(
+        (match) => match[1],
+      ),
+    );
+
+    let cancelled = false;
+    const ownedImageUrls:string[]=[];
+    const load = async () => {
+      const attachments = await dataClient
+        .listDocumentAttachments(assetSpaceId, assetDocumentId)
+        .catch(() => []);
+      const byId = new Map(attachments.map((attachment) => [attachment.id, attachment]));
+      if (!cancelled) setAttachmentRecords(byId);
+      const resolved = await Promise.all(
+        Array.from(imageIds).map(async (id) => {
+          const url = await dataClient.previewPinnedDocumentAttachmentVersionImage(assetSpaceId,assetDocumentId,id).catch(() => null);
+          if(url?.startsWith("blob:")){if(cancelled){releaseBrowserAttachmentImage(url);return null;}ownedImageUrls.push(url);}
+          return url ? ([id, url] as [string, string]) : null;
+        }),
+      );
+      if (!cancelled)
+        setAttachmentUrls(
+          new Map(resolved.filter((entry): entry is [string, string] => Boolean(entry))),
+        );
+    };
+    void load();
+    return () => {
+      cancelled = true;
+      ownedImageUrls.forEach(releaseBrowserAttachmentImage);
+    };
+  }, [assetDocumentId, assetSpaceId, content]);
+
+  const downloadPreviewAttachment = async (button: HTMLButtonElement) => {
+    const card = button.closest<HTMLElement>("[data-type='file-attachment']");
+    const attachmentId = card?.dataset.attachmentId || "";
+    const name = card?.dataset.name || "attachment";
+    const originalAction = button.querySelector<HTMLElement>(".file-attachment-card__action");
+    setAttachmentDownloadError("");
+    button.disabled = true;
+    if (originalAction) originalAction.textContent = "Downloading…";
+    try {
+      if(isNativeAttachmentShell()) {
+        const selectedContext=captureAttachmentContext();
+        if(!attachmentId||!assetSpaceId||!assetDocumentId)throw new Error("Exact attachment version and current page required for native Save file.");
+        await dataClient.savePinnedDocumentAttachmentVersion(assetSpaceId,assetDocumentId,attachmentId);
+        verifyAttachmentContext(selectedContext,attachmentApiBase(),attachmentApi.getToken());
+        return;
+      }
+      if (attachmentId && assetSpaceId && assetDocumentId) {
+        await saveBrowserPinnedAttachment({space_id:assetSpaceId,document_id:assetDocumentId},attachmentId,name);
+        return;
+      }
+      let url = card?.dataset.url || "";
+      if (!url && attachmentId && assetSpaceId && assetDocumentId) {
+        let attachment = attachmentRecords.get(attachmentId);
+        if (!attachment) {
+          const attachments = await dataClient.listDocumentAttachments(
+            assetSpaceId,
+            assetDocumentId,
+          );
+          attachment = attachments.find((candidate) => candidate.id === attachmentId);
+        }
+        if (!attachment) throw new Error("This attachment is no longer available.");
+        url = await dataClient.downloadDocumentAttachmentToVault(
+          assetSpaceId,
+          assetDocumentId,
+          attachment,
+        );
+      }
+      if (!url) throw new Error("This attachment does not have downloadable data.");
+      await triggerMediaDownload(url, name);
+    } catch (error) {
+      setAttachmentDownloadError(
+        error instanceof Error ? error.message : "Could not download this attachment.",
+      );
+    } finally {
+      button.disabled = false;
+      if (originalAction) originalAction.textContent = "Download";
+    }
+  };
+
+  useEffect(() => {
+    if (!spaceId || !docId) {
+      setDocumentComments([]);
       return;
     }
 
     let cancelled = false;
-    setSidecarScenes(new Map());
-    Promise.all(
-      filenames.map(async (filename) => {
-        try {
-          const scene = await dataClient.readDocumentTextAsset(filename, {
-            space_id: assetSpaceId,
-            document_id: assetDocumentId,
-          });
-          return scene ? ([filename, scene] as const) : null;
-        } catch {
-          return null;
-        }
-      }),
-    ).then((entries) => {
-      if (cancelled) return;
-      setSidecarScenes(
-        new Map(entries.filter((entry): entry is readonly [string, string] => Boolean(entry))),
-      );
-    });
+    const load = async () => {
+      try {
+        const comments = await listDocumentComments(spaceId, docId);
+        if (!cancelled) setDocumentComments(comments);
+      } catch {
+        if (!cancelled) setDocumentComments([]);
+      }
+    };
+    void load();
+    const unsubscribe = subscribeToDocumentComments(spaceId, docId, () => void load());
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [docId, spaceId]);
 
+  useEffect(() => {
+    const root = previewRef.current;
+    if (!root || !inlineCommentsVisible) return;
+    return applyPreviewInlineCommentHighlights(root, documentComments);
+  }, [content, documentComments, inlineCommentsVisible]);
+
+  // Code Tabs nested inside enforced sections are emitted by markdownToHtml
+  // as static HTML so the section grid can stay a single DOM tree. Rehydrate
+  // their tab strip here so those tabs behave exactly like top-level tabs.
+  useEffect(() => {
+    const root = previewRef.current;
+    if (!root) return;
+    const handleCodeTabClick = (event: MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const tab = target.closest<HTMLElement>(
+        '[data-code-tabs-preview="true"] .code-tabs-preview__tab',
+      );
+      if (!tab) return;
+      const block = tab.closest<HTMLElement>('[data-code-tabs-block="true"]');
+      const code = block?.querySelector<HTMLElement>(".code-tabs-preview__code code");
+      if (!block || !code) return;
+      let tabs: Array<{ label?: string; language?: string; code?: string }> = [];
+      try {
+        tabs = JSON.parse(block.dataset.codeTabsItems || "[]");
+      } catch {
+        return;
+      }
+      const tabIndex = Array.from(tab.parentElement?.children || []).indexOf(tab);
+      const active = tabs[tabIndex];
+      if (!active) return;
+      event.preventDefault();
+      block.querySelectorAll<HTMLElement>(".code-tabs-preview__tab").forEach((item, index) => {
+        item.classList.toggle("is-active", index === tabIndex);
+        item.setAttribute("aria-selected", String(index === tabIndex));
+      });
+      code.className = active.language ? `language-${active.language}` : "language-text";
+      code.innerHTML = highlightedCodeToHtml(active.code || "", active.language || "");
+    };
+    root.addEventListener("click", handleCodeTabClick);
+    return () => root.removeEventListener("click", handleCodeTabClick);
+  }, [hydratedContent]);
+
+  useEffect(() => {
+    const root = previewRef.current;
+    if (!root || !spaceId || !docId) return;
+    const blocks = Array.from(
+      root.querySelectorAll<HTMLElement>("[data-child-pages-hydrate='true']"),
+    );
+    if (blocks.length === 0) return;
+    let cancelled = false;
+    void dataClient
+      .listDocuments(spaceId, { include_nested: true })
+      .then((documents) => {
+        if (cancelled) return;
+        const children = getDirectChildPages(documents, docId);
+        blocks.forEach((block) => {
+          const variant =
+            block.dataset.childPagesVariant === "collapsible" ? "collapsible" : "list";
+          block.innerHTML = renderChildPagesHtml(children, spaceId, variant);
+        });
+      })
+      .catch(() => undefined);
     return () => {
       cancelled = true;
     };
-  }, [assetDocumentId, assetSpaceId, content]);
+  }, [docId, hydratedContent, spaceId]);
+
+  useEffect(() => {
+    if (!commentsAvailable) {
+      setCommentSelection(null);
+      return;
+    }
+
+    const updateCommentSelection = () => {
+      const root = previewRef.current;
+      const selection = window.getSelection();
+      if (
+        !root ||
+        !selection ||
+        selection.rangeCount === 0 ||
+        selection.isCollapsed ||
+        !selection.anchorNode ||
+        !selection.focusNode ||
+        !root.contains(selection.anchorNode) ||
+        !root.contains(selection.focusNode)
+      ) {
+        setCommentSelection(null);
+        return;
+      }
+
+      const selectionText = selection.toString().trim().slice(0, 2_000);
+      if (!selectionText) {
+        setCommentSelection(null);
+        return;
+      }
+
+      const rect = selection.getRangeAt(0).getBoundingClientRect();
+      setCommentSelection({
+        selectionText,
+        position: getPreviewSelectionCommentPosition(rect, window.innerWidth, window.innerHeight),
+      });
+    };
+
+    document.addEventListener("selectionchange", updateCommentSelection);
+    return () => document.removeEventListener("selectionchange", updateCommentSelection);
+  }, [commentsAvailable]);
 
   const openLinkMenu = (anchor: HTMLAnchorElement) => {
+    linkMenuTriggerRef.current = anchor;
     setLinkMenu({
       href: anchor.href || anchor.getAttribute("href") || "",
       position: getPreviewLinkPosition(anchor.getBoundingClientRect()),
     });
   };
+  const closeLinkMenu = () => setLinkMenu(null);
+  const closeAndRestoreLinkMenu = useOverlayFocusLifecycle({
+    open: Boolean(linkMenu),
+    onClose: closeLinkMenu,
+    containerRef: linkMenuRef,
+    triggerRef: linkMenuTriggerRef,
+  });
 
-  const openExcalidrawPreview = async (canvasElement: HTMLElement) => {
-    const filename = canvasElement.getAttribute("filename") || "untitled.excalidraw";
-    let scene = readPreviewExcalidrawScene(canvasElement.getAttribute("data-scene"));
-    setExcalidrawStatus(null);
-    if (assetContext.document_id) {
-      try {
-        const storedScene = await dataClient.readDocumentTextAsset(filename, assetContext);
-        if (storedScene) scene = parsePreviewExcalidrawSceneJson(storedScene);
-      } catch {
-        setExcalidrawStatus("Could not read the drawing file. Showing the embedded fallback.");
-      }
+  const openSelectionCommentDialog = () => {
+    if (!commentSelection) return;
+    setCommentContent("");
+    setCommentError("");
+    setCommentDialog({ selectionText: commentSelection.selectionText });
+    setCommentSelection(null);
+  };
+
+  const closeSelectionCommentDialog = () => {
+    if (commentSaving) return;
+    setCommentDialog(null);
+    setCommentContent("");
+    setCommentError("");
+  };
+
+  const submitSelectionComment = async () => {
+    if (!spaceId || !docId || !commentDialog || !commentContent.trim() || commentSaving) {
+      return;
     }
-    setExcalidrawPreview({
-      filename,
-      scene,
-    });
+
+    setCommentSaving(true);
+    setCommentError("");
+    try {
+      await api.fetch(`/spaces/${spaceId}/documents/${docId}/comments`, {
+        method: "POST",
+        body: {
+          content: commentContent.trim(),
+          selection_text: commentDialog.selectionText,
+        },
+      });
+      setCommentDialog(null);
+      setCommentContent("");
+      emitDocumentCommentsChanged(spaceId, docId);
+      onCommentCreated?.();
+    } catch {
+      setCommentError("Unable to add your comment. Please try again.");
+    } finally {
+      setCommentSaving(false);
+    }
   };
 
   return (
     <section
+      ref={previewRef}
       className="markdown-preview min-h-[300px] px-0 py-1"
       aria-label="Markdown preview"
       onClick={(event) => {
         const target = event.target;
         if (!(target instanceof Element)) return;
-        const excalidrawCanvas = target.closest("[data-excalidraw-canvas]");
-        if (excalidrawCanvas instanceof HTMLElement) {
+        const inlineComment = target.closest<HTMLElement>("[data-inline-comment-id]");
+        if (inlineComment) {
+          onInlineCommentOpen?.(inlineComment.dataset.inlineCommentId || "");
+          return;
+        }
+        const attachmentButton = target.closest<HTMLButtonElement>(
+          "[data-file-attachment-download='true']",
+        );
+        if (attachmentButton) {
           event.preventDefault();
-          void openExcalidrawPreview(excalidrawCanvas);
+          void downloadPreviewAttachment(attachmentButton);
           return;
         }
         const anchor = target.closest("a[href]");
         if (!(anchor instanceof HTMLAnchorElement)) return;
+        const wikiDocumentId = parseWikiDocumentHref(anchor.getAttribute("href") || "");
+        if (wikiDocumentId) {
+          event.preventDefault();
+          setLinkMenu(null);
+          onDocumentNavigate?.(wikiDocumentId);
+          return;
+        }
         event.preventDefault();
         openLinkMenu(anchor);
       }}
       onKeyDown={(event) => {
-        if (event.key !== "Enter" && event.key !== " ") return;
+        if (event.key !== " ") return;
         const target = event.target;
         if (!(target instanceof Element)) return;
-        const excalidrawCanvas = target.closest("[data-excalidraw-canvas]");
-        if (excalidrawCanvas instanceof HTMLElement) {
-          event.preventDefault();
-          void openExcalidrawPreview(excalidrawCanvas);
-        }
+        const anchor = target.closest<HTMLAnchorElement>(
+          `a[href^="${WIKI_DOCUMENT_HREF_PREFIX}"]`,
+        );
+        const wikiDocumentId = anchor
+          ? parseWikiDocumentHref(anchor.getAttribute("href") || "")
+          : null;
+        if (!wikiDocumentId) return;
+        event.preventDefault();
+        onDocumentNavigate?.(wikiDocumentId);
       }}
     >
+      {commentSelection && commentsAvailable && (
+        <div
+          className={`${CONTROL_CHROME_RAIL_CLASS} shadow-card fixed z-[70]`}
+          style={commentSelection.position}
+          role="toolbar"
+          aria-label="Page selection comment action"
+          data-starlane-preview-selection-comment="true"
+        >
+          <button
+            type="button"
+            className={`${CONTROL_CHROME_ACTION_CLASS} flex h-9 w-9 items-center justify-center`}
+            onPointerDown={(event) => event.preventDefault()}
+            onClick={openSelectionCommentDialog}
+            aria-label="Comment on selected text"
+            title="Comment on selected text"
+          >
+            <MessageSquare size={14} />
+          </button>
+        </div>
+      )}
       <div className="tiptap-editor">
         {parts.map((part) =>
           part.type === "markdown" ? (
-            <div key={part.key} dangerouslySetInnerHTML={{ __html: markdownToHtml(part.content) }} />
-          ) : (
+            <div
+              key={part.key}
+              dangerouslySetInnerHTML={{
+                __html: renderMarkdownPreviewHtml(part.content, templateMarkerMode, templateFields),
+              }}
+            />
+          ) : part.type === "dataview" ? (
             <DataviewBlock key={part.key} query={part.query} />
+          ) : part.type === "callout" ? (
+            <CalloutPreview key={part.key} kind={part.kind} content={part.content} />
+          ) : part.type === "math" ? (
+            <MathBlockPreview key={part.key} expression={part.expression} />
+          ) : part.type === "child-pages" ? (
+            <ChildPagesBlock
+              key={part.key}
+              spaceId={spaceId}
+              docId={docId}
+              variant={part.variant}
+            />
+          ) : part.type === "code-tabs" ? (
+            <PortableCodeTabs key={part.key} {...parsePortableCodeTabs(part.source)} />
+          ) : part.type === "status" ? (
+            <PortableStatusBlock key={part.key} config={parsePortableStatusBlock(part.source)} />
+          ) : part.type === "video" ? (
+            (() => {
+              const config = parsePortableVideoBlock(part.source);
+              return config ? (
+                <PortableVideoPlayer key={part.key} config={config} />
+              ) : (
+                <p key={part.key} className="text-text-muted my-4 text-sm">
+                  Video source is missing or unsupported.
+                </p>
+              );
+            })()
+          ) : part.type === "gallery" ? (
+            <PortableGallery key={part.key} config={parsePortableGalleryBlock(part.source)} />
+          ) : part.type === "carousel" ? (
+            <PortableGallery
+              key={part.key}
+              config={{ ...parsePortableGalleryBlock(part.source), layout: "carousel-7" }}
+            />
+          ) : part.type === "code" ? (
+            <PortableCodeBlock
+              key={part.key}
+              code={part.code}
+              language={part.language}
+              title={part.title}
+              placement={part.placement}
+            />
+          ) : (
+            <TableOfContentsPreview key={part.key} content={hydratedContent} />
           ),
         )}
       </div>
-      {excalidrawPreview && (
-        <div
-          className="fixed inset-0 z-[95] flex items-center justify-center bg-black/40 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-label="View Excalidraw canvas"
-        >
-          <div className="flex h-[min(52rem,calc(100dvh-2rem))] w-[min(96rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-card border border-border bg-surface shadow-card">
-            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-3 py-2">
-              <div className="min-w-0">
-                <h2 className="text-sm font-medium text-text">Excalidraw canvas</h2>
-                <p className="truncate text-xs text-text-muted">{excalidrawPreview.filename}</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setExcalidrawPreview(null)}
-                className="rounded-button border border-border px-3 py-1.5 text-sm text-text-muted transition-colors duration-100 hover:bg-surface-raised hover:text-text"
-              >
-                Close
-              </button>
-            </div>
-            {excalidrawStatus && (
-              <div className="border-b border-border px-3 py-2 text-xs text-text-muted">
-                {excalidrawStatus}
-              </div>
-            )}
-            <div className="min-h-0 flex-1 bg-bg">
-              <Suspense
-                fallback={
-                  <div className="flex h-full items-center justify-center text-sm text-text-muted">
-                    Loading drawing…
-                  </div>
-                }
-              >
-                <LazyPreviewExcalidraw
-                  initialData={excalidrawPreview.scene}
-                  viewModeEnabled
-                />
-              </Suspense>
-            </div>
-          </div>
-        </div>
-      )}
+      {attachmentDownloadError ? (
+        <p role="alert" className="text-danger mt-2 text-sm">
+          {attachmentDownloadError}
+        </p>
+      ) : null}
       {linkMenu && (
         <>
           <button
             type="button"
             aria-label="Close link menu"
             className="fixed inset-0 z-[65] cursor-default bg-transparent"
-            onClick={() => setLinkMenu(null)}
+            onClick={closeAndRestoreLinkMenu}
           />
           <div
+            ref={linkMenuRef}
             className="starlane-menu-surface fixed z-[70] flex max-w-[min(20rem,calc(100vw-1rem))] items-center gap-1 p-1"
             style={{ top: linkMenu.position.top, left: linkMenu.position.left }}
+            role="menu"
             aria-label="Link actions"
+            tabIndex={-1}
+            onKeyDown={handleLinkMenuKeyDown}
           >
             <span className="text-text-muted max-w-56 truncate px-2 text-xs">{linkMenu.href}</span>
             <button
               type="button"
+              role="menuitem"
               title="Open link"
               aria-label="Open link"
               onClick={() => {
@@ -950,15 +1764,27 @@ export function MarkdownPreview({ content, assetContext = {} }: MarkdownPreviewP
             </button>
             <button
               type="button"
+              role="menuitem"
               title="Close"
               aria-label="Close"
-              onClick={() => setLinkMenu(null)}
+              onClick={closeAndRestoreLinkMenu}
               className="rounded-button text-text-muted hover:bg-surface-raised hover:text-text flex h-7 w-7 items-center justify-center transition-colors duration-100"
             >
               <X size={14} />
             </button>
           </div>
         </>
+      )}
+      {commentDialog && (
+        <EditorCommentDialog
+          content={commentContent}
+          error={commentError}
+          saving={commentSaving}
+          target={commentDialog}
+          onCancel={closeSelectionCommentDialog}
+          onChange={setCommentContent}
+          onSubmit={() => void submitSelectionComment()}
+        />
       )}
     </section>
   );

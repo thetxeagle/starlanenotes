@@ -1,7 +1,7 @@
 import {
   cacheServerResponse,
   hasCachedServerWorkspace,
-  serverCacheScopeForToken,
+  serverCacheScopeForSession,
 } from "@/lib/offlineServerCache";
 
 export interface ServerAuthConfigPreview {
@@ -74,6 +74,8 @@ export async function checkServerStartup(
 
     const config = (await response.json()) as ServerAuthConfigPreview;
     cacheServerResponse(`${serverUrl}/api/v1`, "/auth/config", config);
+    const { ensureServerVaultFolder } = await import("@/lib/serverVaultMirror");
+    await ensureServerVaultFolder(serverUrl);
     return { serverUrl, config };
   } catch (error) {
     const message = describeServerStartupError(error, serverUrl);
@@ -83,11 +85,15 @@ export async function checkServerStartup(
   }
 }
 
-export function hasOfflineServerWorkspace(value: string, accessToken: string | null): boolean {
+export function hasOfflineServerWorkspace(
+  value: string,
+  accessToken: string | null,
+  refreshToken: string | null = null,
+): boolean {
   try {
     return hasCachedServerWorkspace(
       `${normalizeServerUrl(value)}/api/v1`,
-      serverCacheScopeForToken(accessToken),
+      serverCacheScopeForSession(accessToken, refreshToken),
     );
   } catch {
     return false;

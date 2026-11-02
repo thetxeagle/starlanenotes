@@ -1,0 +1,1 @@
+ALTER TABLE spaces ADD COLUMN trash_retention_days INTEGER NOT NULL DEFAULT 30;

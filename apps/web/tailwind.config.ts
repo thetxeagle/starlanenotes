@@ -22,8 +22,9 @@ export default {
         warning: "var(--warning)",
       },
       fontFamily: {
-        sans: ["Inter", "system-ui", "sans-serif"],
-        mono: ["JetBrains Mono", "monospace"],
+        heading: ["var(--font-heading)"],
+        sans: ["var(--font-body)"],
+        mono: ["var(--font-mono)"],
       },
       fontSize: {
         body: ["14px", "22px"],
@@ -51,7 +52,7 @@ export default {
         normal: "150ms",
       },
       width: {
-        sidebar: "280px",
+        sidebar: "272px",
       },
     },
   },

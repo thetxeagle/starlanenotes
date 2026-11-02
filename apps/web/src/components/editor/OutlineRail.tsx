@@ -1,127 +1,91 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { parseDocumentHeadings, type DocumentHeading } from "@/lib/documentOutline";
+import { useMemo, useState } from "react";
+import { ChevronDown, ListTree } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { parseDocumentHeadings } from "@/lib/documentOutline";
+import type { TableOfContentsEntry } from "@/components/editor/TableOfContents";
 
-interface OutlineRailProps {
+interface DocumentOutlineAccordionProps {
   content: string;
-  editorRef?: React.RefObject<HTMLElement>;
 }
 
-export function OutlineRail({ content }: OutlineRailProps) {
-  const [headings, setHeadings] = useState<DocumentHeading[]>([]);
-  const [activeIndex] = useState(0);
-  const [hovered, setHovered] = useState(false);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+function buildOutlineEntries(content: string): TableOfContentsEntry[] {
+  return parseDocumentHeadings(content).map((heading) => ({
+    id: heading.id,
+    text: heading.text,
+    level: heading.level,
+  }));
+}
 
-  // Parse headings from markdown content
-  useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
+function focusOutlineEntry(entries: TableOfContentsEntry[], entry: TableOfContentsEntry): void {
+  const root = document.querySelector(".markdown-preview");
+  if (!root) return;
+  const entryIndex = entries.findIndex((candidate) => candidate.id === entry.id);
+  const headings = Array.from(root.querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6"));
+  const target = headings[entryIndex];
+  if (!target) return;
+  target.tabIndex = -1;
+  target.scrollIntoView({ block: "start" });
+  target.focus({ preventScroll: true });
+}
 
-    debounceRef.current = setTimeout(() => {
-      setHeadings(parseDocumentHeadings(content));
-    }, 300);
+function outlineIndent(level: number): string {
+  if (level <= 1) return "";
+  if (level === 2) return "pl-3";
+  return "pl-6";
+}
 
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, [content]);
+/** A small, closed-by-default table of contents that stays in document flow. */
+export function DocumentOutlineAccordion({ content }: DocumentOutlineAccordionProps) {
+  const [open, setOpen] = useState(false);
+  const entries = useMemo(() => buildOutlineEntries(content), [content]);
 
-  const scrollToHeading = useCallback(
-    (heading: DocumentHeading) => {
-      // Find the line in the editor and scroll to it
-      const lines = content.split("\n");
-      const lineIndex = lines.findIndex(
-        (line) => line.match(/^#{1,6}\s+/) && line.includes(heading.text),
-      );
-
-      if (lineIndex >= 0) {
-        // Approximate scroll position based on line number
-        const editor = document.querySelector("textarea");
-        if (editor) {
-          const lineHeight = parseInt(getComputedStyle(editor).lineHeight) || 22;
-          editor.scrollTop = lineIndex * lineHeight;
-          // Place cursor at the heading
-          let charPos = 0;
-          for (let i = 0; i < lineIndex; i++) {
-            charPos += lines[i].length + 1;
-          }
-          editor.setSelectionRange(charPos, charPos);
-          editor.focus();
-        }
-      }
-
-      setHovered(false);
-    },
-    [content],
-  );
-
-  // Don't render if fewer than 2 headings
-  if (headings.length < 2) return null;
-
-  // Tick mark widths by heading level
-  const tickWidth = (level: number): number => {
-    switch (level) {
-      case 1: return 12;
-      case 2: return 9;
-      case 3: return 7;
-      default: return 5;
-    }
-  };
+  if (entries.length < 2) return null;
 
   return (
-    <div
-      className="absolute right-0 top-0 z-10 h-full w-3"
-      style={{ pointerEvents: "none" }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-    >
-      {/* Tick marks */}
-      <div className="relative h-full" style={{ pointerEvents: "auto" }}>
-        {headings.map((h, i) => (
-          <div
-            key={h.id}
-            className="absolute right-0 cursor-pointer"
-            style={{
-              top: `${h.position * 100}%`,
-              width: `${tickWidth(h.level)}px`,
-              height: i === activeIndex ? "4px" : "2px",
-              backgroundColor: i === activeIndex ? "var(--primary)" : "var(--text-muted)",
-              opacity: i === activeIndex ? 1 : 0.3,
-              borderRadius: "1px",
-            }}
-            onClick={() => scrollToHeading(h)}
-          />
-        ))}
-      </div>
-
-      {/* Flyout panel on hover */}
-      {hovered && (
-        <div
-          className="absolute right-4 top-0 w-48 rounded-input border border-border bg-surface p-2 shadow-card"
-          style={{
-            pointerEvents: "auto",
-            opacity: 1,
-            transition: "opacity 100ms ease",
-          }}
-          onMouseLeave={() => setHovered(false)}
+    <section className="border-border bg-surface mb-4 overflow-hidden rounded-md border">
+      <button
+        type="button"
+        className="focus-ring text-text hover:bg-surface-raised flex min-h-10 w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm"
+        aria-expanded={open}
+        aria-controls="document-outline-accordion"
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span className="flex min-w-0 items-center gap-2 font-medium">
+          <ListTree size={15} aria-hidden="true" />
+          <span>On this page</span>
+        </span>
+        <ChevronDown
+          size={15}
+          aria-hidden="true"
+          className={cn("shrink-0 transition-transform duration-150", open && "rotate-180")}
+        />
+      </button>
+      {open && (
+        <nav
+          id="document-outline-accordion"
+          aria-label="Table of contents"
+          className="border-border border-t px-2 py-2"
         >
-          {headings.map((h, i) => (
-            <button
-              key={h.id}
-              onClick={() => scrollToHeading(h)}
-              className={`block w-full truncate rounded-button px-1 py-0.5 text-left text-xs transition-colors duration-100 ${
-                i === activeIndex
-                  ? "font-medium text-text"
-                  : "text-text-muted hover:text-text"
-              }`}
-              style={{
-                paddingLeft: `${(h.level - 1) * 12 + 4}px`,
-              }}
-            >
-              {h.text}
-            </button>
-          ))}
-        </div>
+          <ol className="flex max-h-64 flex-col gap-0.5 overflow-y-auto">
+            {entries.map((entry) => (
+              <li key={entry.id} className={outlineIndent(entry.level)}>
+                <button
+                  type="button"
+                  onClick={() => focusOutlineEntry(entries, entry)}
+                  className="focus-ring text-text-muted hover:bg-surface-raised hover:text-text flex min-h-9 w-full items-center truncate rounded px-2 py-1.5 text-left text-sm"
+                  aria-label={`Go to ${entry.text}`}
+                >
+                  {entry.text}
+                </button>
+              </li>
+            ))}
+          </ol>
+        </nav>
       )}
-    </div>
+    </section>
   );
 }
+
+// Kept as a compatibility export for consumers that still lazy-load this module.
+export const OutlineRail = DocumentOutlineAccordion;
+export const MobileDocumentOutline = DocumentOutlineAccordion;

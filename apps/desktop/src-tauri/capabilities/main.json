@@ -8,6 +8,7 @@
     "dialog:allow-open",
     "deep-link:default",
     "notification:default",
+    "opener:default",
     "shell:default",
     "store:default",
     "updater:default",

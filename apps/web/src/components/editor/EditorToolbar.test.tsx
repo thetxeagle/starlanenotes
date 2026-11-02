@@ -86,4 +86,13 @@ describe("EditorToolbar", () => {
     expect(html).not.toContain("Enter URL");
     expect(html).not.toContain("Enter image URL");
   });
+
+  it("keeps every legacy mobile toolbar action touch-safe", () => {
+    const html = renderToStaticMarkup(
+      <MobileEditorToolbar editor={createToolbarEditor()} locked={false} />,
+    );
+
+    expect(html).toContain("h-11 w-11");
+    expect(html).not.toContain("h-8 w-8");
+  });
 });

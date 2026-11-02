@@ -1,4 +1,8 @@
+mod migration_lineage;
 use sqlx::AnyPool;
+
+mod engine;
+pub use engine::{DatabaseEngine, migrate_selected, selected_migrator};
 
 use crate::storage;
 
@@ -77,12 +81,24 @@ fn required_env(name: &str) -> anyhow::Result<String> {
     Ok(value.to_string())
 }
 
-pub async fn init_pool() -> anyhow::Result<AnyPool> {
+pub async fn init_pool() -> anyhow::Result<(AnyPool, DatabaseEngine)> {
     sqlx::any::install_default_drivers();
 
     let database_url = database_url()?;
+    let engine = DatabaseEngine::from_url(&database_url)?;
 
+    #[cfg(target_os = "linux")]
+    let sqlite_file = if engine == DatabaseEngine::Sqlite {
+        storage::private_space_layout::prepare_sqlite(&storage::data_dir())?
+    } else { None };
     let pool = AnyPool::connect(&database_url).await?;
+    #[cfg(target_os = "linux")]
+    if let Some(file) = sqlite_file { file.fence()?; }
+
+    #[cfg(target_os = "linux")]
+    if engine == DatabaseEngine::Sqlite {
+        storage::recovery_records::retain_pool_source(&pool, &storage::data_dir());
+    }
 
     tracing::info!(
         "Database connected: {}",
@@ -93,5 +109,78 @@ pub async fn init_pool() -> anyhow::Result<AnyPool> {
         }
     );
 
-    Ok(pool)
+    Ok((pool, engine))
+}
+
+// These cases change process-wide server configuration. Run each ignored case
+// alone in its own process against a newly created disposable DATA_DIR.
+#[cfg(all(test, target_os = "linux"))]
+mod sqlite_runtime_settings_acceptance {
+    use super::*;
+    use anyhow::ensure;
+
+    async fn inspect(pool: &AnyPool, journal: &str, phase: &str) -> anyhow::Result<()> {
+        // Simultaneous leases prove these are two initialized native connections.
+        let mut first = pool.acquire().await?;
+        let mut second = pool.acquire().await?;
+        for (number, connection) in [(1, &mut first), (2, &mut second)] {
+            let mut observed = serde_json::Map::new();
+            for (name, expected) in [("foreign_keys", 1_i64), ("busy_timeout", 5000), ("synchronous", 2)] {
+                let value: i64 = sqlx::query_scalar(&format!("PRAGMA {name}")).fetch_one(&mut **connection).await?;
+                observed.insert(name.into(), value.into());
+                ensure!(value == expected, "Actual initialized SQLite {name} differs: {value}");
+            }
+            for (name, expected) in [("journal_mode", journal), ("locking_mode", "normal")] {
+                let value: String = sqlx::query_scalar(&format!("PRAGMA {name}")).fetch_one(&mut **connection).await?;
+                observed.insert(name.into(), value.clone().into());
+                ensure!(value == expected, "Actual initialized SQLite {name} differs: {value}");
+            }
+            println!("ACTUAL_SQLITE_INITIALIZER_SETTINGS {}", serde_json::json!({"phase": phase, "connection": number, "settings": observed}));
+        }
+        sqlx::query("CREATE TABLE IF NOT EXISTS runtime_settings_parent(id INTEGER PRIMARY KEY)").execute(&mut *first).await?;
+        sqlx::query("CREATE TABLE IF NOT EXISTS runtime_settings_child(id INTEGER PRIMARY KEY,parent_id INTEGER NOT NULL REFERENCES runtime_settings_parent(id))").execute(&mut *first).await?;
+        sqlx::query("INSERT INTO runtime_settings_parent(id) VALUES(1) ON CONFLICT(id) DO NOTHING").execute(&mut *first).await?;
+        sqlx::query("INSERT INTO runtime_settings_child(id,parent_id) VALUES(1,1) ON CONFLICT(id) DO NOTHING").execute(&mut *second).await?;
+        let rejected = sqlx::query("INSERT INTO runtime_settings_child(id,parent_id) VALUES(2,999)").execute(&mut *second).await;
+        ensure!(rejected.as_ref().err().and_then(sqlx::Error::as_database_error).is_some_and(|e| e.is_foreign_key_violation()), "Actual initializer did not enforce the foreign-key constraint");
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM runtime_settings_child").fetch_one(&mut *first).await?;
+        ensure!(count == 1, "Rejected actual foreign-key write changed retained rows");
+        Ok(())
+    }
+
+    async fn actual_initializer(existing_wal: bool) -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("sqlite-real-init-{}", uuid::Uuid::new_v4()));
+        std::env::set_var("DATA_DIR", &root);
+        std::env::set_var("SQLITE_ENABLED", "true");
+        storage::init_data_dir().await?;
+        ensure!(storage::private_space_layout::is_designated(&root)?, "Actual new server storage designation absent");
+        if existing_wal {
+            let (pool, engine) = init_pool().await?;
+            ensure!(engine == DatabaseEngine::Sqlite, "Owned SQLite setup selected another engine");
+            let mode: String = sqlx::query_scalar("PRAGMA journal_mode=WAL").fetch_one(&pool).await?;
+            ensure!(mode == "wal", "Owned existing-WAL setup failed");
+            pool.close().await;
+        }
+        let journal = if existing_wal { "wal" } else { "delete" };
+        for phase in ["initial", "reopened"] {
+            let (pool, engine) = init_pool().await?;
+            ensure!(engine == DatabaseEngine::Sqlite, "Actual initializer selected another engine");
+            inspect(&pool, journal, phase).await?;
+            pool.close().await;
+        }
+        println!("ACTUAL_SQLITE_INITIALIZER_RESTART_FK_PASS existing_wal={existing_wal}");
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[ignore = "requires an isolated process: actual server initializer uses process DATA_DIR"]
+    async fn actual_fresh_sqlite_settings_and_reopen() -> anyhow::Result<()> {
+        actual_initializer(false).await
+    }
+
+    #[tokio::test]
+    #[ignore = "requires an isolated process: preserve an explicitly owned existing WAL database"]
+    async fn actual_existing_wal_sqlite_settings_and_reopen() -> anyhow::Result<()> {
+        actual_initializer(true).await
+    }
 }

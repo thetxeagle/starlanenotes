@@ -7,6 +7,7 @@ describe("Textarea", () => {
     expect(TEXTAREA_CLASS).toContain("rounded-input");
     expect(TEXTAREA_CLASS).toContain("border-border");
     expect(TEXTAREA_CLASS).toContain("focus:ring-2");
+    expect(TEXTAREA_CLASS).toContain("min-h-20");
     expect(TEXTAREA_CLASS).not.toContain("bg-transparent");
   });
 

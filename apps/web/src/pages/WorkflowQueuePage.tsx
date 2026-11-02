@@ -28,8 +28,20 @@ import {
 import { Button } from "@/components/ui/button";
 import { DialogShell } from "@/components/ui/dialog-shell";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SearchInput } from "@/components/ui/search-input";
 import { Select } from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  CONTROL_CHROME_ACTION_CLASS,
+  CONTROL_CHROME_ACTIVE_ACTION_CLASS,
+  CONTROL_CHROME_RAIL_CLASS,
+} from "@/components/ui/control-chrome";
 import { buildDocumentRoutePath } from "@/lib/lastViewedDocument";
 
 type QueueStatus = "active" | "completed";
@@ -57,6 +69,47 @@ export interface WorkflowQueuePreset {
   sort: QueueSort;
   age: QueueAge;
   focus: QueueFocus;
+}
+
+interface WorkflowStageSummary {
+  id: string;
+  name: string;
+  count: number;
+}
+
+export function WorkflowStageShortcuts({
+  stages,
+  activeStageId,
+  onSelect,
+}: {
+  stages: WorkflowStageSummary[];
+  activeStageId: string;
+  onSelect: (stageId: string) => void;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="Workflow stage shortcuts"
+      className={`${CONTROL_CHROME_RAIL_CLASS} mt-2 w-full overflow-x-auto`}
+    >
+      {stages.slice(0, 6).map((stage) => (
+        <button
+          key={stage.id}
+          type="button"
+          onClick={() => onSelect(stage.id === "unknown" ? "" : stage.id)}
+          aria-pressed={stage.id === activeStageId}
+          className={`${CONTROL_CHROME_ACTION_CLASS} shrink-0 px-2.5 py-1.5 text-left text-xs ${
+            stage.id === activeStageId ? CONTROL_CHROME_ACTIVE_ACTION_CLASS : ""
+          }`}
+        >
+          <span className="block max-w-40 truncate font-medium">{stage.name}</span>
+          <span className="text-text-muted">
+            {stage.count} {stage.count === 1 ? "document" : "documents"}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
 }
 
 const PRESET_STORAGE_KEY = "starlane.workflowQueue.presets.v1";
@@ -350,7 +403,6 @@ export function WorkflowQueuePage() {
     visibleDocuments.length > 0 && visibleDocuments.every((doc) => selectedIds.includes(doc.id));
 
   const activeFilters = [
-    status !== "active" ? { label: "Completed", clear: () => setStatus("active") } : null,
     templateId
       ? { label: selectedTemplate?.name ?? "Template", clear: () => setTemplateId("") }
       : null,
@@ -360,8 +412,22 @@ export function WorkflowQueuePage() {
     scope !== "all" ? { label: scopeLabel(scope), clear: () => setScope("all") } : null,
     age !== "all" ? { label: ageLabel(age), clear: () => setAge("all") } : null,
     focus !== "all" ? { label: focusLabel(focus), clear: () => setFocus("all") } : null,
-    query.trim() ? { label: `Search: ${query.trim()}`, clear: () => setQuery("") } : null,
+    sort !== "updated_desc"
+      ? {
+          label: `Sort: ${queueSortLabel(sort)}`,
+          clear: () => setSort("updated_desc"),
+        }
+      : null,
   ].filter((filter): filter is { label: string; clear: () => void } => Boolean(filter));
+
+  function clearQueueFilters() {
+    setTemplateId("");
+    setStageId("");
+    setScope("all");
+    setAge("all");
+    setFocus("all");
+    setSort("updated_desc");
+  }
 
   function toggleSelectAllVisible() {
     setSelectedIds(allVisibleSelected ? [] : visibleDocuments.map((doc) => doc.id));
@@ -635,8 +701,11 @@ export function WorkflowQueuePage() {
         </DialogShell>
       ) : null}
       <header className="border-b border-border px-4 py-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="min-w-0">
+        <nav
+          aria-label="Workflow queue navigation"
+          className="flex flex-wrap items-center gap-2"
+        >
+          <div className="mr-auto min-w-48">
             <div className="flex items-center gap-2 text-sm font-semibold text-text">
               <Workflow size={16} />
               Workflow queue
@@ -646,110 +715,221 @@ export function WorkflowQueuePage() {
               {status === "active" ? "active" : "completed"} documents
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button type="button" variant="secondary" size="sm" onClick={saveCurrentPreset}>
-              <BookmarkPlus size={14} />
-              Save view
-            </Button>
-            <Button type="button" variant="secondary" size="sm" onClick={() => void loadQueue()}>
-              <RefreshCw size={14} />
-              Refresh
-            </Button>
+
+          <div
+            role="group"
+            aria-label="Workflow queue status"
+            className={`${CONTROL_CHROME_RAIL_CLASS} shrink-0`}
+          >
+            {(["active", "completed"] as const).map((nextStatus) => (
+              <button
+                key={nextStatus}
+                type="button"
+                onClick={() => setStatus(nextStatus)}
+                aria-pressed={status === nextStatus}
+                className={`${CONTROL_CHROME_ACTION_CLASS} h-7 px-2.5 text-xs font-medium ${
+                  status === nextStatus ? CONTROL_CHROME_ACTIVE_ACTION_CLASS : ""
+                }`}
+              >
+                {nextStatus === "active" ? "Active" : "Completed"}
+              </button>
+            ))}
           </div>
-        </div>
-        <div className="mt-3 grid gap-2 md:grid-cols-[160px_1fr_1fr]">
-          <Select
-            value={status}
-            onChange={(event) => setStatus(event.target.value as QueueStatus)}
-            aria-label="Workflow status"
-          >
-            <option value="active">Active</option>
-            <option value="completed">Completed</option>
-          </Select>
-          <Select
-            value={templateId}
-            onChange={(event) => setTemplateId(event.target.value)}
-            aria-label="Workflow template"
-          >
-            <option value="">All templates</option>
-            {templates.map((template) => (
-              <option key={template.id} value={template.id}>
-                {template.name}
-              </option>
-            ))}
-          </Select>
-          <Select
-            value={stageId}
-            onChange={(event) => setStageId(event.target.value)}
-            disabled={!selectedTemplate}
-            aria-label="Workflow stage"
-          >
-            <option value="">All stages</option>
-            {stages.map((stage) => (
-              <option key={stage.id} value={stage.id}>
-                {stage.name}
-              </option>
-            ))}
-          </Select>
-        </div>
-        <div className="mt-2 grid gap-2 md:grid-cols-[1fr_170px_200px_170px_190px]">
+
           <SearchInput
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search queue"
             aria-label="Search workflow queue"
+            containerClassName="order-last basis-full md:order-none md:min-w-52 md:flex-1 md:basis-auto"
+            className="h-9"
           />
-          <Select
-            value={sort}
-            onChange={(event) => setSort(event.target.value as QueueSort)}
-            aria-label="Sort workflow queue"
+
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="relative shrink-0 gap-1.5"
+                aria-label="Open workflow filters"
+              >
+                <Filter size={14} />
+                Filters
+                {activeFilters.length > 0 ? (
+                  <span className="bg-primary text-white inline-flex min-w-4 items-center justify-center rounded-full px-1 text-[10px] leading-4">
+                    {activeFilters.length}
+                  </span>
+                ) : null}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="end"
+              sideOffset={8}
+              className="w-[min(560px,calc(100vw-2rem))] p-0"
+            >
+              <div className="border-b border-border px-3 py-2.5">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-text">Queue filters</p>
+                    <p className="mt-0.5 text-xs text-text-muted">
+                      Narrow the current workflow view.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={clearQueueFilters}
+                    disabled={activeFilters.length === 0 && sort === "updated_desc"}
+                  >
+                    Clear
+                  </Button>
+                </div>
+              </div>
+              <div className="grid gap-3 p-3 sm:grid-cols-2">
+                <label className="min-w-0 text-xs font-medium text-text-muted">
+                  Template
+                  <Select
+                    value={templateId}
+                    onChange={(event) => setTemplateId(event.target.value)}
+                    className="mt-1"
+                    aria-label="Workflow template"
+                  >
+                    <option value="">All templates</option>
+                    {templates.map((template) => (
+                      <option key={template.id} value={template.id}>
+                        {template.name}
+                      </option>
+                    ))}
+                  </Select>
+                </label>
+                <label className="min-w-0 text-xs font-medium text-text-muted">
+                  Stage
+                  <Select
+                    value={stageId}
+                    onChange={(event) => setStageId(event.target.value)}
+                    disabled={!selectedTemplate}
+                    className="mt-1"
+                    aria-label="Workflow stage"
+                  >
+                    <option value="">All stages</option>
+                    {stages.map((stage) => (
+                      <option key={stage.id} value={stage.id}>
+                        {stage.name}
+                      </option>
+                    ))}
+                  </Select>
+                </label>
+                <label className="min-w-0 text-xs font-medium text-text-muted">
+                  Approval
+                  <Select
+                    value={scope}
+                    onChange={(event) => setScope(event.target.value as QueueScope)}
+                    className="mt-1"
+                    aria-label="Approval scope"
+                  >
+                    <option value="all">All approval scopes</option>
+                    <option value="mine">My approvals ({approvalCounts.mine})</option>
+                    <option value="role">Role approvals ({approvalCounts.role})</option>
+                    <option value="unassigned">
+                      No assigned approver ({approvalCounts.unassigned})
+                    </option>
+                  </Select>
+                </label>
+                <label className="min-w-0 text-xs font-medium text-text-muted">
+                  Updated
+                  <Select
+                    value={age}
+                    onChange={(event) => setAge(event.target.value as QueueAge)}
+                    className="mt-1"
+                    aria-label="Updated age"
+                  >
+                    <option value="all">Any age</option>
+                    <option value="today">Updated today ({ageCounts.today})</option>
+                    <option value="week">Updated this week ({ageCounts.week})</option>
+                    <option value="stale">Stale 7+ days ({ageCounts.stale})</option>
+                  </Select>
+                </label>
+                <label className="min-w-0 text-xs font-medium text-text-muted">
+                  Attention
+                  <Select
+                    value={focus}
+                    onChange={(event) => setFocus(event.target.value as QueueFocus)}
+                    className="mt-1"
+                    aria-label="Workflow attention"
+                  >
+                    <option value="all">Any handoff</option>
+                    <option value="delegated">Delegated ({focusCounts.delegated})</option>
+                    <option value="escalated">Escalated ({focusCounts.escalated})</option>
+                    <option value="due_soon">Due soon ({focusCounts.dueSoon})</option>
+                    <option value="overdue">Overdue ({focusCounts.overdue})</option>
+                  </Select>
+                </label>
+                <label className="min-w-0 text-xs font-medium text-text-muted">
+                  Sort
+                  <Select
+                    value={sort}
+                    onChange={(event) => setSort(event.target.value as QueueSort)}
+                    className="mt-1"
+                    aria-label="Sort workflow queue"
+                  >
+                    <option value="updated_desc">Newest updated</option>
+                    <option value="updated_asc">Oldest updated</option>
+                    <option value="title_asc">Title A-Z</option>
+                    <option value="workflow_asc">Workflow A-Z</option>
+                    <option value="deadline_asc">Deadline first</option>
+                  </Select>
+                </label>
+              </div>
+            </PopoverContent>
+          </Popover>
+
+          <div
+            role="group"
+            aria-label="Workflow queue actions"
+            className={`${CONTROL_CHROME_RAIL_CLASS} shrink-0`}
           >
-            <option value="updated_desc">Newest updated</option>
-            <option value="updated_asc">Oldest updated</option>
-            <option value="title_asc">Title A-Z</option>
-            <option value="workflow_asc">Workflow A-Z</option>
-            <option value="deadline_asc">Deadline first</option>
-          </Select>
-          <Select
-            value={scope}
-            onChange={(event) => setScope(event.target.value as QueueScope)}
-            aria-label="Approval scope"
-          >
-            <option value="all">All approval scopes</option>
-            <option value="mine">My approvals ({approvalCounts.mine})</option>
-            <option value="role">Role approvals ({approvalCounts.role})</option>
-            <option value="unassigned">No assigned approver ({approvalCounts.unassigned})</option>
-          </Select>
-          <Select
-            value={age}
-            onChange={(event) => setAge(event.target.value as QueueAge)}
-            aria-label="Updated age"
-          >
-            <option value="all">Any age</option>
-            <option value="today">Updated today ({ageCounts.today})</option>
-            <option value="week">Updated this week ({ageCounts.week})</option>
-            <option value="stale">Stale 7+ days ({ageCounts.stale})</option>
-          </Select>
-          <Select
-            value={focus}
-            onChange={(event) => setFocus(event.target.value as QueueFocus)}
-            aria-label="Workflow attention"
-          >
-            <option value="all">Any handoff</option>
-            <option value="delegated">Delegated ({focusCounts.delegated})</option>
-            <option value="escalated">Escalated ({focusCounts.escalated})</option>
-            <option value="due_soon">Due soon ({focusCounts.dueSoon})</option>
-            <option value="overdue">Overdue ({focusCounts.overdue})</option>
-          </Select>
-        </div>
+            <TooltipProvider delayDuration={350}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={saveCurrentPreset}
+                    aria-label="Save workflow queue view"
+                    className={`${CONTROL_CHROME_ACTION_CLASS} flex h-7 items-center gap-1.5 px-2 text-xs`}
+                  >
+                    <BookmarkPlus size={14} />
+                    <span className="hidden xl:inline">Save view</span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Save view</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => void loadQueue()}
+                    aria-label="Refresh workflow queue"
+                    className={`${CONTROL_CHROME_ACTION_CLASS} flex h-7 items-center gap-1.5 px-2 text-xs`}
+                  >
+                    <RefreshCw size={14} />
+                    <span className="hidden xl:inline">Refresh</span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Refresh queue</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+        </nav>
         {(activeFilters.length > 0 || presets.length > 0) && (
-          <div className="mt-3 flex flex-wrap items-center gap-2">
+          <div className="mt-2 flex items-center gap-2 overflow-x-auto pb-1">
             {activeFilters.map((filter) => (
               <button
                 key={filter.label}
                 type="button"
                 onClick={filter.clear}
-                className="inline-flex items-center gap-1 rounded-input border border-border bg-surface px-2 py-1 text-xs text-text hover:bg-surface-raised"
+                className={`${CONTROL_CHROME_RAIL_CLASS} shrink-0 px-2 py-1 text-xs`}
               >
                 {filter.label}
                 <X size={12} />
@@ -758,19 +938,19 @@ export function WorkflowQueuePage() {
             {presets.map((preset) => (
               <span
                 key={preset.id}
-                className="inline-flex items-center gap-1 rounded-input border border-border bg-surface px-1 py-1 text-xs text-text"
+                className={`${CONTROL_CHROME_RAIL_CLASS} px-1 py-1 text-xs`}
               >
                 <button
                   type="button"
                   onClick={() => applyPreset(preset)}
-                  className="px-1 hover:text-primary"
+                  className={`${CONTROL_CHROME_ACTION_CLASS} px-1 hover:text-primary`}
                 >
                   {preset.name}
                 </button>
                 <button
                   type="button"
                   onClick={() => deletePreset(preset.id)}
-                  className="rounded-input p-0.5 text-text-muted hover:bg-surface-raised hover:text-text"
+                  className={`${CONTROL_CHROME_ACTION_CLASS} p-0.5`}
                   aria-label={`Delete saved queue view ${preset.name}`}
                 >
                   <Trash2 size={12} />
@@ -780,21 +960,11 @@ export function WorkflowQueuePage() {
           </div>
         )}
         {stageSummaries.length > 0 && (
-          <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
-            {stageSummaries.slice(0, 6).map((stage) => (
-              <button
-                key={stage.id}
-                type="button"
-                onClick={() => setStageId(stage.id === "unknown" ? "" : stage.id)}
-                className="shrink-0 rounded-input border border-border bg-surface px-2.5 py-1.5 text-left text-xs text-text hover:bg-surface-raised"
-              >
-                <span className="block max-w-40 truncate font-medium">{stage.name}</span>
-                <span className="text-text-muted">
-                  {stage.count} {stage.count === 1 ? "document" : "documents"}
-                </span>
-              </button>
-            ))}
-          </div>
+          <WorkflowStageShortcuts
+            stages={stageSummaries}
+            activeStageId={stageId}
+            onSelect={setStageId}
+          />
         )}
       </header>
 
@@ -1573,6 +1743,22 @@ function focusLabel(focus: QueueFocus): string {
     case "all":
     default:
       return "Any handoff";
+  }
+}
+
+function queueSortLabel(sort: QueueSort): string {
+  switch (sort) {
+    case "updated_asc":
+      return "Oldest updated";
+    case "title_asc":
+      return "Title A-Z";
+    case "workflow_asc":
+      return "Workflow A-Z";
+    case "deadline_asc":
+      return "Deadline first";
+    case "updated_desc":
+    default:
+      return "Newest updated";
   }
 }
 

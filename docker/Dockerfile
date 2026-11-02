@@ -1,5 +1,5 @@
 # Stage 1: Build React web app
-FROM node:20-slim AS web-builder
+FROM node:20.19-slim AS web-builder
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY apps/web/package.json apps/web/
@@ -13,23 +13,26 @@ RUN npm run build --workspace=apps/web
 FROM rust:1.88-slim AS server-builder
 RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
 COPY server/ server/
-# Create a minimal workspace Cargo.toml (server only, no desktop app)
-RUN echo '[workspace]\nresolver = "2"\nmembers = ["server"]' > Cargo.toml
+# Cargo resolves the committed lockfile against the real workspace graph even though this image
+# builds only the server package.
+COPY apps/desktop/src-tauri/Cargo.toml apps/desktop/src-tauri/Cargo.toml
+COPY apps/desktop/src-tauri/src/lib.rs apps/desktop/src-tauri/src/lib.rs
 # Copy built web assets for embedding
 COPY --from=web-builder /app/apps/web/dist server/web-dist
-RUN cargo build --release --package starlane-notes-server
+RUN cargo build --locked --release --package starlane-notes-server
 
 # Stage 3: Runtime
 FROM debian:bookworm-slim AS runtime
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl python3 && rm -rf /var/lib/apt/lists/*
 RUN useradd -m -s /bin/bash starlane
 WORKDIR /app
 
 COPY --from=server-builder /app/target/release/starlane-notes-server /app/starlane-notes-server
 COPY --from=server-builder /app/server/web-dist /app/web-dist
 
-RUN mkdir -p /data && chown starlane:starlane /data
+RUN install -d -m 0700 -o starlane -g starlane /data
 VOLUME /data
 USER starlane
 

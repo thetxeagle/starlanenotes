@@ -1,5 +1,11 @@
 import { Button } from "@/components/ui/button";
-import { DialogShell } from "@/components/ui/dialog-shell";
+import {
+  DialogBody,
+  DialogFooter,
+  DialogHeader,
+  DialogShell,
+  DialogTitle,
+} from "@/components/ui/dialog-shell";
 import { Input } from "@/components/ui/input";
 
 export type EditorUrlInsertKind = "link" | "image" | "bookmark";
@@ -43,17 +49,16 @@ export function EditorUrlDialog({
   return (
     <DialogShell labelledBy={labelledBy} maxWidth="sm" onClose={onCancel}>
       <form
-        className="p-3"
         onSubmit={(event) => {
           event.preventDefault();
           onSubmit();
         }}
       >
-        <div className="mb-3">
-          <h2 id={labelledBy} className="text-sm font-medium text-text">
-            {getEditorUrlDialogTitle(kind)}
-          </h2>
-          <label htmlFor={inputId} className="mt-3 block text-xs font-medium text-text-muted">
+        <DialogHeader>
+          <DialogTitle id={labelledBy}>{getEditorUrlDialogTitle(kind)}</DialogTitle>
+        </DialogHeader>
+        <DialogBody>
+          <label htmlFor={inputId} className="block text-sm font-medium text-text">
             {getEditorUrlDialogLabel(kind)}
           </label>
           <Input
@@ -64,15 +69,15 @@ export function EditorUrlDialog({
             className="mt-1 h-8 bg-surface text-sm"
             autoComplete="off"
           />
-        </div>
-        <div className="flex justify-end gap-2">
-          <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+        </DialogBody>
+        <DialogFooter>
+          <Button type="button" variant="secondary" size="sm" onClick={onCancel}>
             Cancel
           </Button>
           <Button type="submit" size="sm" disabled={!canSubmitEditorUrl(value)}>
             Insert
           </Button>
-        </div>
+        </DialogFooter>
       </form>
     </DialogShell>
   );

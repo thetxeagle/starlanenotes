@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   GRAPH_ERROR_CLASS,
   fitGraphViewport,
@@ -121,5 +123,48 @@ describe("GraphPage helpers", () => {
     expect(GRAPH_ERROR_CLASS).toContain("bg-danger");
     expect(GRAPH_ERROR_CLASS).toContain("text-danger");
     expect(GRAPH_ERROR_CLASS).not.toContain("red-");
+  });
+
+  it("gives graph nodes and their context menu the shared interaction contract", () => {
+    const source = readFileSync(resolve(process.cwd(), "src/pages/GraphPage.tsx"), "utf8");
+
+    expect(source).toContain("PopoverContent");
+    expect(source).toContain('side="bottom"');
+    expect(source).toContain('sideOffset={6}');
+    expect(source).toContain("useMenuKeyboardNavigation");
+    expect(source).toContain("PopoverTrigger");
+    expect(source).toContain('role="button"');
+    expect(source).toContain("onKeyDown={(event) => handleGraphNodeKeyDown(event, node.id)}");
+    expect(source).toContain('role="menu"');
+    expect(source).not.toContain("GRAPH_CONTEXT_MENU_VIEWPORT_MARGIN");
+    expect(source).not.toContain("style={{ left:");
+    expect(source).not.toContain("menuState.x");
+  });
+
+  it("exposes the named graph group and its document nodes as buttons", () => {
+    const source = readFileSync(resolve(process.cwd(), "src/pages/GraphPage.tsx"), "utf8");
+
+    expect(source).toContain('role="group"');
+    expect(source).toContain('aria-label="Document relationship graph"');
+    expect(source).not.toContain('role="img"');
+    expect(source).toContain('role="button"');
+    expect(source).toContain('aria-label={`Select ${node.title}`}');
+    expect(source).toContain("tabIndex={0}");
+    expect(source).toContain("onKeyDown={(event) => handleGraphNodeKeyDown(event, node.id)}");
+  });
+
+  it("keeps graph panning inside the canvas without native text selection", () => {
+    const source = readFileSync(resolve(process.cwd(), "src/pages/GraphPage.tsx"), "utf8");
+
+    expect(source).toContain('className="h-full w-full touch-none select-none"');
+    expect(source).toContain("onPointerDown={handleGraphPointerDown}");
+    expect(source).toContain("onPointerMove={handleGraphPointerMove}");
+    expect(source).toContain("onPointerUp={finishGraphPointerDrag}");
+    expect(source).toContain("onPointerCancel={finishGraphPointerDrag}");
+    expect(source).toContain("setPointerCapture(e.pointerId)");
+    expect(source).toContain("releasePointerCapture(e.pointerId)");
+    expect(source).toContain('closest("[data-graph-node]")');
+    expect(source).toContain("data-graph-node");
+    expect(source).not.toContain('window.addEventListener("mousemove"');
   });
 });

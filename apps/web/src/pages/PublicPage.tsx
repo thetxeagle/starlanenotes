@@ -15,7 +15,7 @@ interface PublicPageRecord {
 }
 
 export function describePublicPageError(error: unknown): string {
-  if (error instanceof ApiError && error.status === 400) {
+  if (error instanceof ApiError && (error.status === 400 || error.status === 404)) {
     return "This public page is unavailable or has been unpublished.";
   }
   return "This public page could not be loaded. Please try again later.";

@@ -8,8 +8,14 @@ export const SYNC_STATUS_CONFIG: Record<SyncState, { color: string; label: strin
   error: { color: "bg-danger", label: "Sync error" },
 };
 
-export function SyncStatus() {
+interface SyncStatusProps {
+  hideSynced?: boolean;
+}
+
+export function SyncStatus({ hideSynced = false }: SyncStatusProps) {
   const state = useSyncState();
+
+  if (hideSynced && state === "synced") return null;
 
   const { color, label } = SYNC_STATUS_CONFIG[state];
 

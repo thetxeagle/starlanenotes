@@ -1,9 +1,10 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { isTauri } from "@/lib/api";
-import { useTheme } from "@/hooks/useTheme";
+import { dispatchThemeToggle } from "@/lib/themeEvents";
 import { buildDocumentRoutePath } from "@/lib/lastViewedDocument";
 import { buildSpaceHomePath } from "@/lib/lastViewedSpace";
+import { dispatchNativeCallbackUrl } from "@/lib/nativeDeepLinkCallbacks";
 
 interface TauriEvent<T = string> {
   payload: T;
@@ -24,12 +25,21 @@ interface DeepLinkRoute {
   query?: string;
 }
 
-function dispatchNativeAuthHandoff(url: string) {
-  if (url.startsWith("starlane://auth/handoff?")) {
-    document.dispatchEvent(new CustomEvent("starlane:native-auth-handoff", { detail: url }));
-    return true;
-  }
-  return false;
+export async function dispatchCurrentNativeCallbackUrls(
+  invoke: TauriCoreModule["invoke"],
+): Promise<number> {
+  const currentUrls = await invoke<string[] | null>("plugin:deep-link|get_current");
+  for (const url of currentUrls ?? []) dispatchNativeCallbackUrl(url);
+  return currentUrls?.length ?? 0;
+}
+
+export async function dispatchPendingNativeCallbackUrl(
+  invoke: TauriCoreModule["invoke"],
+): Promise<boolean> {
+  const pendingUrl = await invoke<string | null>("consume_pending_native_callback");
+  if (!pendingUrl) return false;
+  dispatchNativeCallbackUrl(pendingUrl);
+  return true;
 }
 
 export function getTauriDeepLinkRoutePath(route: DeepLinkRoute): string | null {
@@ -80,7 +90,6 @@ function handleDeepLinkRoute(
 
 export function useTauriEvents() {
   const navigate = useNavigate();
-  const { setTheme, resolvedTheme } = useTheme();
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -111,7 +120,7 @@ export function useTauriEvents() {
               document.dispatchEvent(new CustomEvent("starlane:toggle-sidebar"));
               break;
             case "toggle-dark-mode":
-              setTheme(resolvedTheme === "dark" ? "light" : "dark");
+              dispatchThemeToggle();
               break;
             case "preferences":
               navigate("/admin");
@@ -133,8 +142,33 @@ export function useTauriEvents() {
         unlisteners.push(unlistenDeepLink);
 
         unlisteners.push(await eventMod.listen<string[]>("deep-link://new-url", (event) => {
-          for (const url of event.payload) dispatchNativeAuthHandoff(url);
+          for (const url of event.payload) dispatchNativeCallbackUrl(url);
         }));
+        unlisteners.push(await eventMod.listen<string>("starlane-native-callback", (event) => {
+          dispatchNativeCallbackUrl(event.payload);
+        }));
+
+        const refreshCurrentNativeCallbacks = () => {
+          if (document.visibilityState === "hidden") return;
+          void dispatchPendingNativeCallbackUrl(coreMod.invoke).catch(() => undefined);
+          void dispatchCurrentNativeCallbackUrls(coreMod.invoke).catch(() => undefined);
+        };
+        window.addEventListener("focus", refreshCurrentNativeCallbacks);
+        document.addEventListener("visibilitychange", refreshCurrentNativeCallbacks);
+        unlisteners.push(() => window.removeEventListener("focus", refreshCurrentNativeCallbacks));
+        unlisteners.push(() =>
+          document.removeEventListener("visibilitychange", refreshCurrentNativeCallbacks)
+        );
+
+        // The iOS Opened event can occur before the WebView listener is ready.
+        // Read after subscribing and again when the app resumes so a callback delivered while
+        // WKWebView is suspended is not lost.
+        try {
+          await dispatchPendingNativeCallbackUrl(coreMod.invoke);
+          await dispatchCurrentNativeCallbackUrls(coreMod.invoke);
+        } catch {
+          // Deep-link plugin command is unavailable in non-native test/browser environments.
+        }
 
         // Check for a pending deep link from app launch
         try {
@@ -158,5 +192,5 @@ export function useTauriEvents() {
         unlisten();
       }
     };
-  }, [navigate, setTheme, resolvedTheme]);
+  }, [navigate]);
 }

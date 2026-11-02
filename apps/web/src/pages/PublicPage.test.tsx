@@ -3,8 +3,8 @@ import { ApiError } from "@/lib/api";
 import { describePublicPageError } from "./PublicPage";
 
 describe("PublicPage", () => {
-  it("keeps unpublished pages indistinguishable from unavailable public pages", () => {
-    expect(describePublicPageError(new ApiError("Page not found", 400))).toBe(
+  it.each([400, 404])("keeps unavailable public pages indistinguishable for HTTP %s", (status) => {
+    expect(describePublicPageError(new ApiError("Page not found", status))).toBe(
       "This public page is unavailable or has been unpublished.",
     );
   });

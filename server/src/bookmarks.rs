@@ -37,14 +37,20 @@ async fn fetch_bookmark_metadata(
         .user_agent("StarlaneNotesBookmarkPreview/1.0")
         .build()
         .map_err(AppError::internal)?;
-    let response = client.get(url.clone()).send().await.map_err(|_| {
-        AppError::BadRequest("Could not fetch bookmark metadata".into())
-    })?;
+    let response = client
+        .get(url.clone())
+        .send()
+        .await
+        .map_err(|_| AppError::BadRequest("Could not fetch bookmark metadata".into()))?;
     if response.status().is_redirection() {
-        return Err(AppError::BadRequest("Bookmark redirects are not followed for safety".into()));
+        return Err(AppError::BadRequest(
+            "Bookmark redirects are not followed for safety".into(),
+        ));
     }
     if !response.status().is_success() {
-        return Err(AppError::BadRequest("Bookmark URL did not return a successful response".into()));
+        return Err(AppError::BadRequest(
+            "Bookmark URL did not return a successful response".into(),
+        ));
     }
     let bytes = response.bytes().await.map_err(AppError::internal)?;
     let html = String::from_utf8_lossy(&bytes[..bytes.len().min(MAX_HTML_BYTES)]);
@@ -61,32 +67,61 @@ async fn fetch_bookmark_metadata(
 }
 
 async fn validate_public_url(value: &str) -> Result<Url, AppError> {
-    let url = Url::parse(value.trim()).map_err(|_| AppError::BadRequest("Bookmark URL must be valid".into()))?;
-    if !matches!(url.scheme(), "http" | "https") || url.username() != "" || url.password().is_some() {
-        return Err(AppError::BadRequest("Bookmark URL must be a public HTTP(S) URL".into()));
+    let url = Url::parse(value.trim())
+        .map_err(|_| AppError::BadRequest("Bookmark URL must be valid".into()))?;
+    if !matches!(url.scheme(), "http" | "https") || url.username() != "" || url.password().is_some()
+    {
+        return Err(AppError::BadRequest(
+            "Bookmark URL must be a public HTTP(S) URL".into(),
+        ));
     }
-    let host = url.host_str().ok_or_else(|| AppError::BadRequest("Bookmark URL needs a host".into()))?;
-    if host.eq_ignore_ascii_case("localhost") { return Err(AppError::BadRequest("Private bookmark URLs are blocked".into())); }
+    let host = url
+        .host_str()
+        .ok_or_else(|| AppError::BadRequest("Bookmark URL needs a host".into()))?;
+    if host.eq_ignore_ascii_case("localhost") {
+        return Err(AppError::BadRequest(
+            "Private bookmark URLs are blocked".into(),
+        ));
+    }
     let addresses = tokio::net::lookup_host((host, url.port_or_known_default().unwrap_or(443)))
         .await
         .map_err(|_| AppError::BadRequest("Bookmark host could not be resolved".into()))?;
-    if addresses.into_iter().any(|address| !is_public_ip(address.ip())) {
-        return Err(AppError::BadRequest("Private bookmark URLs are blocked".into()));
+    if addresses
+        .into_iter()
+        .any(|address| !is_public_ip(address.ip()))
+    {
+        return Err(AppError::BadRequest(
+            "Private bookmark URLs are blocked".into(),
+        ));
     }
     Ok(url)
 }
 
 fn is_public_ip(ip: IpAddr) -> bool {
     match ip {
-        IpAddr::V4(ip) => !(ip.is_private() || ip.is_loopback() || ip.is_link_local() || ip.is_unspecified() || ip.is_broadcast() || ip.is_documentation()),
-        IpAddr::V6(ip) => !(ip.is_loopback() || ip.is_unspecified() || ip.is_unique_local() || ip.is_unicast_link_local()),
+        IpAddr::V4(ip) => {
+            !(ip.is_private()
+                || ip.is_loopback()
+                || ip.is_link_local()
+                || ip.is_unspecified()
+                || ip.is_broadcast()
+                || ip.is_documentation())
+        }
+        IpAddr::V6(ip) => {
+            !(ip.is_loopback()
+                || ip.is_unspecified()
+                || ip.is_unique_local()
+                || ip.is_unicast_link_local())
+        }
     }
 }
 
 fn meta_value(html: &str, key: &str) -> Option<String> {
     let lower = html.to_ascii_lowercase();
     let marker = format!("{}=\"{}\"", "property", key.to_ascii_lowercase());
-    let start = lower.find(&marker).or_else(|| lower.find(&format!("name=\"{}\"", key.to_ascii_lowercase())))?;
+    let start = lower
+        .find(&marker)
+        .or_else(|| lower.find(&format!("name=\"{}\"", key.to_ascii_lowercase())))?;
     let tag = &html[start..html[start..].find('>')? + start];
     attribute_value(tag, "content")
 }
@@ -105,7 +140,10 @@ fn attribute_value(tag: &str, name: &str) -> Option<String> {
     Some(tag[start..end].trim().to_string()).filter(|value| !value.is_empty())
 }
 
-fn truncate(mut value: String, limit: usize) -> String { value.truncate(limit); value }
+fn truncate(mut value: String, limit: usize) -> String {
+    value.truncate(limit);
+    value
+}
 
 #[cfg(test)]
 mod tests {

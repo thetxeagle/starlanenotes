@@ -24,6 +24,11 @@ export interface StarredDocumentInput {
 
 export type StarredDocumentSortMode = "starred_desc" | "title_asc" | "updated_desc";
 
+export interface StarredDocumentsLoadResult {
+  documents: StarredDocumentRecord[];
+  syncStatus: "not-requested" | "synced" | "failed";
+}
+
 interface ServerStarredDocumentRecord {
   id: string;
   space_id: string;
@@ -84,7 +89,15 @@ export function toggleStarredDocument(input: StarredDocumentInput): boolean {
 }
 
 export async function loadStarredDocuments(spaceId?: string): Promise<StarredDocumentRecord[]> {
-  if (!shouldUseServerStars() || !spaceId) return readStarredDocuments();
+  return (await loadStarredDocumentsWithStatus(spaceId)).documents;
+}
+
+export async function loadStarredDocumentsWithStatus(
+  spaceId?: string,
+): Promise<StarredDocumentsLoadResult> {
+  if (!shouldUseServerStars() || !spaceId) {
+    return { documents: readStarredDocuments(), syncStatus: "not-requested" };
+  }
   try {
     const serverItems = await api.fetch<ServerStarredDocumentRecord[]>(
       `/spaces/${spaceId}/documents/starred`,
@@ -93,9 +106,9 @@ export async function loadStarredDocuments(spaceId?: string): Promise<StarredDoc
     const others = readStarredDocuments().filter((item) => item.spaceId !== spaceId);
     writeStarredDocuments([...normalized, ...others]);
   } catch {
-    return readStarredDocuments();
+    return { documents: readStarredDocuments(), syncStatus: "failed" };
   }
-  return readStarredDocuments();
+  return { documents: readStarredDocuments(), syncStatus: "synced" };
 }
 
 export async function toggleStarredDocumentSynced(input: StarredDocumentInput): Promise<boolean> {

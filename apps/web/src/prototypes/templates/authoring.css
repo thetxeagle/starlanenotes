@@ -1,0 +1,457 @@
+.template-authoring {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  width: min(100%, 1240px);
+  margin-inline: auto;
+  padding: clamp(1rem, 3vw, 2rem);
+  color: var(--text);
+}
+
+.template-authoring label {
+  display: grid;
+  gap: 0.45rem;
+  color: var(--text);
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+.authoring-library-head h1,
+.authoring-editor-intro h1 {
+  font-size: 1.5rem;
+  line-height: 1.3;
+  font-weight: 650;
+}
+.authoring-library-head h1,
+.authoring-library-head p,
+.authoring-editor-intro h1,
+.authoring-editor-intro p,
+.authoring-content-heading h2,
+.authoring-content-heading p,
+.authoring-inspector h2,
+.authoring-inspector p,
+.authoring-test-form h2,
+.authoring-test-preview > h2 {
+  margin: 0;
+}
+.authoring-library-head p,
+.authoring-editor-intro p,
+.authoring-content-heading p,
+.authoring-inspector-section > .authoring-section-title p,
+.authoring-prototype-note,
+.authoring-library-copy span,
+.authoring-page-note,
+.authoring-muted {
+  color: var(--text-muted);
+}
+.authoring-library-head p,
+.authoring-editor-intro p,
+.authoring-content-heading p {
+  line-height: 1.55;
+}
+
+.authoring-library-head,
+.authoring-workspace-head,
+.authoring-library-item,
+.authoring-workspace-actions,
+.authoring-footer-actions,
+.authoring-section-title,
+.authoring-config-head,
+.authoring-content-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.authoring-library-head,
+.authoring-workspace-head,
+.authoring-config-head {
+  justify-content: space-between;
+}
+.authoring-library-head > div {
+  display: grid;
+  gap: 0.3rem;
+  max-width: 46rem;
+}
+.authoring-workspace-actions {
+  justify-content: flex-end;
+}
+.authoring-prototype-note {
+  font-size: 0.8rem;
+}
+.authoring-library-list {
+  display: grid;
+  border-top: 1px solid var(--border);
+}
+.authoring-library-item {
+  min-width: 0;
+  padding: 1rem 0.25rem;
+  border-bottom: 1px solid var(--border);
+}
+.authoring-library-icon {
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  flex: 0 0 auto;
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 9%, var(--surface));
+  border-radius: 0.5rem;
+  font-weight: 600;
+}
+.authoring-library-copy {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 0.25rem;
+}
+.authoring-library-copy h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.authoring-library-copy p {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+.authoring-library-copy span {
+  font-size: 0.8rem;
+}
+.authoring-editor-intro {
+  display: grid;
+  gap: 0.3rem;
+}
+.authoring-template-meta {
+  display: grid;
+  grid-template-columns: minmax(12rem, 0.7fr) minmax(18rem, 1.3fr);
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--surface);
+}
+.authoring-editor-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.8fr) minmax(17rem, 1fr);
+  align-items: start;
+  gap: 1.5rem;
+}
+.authoring-editor-column {
+  display: grid;
+  align-content: start;
+  gap: 0.75rem;
+  min-width: 0;
+}
+.authoring-content-heading {
+  display: grid;
+  gap: 0.4rem;
+}
+.authoring-content-heading h2,
+.authoring-inspector h2,
+.authoring-test-form h2,
+.authoring-test-preview > h2 {
+  font-size: 1.05rem;
+  line-height: 1.4;
+  font-weight: 600;
+}
+.authoring-content-actions {
+  flex-wrap: wrap;
+  margin-top: 0.25rem;
+}
+.authoring-content-actions > [data-starlane-select-control] {
+  width: min(100%, 18rem);
+}
+.authoring-content-editor {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--surface);
+}
+.authoring-toolbar-host {
+  min-height: 0;
+}
+.authoring-content-editor [data-starlane-editor-toolbar="true"] {
+  max-width: 100%;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.authoring-content-editor [contenteditable="true"] {
+  min-height: 18rem;
+  padding: 1rem;
+  outline: none;
+}
+.authoring-inspector {
+  display: grid;
+  align-content: start;
+  gap: 1rem;
+  min-width: 0;
+}
+.authoring-inspector-section {
+  display: grid;
+  gap: 0.7rem;
+  padding: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--surface);
+}
+.authoring-section-title {
+  align-items: flex-start;
+  justify-content: space-between;
+}
+.authoring-section-title > div {
+  display: grid;
+  gap: 0.25rem;
+}
+.authoring-section-title p {
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+.authoring-inspector-section > .authoring-section-title {
+  margin-bottom: 0.1rem;
+}
+.authoring-inspector-section > .authoring-section-title h2 {
+  font-size: 0.95rem;
+}
+.authoring-inspector-section > .authoring-section-title > button {
+  min-height: 2.25rem;
+  flex: 0 0 auto;
+}
+.authoring-inspector-item {
+  display: grid;
+  gap: 0.7rem;
+  min-width: 0;
+  padding: 0.75rem 0 0;
+  border-top: 1px solid var(--border);
+}
+.authoring-config-head {
+  min-height: 2rem;
+  color: var(--text-muted);
+}
+.authoring-config-head > strong {
+  color: var(--text);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.authoring-config-head > button {
+  min-width: 2.25rem;
+}
+.authoring-check {
+  display: flex !important;
+  align-items: center;
+  width: fit-content;
+  gap: 0.55rem !important;
+}
+.authoring-check input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--primary);
+}
+.authoring-inspector-empty {
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+.authoring-notice {
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--primary) 8%, var(--surface));
+  color: var(--text);
+}
+.authoring-footer-actions {
+  justify-content: flex-end;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+.authoring-test-layout {
+  display: grid;
+  grid-template-columns: minmax(17rem, 0.8fr) minmax(22rem, 1.2fr);
+  align-items: start;
+  gap: 1.5rem;
+}
+.authoring-test-form {
+  display: grid;
+  align-content: start;
+  gap: 0.9rem;
+  min-width: 0;
+}
+.authoring-test-form > button {
+  justify-self: start;
+  margin-top: 0.25rem;
+}
+.authoring-required {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-weight: 400;
+}
+.authoring-error {
+  color: var(--danger);
+  font-size: 0.8rem;
+}
+.authoring-test-preview {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+}
+.authoring-preview-content {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: clamp(1rem, 3vw, 2rem);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--surface);
+}
+.authoring-preview-content > h2 {
+  margin: 0;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+.authoring-preview-content pre {
+  margin: 0;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  line-height: 1.65;
+}
+.authoring-preview-guidance {
+  display: grid;
+  gap: 0.45rem;
+  padding-top: 0.5rem;
+}
+.authoring-preview-guidance h3 {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.authoring-preview-guidance p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+.authoring-preview-guidance b {
+  color: var(--text);
+  font-weight: 600;
+}
+.authoring-created-page {
+  display: grid;
+  gap: 1rem;
+  width: min(100%, 60rem);
+  margin-inline: auto;
+}
+.authoring-created-page > label {
+  max-width: 40rem;
+  font-size: 1.4rem;
+  font-weight: 650;
+}
+.authoring-created-page > label input {
+  height: auto;
+  padding-block: 0.6rem;
+  font-size: 1.3rem;
+  font-weight: 600;
+}
+.authoring-page-properties {
+  display: grid;
+  gap: 0.6rem;
+  padding: 0.8rem 0;
+  border-block: 1px solid var(--border);
+}
+.authoring-page-properties h2 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+.authoring-page-properties > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+}
+.authoring-page-properties span {
+  display: flex;
+  gap: 0.5rem;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+.authoring-page-properties b {
+  color: var(--text);
+  font-weight: 500;
+}
+.authoring-page-note {
+  margin: 0;
+  font-size: 0.8rem;
+}
+
+@media (max-width: 820px) {
+  .template-authoring {
+    padding: 1rem;
+    gap: 1rem;
+  }
+  .authoring-library-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .authoring-template-meta,
+  .authoring-editor-layout,
+  .authoring-test-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .authoring-workspace-head {
+    align-items: flex-start;
+  }
+  .authoring-workspace-actions {
+    flex-wrap: wrap;
+  }
+  .authoring-library-item {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .authoring-library-copy {
+    flex-basis: calc(100% - 3.5rem);
+  }
+  .authoring-library-item > button {
+    margin-left: 3.25rem;
+  }
+  .authoring-inspector {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+    align-items: start;
+  }
+}
+
+@media (max-width: 440px) {
+  .authoring-workspace-head {
+    flex-direction: column;
+  }
+  .authoring-workspace-actions {
+    justify-content: flex-start;
+  }
+  .authoring-library-item > button {
+    margin-left: 0;
+  }
+  .authoring-footer-actions {
+    justify-content: stretch;
+  }
+  .authoring-footer-actions > button {
+    flex: 1;
+  }
+}
+
+.authoring-library-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.authoring-rich-preview .tiptap {
+  min-height: 0;
+}
+.authoring-page-properties span {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.authoring-preview-content > h2 {
+  border-bottom: 0;
+}
+@media (max-width: 820px) {
+  .authoring-library-actions {
+    width: 100%;
+  }
+}

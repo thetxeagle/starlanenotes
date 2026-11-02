@@ -27,12 +27,20 @@ for (const notificationType of new Set(emittedTypes)) {
 requireText("server/src/notifications/mod.rs", /\/notifications\/system/, "missing authenticated system-activity route.");
 requireText("apps/web/src/components/NotificationBell.tsx", /SYSTEM_NOTIFICATION_EVENT/, "does not present immediately recorded system activity.");
 requireText("apps/web/src/components/NotificationBell.tsx", /setTimeout\(dismissBanner, 6000\)/, "banner must auto-dismiss without changing inbox state.");
+requireText("apps/web/src/components/NotificationBell.tsx", /getNextNotificationBanner/, "banner queue advancement is not isolated from durable inbox state.");
+requireText("apps/web/src/components/NotificationBell.tsx", /getNotificationsAfterSystemEvent/, "immediate system activity can duplicate inbox records.");
+requireText("apps/web/src/components/NotificationBell.test.ts", /dismisses only the presentation banner/, "missing regression coverage for durable inbox records after banner dismissal.");
+requireText("apps/web/src/components/NotificationBell.test.ts", /without duplicating it/, "missing regression coverage for immediate notification deduplication.");
 requireText("apps/web/src/components/NotificationBell.tsx", /md:left-auto md:right-4/, "desktop banner must be top-right while mobile remains top-safe-area.");
+requireText("apps/web/src/components/NotificationBell.tsx", /<Popover\s+modal/, "notification center must contain focus and restore its bell trigger.");
 requireText("apps/web/src/components/layout/TopBar.tsx", /<NotificationBell\s*\/>/, "desktop app header is missing a notification bell beside search.");
-requireText("apps/web/src/components/layout/MobileAppLayout.tsx", /<NotificationBell\s*\/>[\s\S]{0,500}<Search/, "mobile header must keep the notification bell adjacent to search.");
+requireText("apps/web/src/components/layout/TopBar.tsx", /<MobileWorkspaceHeader/, "responsive mobile web must use the shared mobile header.");
+requireText("apps/web/src/components/layout/MobileAppLayout.tsx", /<MobileWorkspaceHeader/, "native mobile must use the shared mobile header.");
+requireText("apps/web/src/components/layout/MobileWorkspaceHeader.tsx", /<NotificationBell\s+touchTarget\s*\/>[\s\S]{0,500}aria-label="Open search"/, "shared mobile header must keep the touch-sized notification bell adjacent to search.");
 requireText("apps/desktop/src-tauri/src/lib.rs", /native_notifications::send_native_notification/, "mobile shell does not register native notification IPC.");
 requireText("apps/desktop/src-tauri/src/desktop.rs", /native_notifications::send_native_notification/, "desktop shell does not register native notification IPC.");
-requireText("docs/docs/api/notifications.md", /Record System Activity/, "notification API documentation omits system activity.");
+requireText("public-docs/api/notifications.md", /Record System Activity/, "public notification API documentation omits system activity.");
+requireText("internal-docs/api/notifications.md", /Record System Activity/, "internal notification API documentation omits system activity.");
 
 if (failures.length > 0) {
   console.error("Notification contract validation failed:");

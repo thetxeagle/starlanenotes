@@ -1,3 +1,6 @@
+import { requireNoPendingGoogleReviewedMoves } from "./localVault";
+import { parseDocumentMaintenanceIntent, normalizeDocumentMaintenanceFields } from "@/lib/documentMaintenance";
+import { parseDocumentIdentifierIntent, normalizeHumanIdentifier } from "@/lib/humanIdentifier";
 import type { SyncProviderKind } from "@/lib/storageProviders";
 import {
   createConnectedProviderSession,
@@ -1103,6 +1106,8 @@ export function isProviderRemoteImportOperationSupported(
         action === "create" ||
         action === "update" ||
         action === "update_content" ||
+        action === "update_identifier" ||
+        action === "update_maintenance" ||
         action === "delete"
       );
     case "folder":
@@ -1381,6 +1386,76 @@ function providerRemoteImportBlankStringFailure(
   return null;
 }
 
+export interface DocumentMetadataIntent {
+  version: 1;
+  fields: ("title" | "icon" | "cover_image" | "folder_id" | "parent_id")[];
+  source: { page_updated_at: string; published_at: string | null };
+  draft?: { mode: "own_latest" } | { mode: "exact"; id: string; updated_at: string; base_updated_at: string };
+}
+export function parseDocumentMetadataIntent(payload: Record<string, unknown>): DocumentMetadataIntent {
+  for (const key of ["space_id", "title", "content", "updated_at", "created_at"]) {
+    if (key in payload && typeof payload[key] !== "string") throw new Error(`Metadata ${key} must be a string when supplied`);
+  }
+  for (const key of ["folder_id", "parent_id", "icon", "cover_image"]) {
+    if (key in payload && payload[key] !== null && typeof payload[key] !== "string") throw new Error(`Metadata ${key} must be a string or null`);
+  }
+  const raw = payload.metadata_intent;
+  const object = (value: unknown): Record<string, unknown> => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid document metadata intent");
+    return value as Record<string, unknown>;
+  };
+  const intent = object(raw), source = object(intent.source);
+  const exactKeys = (value: Record<string, unknown>, allowed: string[]) => {
+    if (Object.keys(value).some((key) => !allowed.includes(key))) throw new Error("Unknown document metadata intent field");
+  };
+  exactKeys(intent, ["version", "fields", "source", "draft"]);
+  exactKeys(source, ["page_updated_at", "published_at"]);
+  if (intent.version !== 1 || !Array.isArray(intent.fields) || !intent.fields.length ||
+      typeof source.page_updated_at !== "string" || !source.page_updated_at ||
+      !(source.published_at === null || typeof source.published_at === "string" && source.published_at.length > 0))
+    throw new Error("Invalid document metadata intent version/source/mask");
+  const seen = new Set<string>();
+  for (const field of intent.fields) {
+    if (typeof field !== "string" || !["title", "icon", "cover_image", "folder_id", "parent_id"].includes(field) || seen.has(field) || !Object.prototype.hasOwnProperty.call(payload, field))
+      throw new Error("Metadata intent requires unique known fields and explicit values");
+    seen.add(field);
+    const value = payload[field];
+    if (typeof value !== "string" && !(field !== "title" && value === null)) throw new Error("Metadata intended field has an invalid value");
+    if (field === "title" && !(value as string).trim()) throw new Error("Metadata title must not be empty");
+  }
+  if (intent.draft !== undefined) {
+    if (![...seen].some((field) => ["title", "icon", "cover_image"].includes(field))) throw new Error("Draft context requires a presentation field");
+    const draft = object(intent.draft);
+    if (draft.mode === "own_latest") exactKeys(draft, ["mode"]);
+    else if (draft.mode === "exact") {
+      exactKeys(draft, ["mode", "id", "updated_at", "base_updated_at"]);
+      if ([draft.id, draft.updated_at, draft.base_updated_at].some((value) => typeof value !== "string" || !value.trim())) throw new Error("Exact metadata draft source is invalid");
+    } else throw new Error("Metadata draft choice is invalid");
+  }
+  if (typeof payload.space_id !== "string" || !payload.space_id.trim()) throw new Error("Metadata space is required");
+  return intent as unknown as DocumentMetadataIntent;
+}
+
+/** Absent legacy fields retain defaults; supplied fields use the server replay wire contract. */
+export function providerPropertySchemaFieldsFailure(
+  payload: Record<string, unknown>,
+): "type" | "sort order" | null {
+  if (
+    Object.prototype.hasOwnProperty.call(payload, "property_type") &&
+    (typeof payload.property_type !== "string" || !payload.property_type.trim())
+  )
+    return "type";
+  if (
+    Object.prototype.hasOwnProperty.call(payload, "sort_order") &&
+    (typeof payload.sort_order !== "number" ||
+      !Number.isInteger(payload.sort_order) ||
+      payload.sort_order < -2147483648 ||
+      payload.sort_order > 2147483647)
+  )
+    return "sort order";
+  return null;
+}
+
 function providerRemoteImportPayloadSemanticFailure(
   entityType: string,
   action: string,
@@ -1389,6 +1464,26 @@ function providerRemoteImportPayloadSemanticFailure(
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
   const payloadRecord = payload as Record<string, unknown>;
 
+  if (entityType === "document" && action === "update_maintenance") {
+    try { parseDocumentMaintenanceIntent(payloadRecord); return null; }
+    catch (error) { return error instanceof Error ? error.message : "Invalid maintenance intent"; }
+  }
+  if (entityType === "document" && (action === "create" || action === "update")) {
+    try { normalizeDocumentMaintenanceFields(payloadRecord); }
+    catch (error) { return error instanceof Error ? error.message : "Invalid maintenance pair"; }
+  }
+  if (entityType === "document" && action === "update_identifier") {
+    try { parseDocumentIdentifierIntent(payloadRecord); return null; }
+    catch (error) { return error instanceof Error ? error.message : "Invalid identifier intent"; }
+  }
+  if (entityType === "document" && (action === "create" || action === "update") && "human_identifier" in payloadRecord) {
+    try { normalizeHumanIdentifier(payloadRecord.human_identifier); }
+    catch (error) { return error instanceof Error ? error.message : "Invalid page identifier"; }
+  }
+  if (entityType === "document" && action === "update" && "metadata_intent" in payloadRecord) {
+    try { parseDocumentMetadataIntent(payloadRecord); return null; }
+    catch (error) { return error instanceof Error ? error.message : "Invalid metadata intent"; }
+  }
   if (entityType === "document" && (action === "create" || action === "update")) {
     if (typeof payloadRecord.space_id !== "string" || typeof payloadRecord.title !== "string") {
       return `Remote replay operation document:${action} payload is missing space or title`;
@@ -1764,19 +1859,9 @@ function providerRemoteImportPayloadSemanticFailure(
     if (!payloadRecord.name.trim()) {
       return `Remote replay operation property_schema:${action} payload is missing property name`;
     }
-    if (
-      payloadRecord.property_type !== undefined &&
-      payloadRecord.property_type !== null &&
-      typeof payloadRecord.property_type !== "string"
-    ) {
-      return `Remote replay operation property_schema:${action} payload type is invalid`;
-    }
-    if (
-      payloadRecord.sort_order !== undefined &&
-      payloadRecord.sort_order !== null &&
-      (typeof payloadRecord.sort_order !== "number" || !Number.isFinite(payloadRecord.sort_order))
-    ) {
-      return `Remote replay operation property_schema:${action} payload sort order is invalid`;
+    const schemaFieldFailure = providerPropertySchemaFieldsFailure(payloadRecord);
+    if (schemaFieldFailure) {
+      return `Remote replay operation property_schema:${action} payload ${schemaFieldFailure} is invalid`;
     }
     if (
       payloadRecord.options !== undefined &&
@@ -2107,12 +2192,24 @@ function providerRemoteImportRelatedEntityConflictKeys(
   return Array.from(keys);
 }
 
+/** Reject the whole unsupported dedicated move before ordinary per-item import. */
+export function assertNoReviewedMoveProviderManifest(manifest: ProviderRemoteSyncManifest | undefined): void {
+  const rows = manifest ? replayOperationsFromManifest(manifest) : [];
+  for (const raw of rows) {
+    if (!raw || typeof raw !== "object") continue;
+    const row = raw as Record<string, unknown>;
+    requireNoPendingGoogleReviewedMoves([{ entity_type: typeof row.entity_type === "string" ? row.entity_type : "", action: typeof row.action === "string" ? row.action : "", payload: row.payload }]);
+  }
+}
+
 export function buildProviderRemoteImportDryRun(
   manifest: ProviderRemoteSyncManifest | undefined,
   localQueuedOperationIds: string[] = [],
   localQueuedOperations: ProviderRemoteImportLocalQueuedOperationIdentity[] = [],
   options: ProviderRemoteImportDryRunOptions = {},
 ): ProviderRemoteImportDryRun {
+  assertNoReviewedMoveProviderManifest(manifest);
+  requireNoPendingGoogleReviewedMoves(localQueuedOperations);
   const preflight = buildProviderRemoteImportPreflight(manifest);
   if (!manifest) {
     return {
@@ -2516,6 +2613,7 @@ export async function executeProviderRemoteImportApplyPlan(
   plan: ProviderRemoteImportApplyPlan,
   options: ProviderRemoteImportApplyExecutionOptions = {},
 ): Promise<ProviderRemoteImportApplyExecutionResult> {
+  requireNoPendingGoogleReviewedMoves(plan.operations);
   const executedAt = options.executedAt ?? new Date().toISOString();
   const selectedOperations = plan.operations.filter(
     (operation) => operation.apply_status === "selected",
@@ -2743,6 +2841,7 @@ export async function executeProviderRemoteMutationEnvelopeWithTransport(
     providerRootId,
     providerSyncPayload,
   } = normalizeProviderTransportOptions(transportOptions);
+  assertNoReviewedMoveProviderManifest(buildProviderRemoteSyncManifest(envelope, providerSyncPayload));
   const requestSpec = buildProviderRemoteWriteRequestSpec(envelope);
   if (envelope.blockers.length > 0 || envelope.dry_run || !envelope.remote_mutation_enabled) {
     return executeProviderRemoteMutationEnvelope(

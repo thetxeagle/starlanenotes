@@ -4,6 +4,7 @@ import {
   getStarredDocumentKey,
   isDocumentStarred,
   loadStarredDocuments,
+  loadStarredDocumentsWithStatus,
   mergeStarredDocumentMetadata,
   readStarredDocuments,
   toggleStarredDocument,
@@ -145,15 +146,16 @@ describe("starredDocuments", () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,
       status: 200,
-      json: async () => [
-        {
-          id: "doc-1",
-          space_id: "space-1",
-          space_name: "Ops",
-          title: "Synced",
-          starred_at: "2026-07-06T12:00:00.000Z",
-        },
-      ],
+      text: async () =>
+        JSON.stringify([
+          {
+            id: "doc-1",
+            space_id: "space-1",
+            space_name: "Ops",
+            title: "Synced",
+            starred_at: "2026-07-06T12:00:00.000Z",
+          },
+        ]),
     }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -166,13 +168,25 @@ describe("starredDocuments", () => {
     );
   });
 
+  it("reports server refresh failure while preserving cached stars", async () => {
+    toggleStarredDocument({ spaceId: "space-1", id: "cached", title: "Cached" });
+    setCurrentLaunchMode("server");
+    api.setToken("token");
+    vi.stubGlobal("fetch", vi.fn(async () => Promise.reject(new Error("offline"))));
+
+    await expect(loadStarredDocumentsWithStatus("space-1")).resolves.toEqual({
+      documents: [expect.objectContaining({ id: "cached", title: "Cached" })],
+      syncStatus: "failed",
+    });
+  });
+
   it("syncs star toggles through the server API when authenticated", async () => {
     setCurrentLaunchMode("server");
     api.setToken("token");
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => ({
       ok: true,
       status: init?.method === "POST" ? 204 : 200,
-      json: async () => [],
+      text: async () => "[]",
     }));
     vi.stubGlobal("fetch", fetchMock);
 

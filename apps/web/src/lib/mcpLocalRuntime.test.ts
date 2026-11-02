@@ -1763,10 +1763,7 @@ describe("mcpLocalRuntime", () => {
       confirmation_text: "confirm local mcp capability token",
     };
 
-    await issueLocalMcpCapabilityToken(
-      acceptedReadTokenRequest,
-      "local-mcp-loop-read-token",
-    );
+    await issueLocalMcpCapabilityToken(acceptedReadTokenRequest, "local-mcp-loop-read-token");
     await acceptLocalMcpCapabilityTokenRecord(
       {
         id: "loop-dispatch-read-accept",
@@ -1877,10 +1874,7 @@ describe("mcpLocalRuntime", () => {
       confirmation_text: "confirm local mcp capability token",
     };
 
-    await issueLocalMcpCapabilityToken(
-      acceptedWriteTokenRequest,
-      "local-mcp-loop-write-token",
-    );
+    await issueLocalMcpCapabilityToken(acceptedWriteTokenRequest, "local-mcp-loop-write-token");
     await acceptLocalMcpCapabilityTokenRecord(
       {
         id: "loop-dispatch-write-accept",
@@ -2988,10 +2982,7 @@ describe("mcpLocalRuntime", () => {
       confirmation_text: "confirm local mcp capability token",
     };
 
-    await issueLocalMcpCapabilityToken(
-      acceptedReadTokenRequest,
-      "local-mcp-closeout-read-token",
-    );
+    await issueLocalMcpCapabilityToken(acceptedReadTokenRequest, "local-mcp-closeout-read-token");
     await acceptLocalMcpCapabilityTokenRecord(
       {
         id: "request-closeout-read-accept",
@@ -5670,7 +5661,9 @@ describe("mcpLocalRuntime", () => {
       reason: "request_id_required",
       error_code: "invalid_request",
     });
-    expect(validateLocalMcpCapabilityTokenRequest({ ...request, created_at: "not-a-date" })).toEqual({
+    expect(
+      validateLocalMcpCapabilityTokenRequest({ ...request, created_at: "not-a-date" }),
+    ).toEqual({
       valid: false,
       token_issued: false,
       reason: "created_at_invalid",
@@ -5914,9 +5907,7 @@ describe("mcpLocalRuntime", () => {
     const expectedFingerprint =
       "sha256:ccdf85d08ff73f41a75c7124fc02152cce978b49766f84f7fada3e2f1efa5d04";
 
-    await expect(
-      issueLocalMcpCapabilityToken(request, "local-mcp-raw-token-1"),
-    ).resolves.toEqual({
+    await expect(issueLocalMcpCapabilityToken(request, "local-mcp-raw-token-1")).resolves.toEqual({
       token_issued: true,
       raw_token: "local-mcp-raw-token-1",
       record: {
@@ -5973,9 +5964,7 @@ describe("mcpLocalRuntime", () => {
       confirmation_text: "wrong",
     };
 
-    await expect(
-      issueLocalMcpCapabilityToken(request, "local-mcp-raw-token-1"),
-    ).resolves.toEqual({
+    await expect(issueLocalMcpCapabilityToken(request, "local-mcp-raw-token-1")).resolves.toEqual({
       token_issued: false,
       reason: "confirmation_mismatch",
       records: [],
@@ -6007,10 +5996,7 @@ describe("mcpLocalRuntime", () => {
       reason: "capability_token_missing",
     });
     await expect(
-      previewLocalMcpCapabilityTokenValidation(
-        "local-mcp-raw-token-1",
-        "2026-07-13T13:30:00.000Z",
-      ),
+      previewLocalMcpCapabilityTokenValidation("local-mcp-raw-token-1", "2026-07-13T13:30:00.000Z"),
     ).resolves.toEqual({
       token_accepted: false,
       token_present: true,
@@ -6024,10 +6010,7 @@ describe("mcpLocalRuntime", () => {
     await issueLocalMcpCapabilityToken(request, "local-mcp-raw-token-1");
 
     await expect(
-      previewLocalMcpCapabilityTokenValidation(
-        "local-mcp-wrong-token",
-        "2026-07-13T13:30:00.000Z",
-      ),
+      previewLocalMcpCapabilityTokenValidation("local-mcp-wrong-token", "2026-07-13T13:30:00.000Z"),
     ).resolves.toMatchObject({
       token_accepted: false,
       token_present: true,
@@ -6037,10 +6020,7 @@ describe("mcpLocalRuntime", () => {
       reason: "token_fingerprint_mismatch",
     });
     await expect(
-      previewLocalMcpCapabilityTokenValidation(
-        "local-mcp-raw-token-1",
-        "2026-07-13T13:30:00.000Z",
-      ),
+      previewLocalMcpCapabilityTokenValidation("local-mcp-raw-token-1", "2026-07-13T13:30:00.000Z"),
     ).resolves.toEqual({
       token_accepted: false,
       token_present: true,
@@ -6088,10 +6068,7 @@ describe("mcpLocalRuntime", () => {
       },
     });
     await expect(
-      previewLocalMcpCapabilityTokenValidation(
-        "local-mcp-raw-token-1",
-        "2026-07-13T14:00:00.000Z",
-      ),
+      previewLocalMcpCapabilityTokenValidation("local-mcp-raw-token-1", "2026-07-13T14:00:00.000Z"),
     ).resolves.toMatchObject({
       token_accepted: false,
       token_record_found: true,
@@ -6147,10 +6124,7 @@ describe("mcpLocalRuntime", () => {
     await issueLocalMcpCapabilityToken(request, "local-mcp-raw-token-1");
 
     await expect(
-      previewLocalMcpCapabilityTokenAuthGate(
-        "local-mcp-raw-token-1",
-        "2026-07-13T13:30:00.000Z",
-      ),
+      previewLocalMcpCapabilityTokenAuthGate("local-mcp-raw-token-1", "2026-07-13T13:30:00.000Z"),
     ).resolves.toMatchObject({
       runtime_mode: "local_vault",
       token_checks_passed: true,
@@ -6183,10 +6157,7 @@ describe("mcpLocalRuntime", () => {
     });
 
     await expect(
-      previewLocalMcpCapabilityTokenAuthGate(
-        "local-mcp-raw-token-1",
-        "2026-07-13T14:00:00.000Z",
-      ),
+      previewLocalMcpCapabilityTokenAuthGate("local-mcp-raw-token-1", "2026-07-13T14:00:00.000Z"),
     ).resolves.toMatchObject({
       token_checks_passed: false,
       expired: true,
@@ -6220,10 +6191,7 @@ describe("mcpLocalRuntime", () => {
     });
 
     await expect(
-      previewLocalMcpCapabilityTokenAuthGate(
-        "local-mcp-raw-token-1",
-        "2026-07-13T13:50:00.000Z",
-      ),
+      previewLocalMcpCapabilityTokenAuthGate("local-mcp-raw-token-1", "2026-07-13T13:50:00.000Z"),
     ).resolves.toMatchObject({
       token_checks_passed: false,
       expired: false,
@@ -6419,10 +6387,7 @@ describe("mcpLocalRuntime", () => {
       ],
     });
     await expect(
-      previewLocalMcpCapabilityTokenValidation(
-        "local-mcp-raw-token-1",
-        "2026-07-13T13:50:00.000Z",
-      ),
+      previewLocalMcpCapabilityTokenValidation("local-mcp-raw-token-1", "2026-07-13T13:50:00.000Z"),
     ).resolves.toMatchObject({
       token_accepted: false,
       token_record_found: true,
@@ -6622,12 +6587,14 @@ describe("mcpLocalRuntime", () => {
       },
     });
 
-    expect(validateLocalMcpCapabilityTokenRevocationRequest({ ...request, token_id: " " })).toEqual({
-      valid: false,
-      token_revoked: false,
-      reason: "token_id_required",
-      error_code: "invalid_request",
-    });
+    expect(validateLocalMcpCapabilityTokenRevocationRequest({ ...request, token_id: " " })).toEqual(
+      {
+        valid: false,
+        token_revoked: false,
+        reason: "token_id_required",
+        error_code: "invalid_request",
+      },
+    );
     expect(
       validateLocalMcpCapabilityTokenRevocationRequest({
         ...request,
@@ -6722,13 +6689,15 @@ describe("mcpLocalRuntime", () => {
         expired: true,
       },
     });
-    expect(validateLocalMcpCapabilityTokenExpiry({ ...request, expires_at: "not-a-date" })).toEqual({
-      valid: false,
-      token_accepted: false,
-      expired: false,
-      reason: "expires_at_invalid",
-      error_code: "invalid_request",
-    });
+    expect(validateLocalMcpCapabilityTokenExpiry({ ...request, expires_at: "not-a-date" })).toEqual(
+      {
+        valid: false,
+        token_accepted: false,
+        expired: false,
+        reason: "expires_at_invalid",
+        error_code: "invalid_request",
+      },
+    );
     expect(
       validateLocalMcpCapabilityTokenExpiry({
         ...request,
@@ -6889,9 +6858,7 @@ describe("mcpLocalRuntime", () => {
       persisted: true,
       reason: "write_execution_disabled",
     });
-    expect(JSON.stringify(listLocalMcpOperationJournalRecords())).not.toContain(
-      "raw-token-value",
-    );
+    expect(JSON.stringify(listLocalMcpOperationJournalRecords())).not.toContain("raw-token-value");
     expect(JSON.stringify(listLocalMcpOperationJournalRecords())).not.toContain(
       "DELETE starlane.documents.delete",
     );
@@ -7491,9 +7458,7 @@ describe("mcpLocalRuntime", () => {
           reason: "capability_token_not_enabled",
         },
         capability_token_auth_readiness: localMcpCapabilityTokenAuthReadiness(),
-        operation_journal_readiness: localMcpOperationJournalReadiness(
-          "starlane.documents.delete",
-        ),
+        operation_journal_readiness: localMcpOperationJournalReadiness("starlane.documents.delete"),
         transport_readiness: localMcpTransportReadiness("sse", "starlane.documents.delete"),
         guard: {
           executable: false,
@@ -8036,10 +8001,7 @@ describe("mcpLocalRuntime", () => {
       confirmation_text: "confirm local mcp capability token",
     };
 
-    await issueLocalMcpCapabilityToken(
-      readTokenRequest,
-      "local-mcp-enabled-read-token",
-    );
+    await issueLocalMcpCapabilityToken(readTokenRequest, "local-mcp-enabled-read-token");
 
     await expect(
       handleLocalMcpEnabledTransportRequestEnvelope(
@@ -8145,10 +8107,7 @@ describe("mcpLocalRuntime", () => {
       confirmation_text: "confirm local mcp capability token",
     };
 
-    await issueLocalMcpCapabilityToken(
-      writeTokenRequest,
-      "local-mcp-enabled-write-token",
-    );
+    await issueLocalMcpCapabilityToken(writeTokenRequest, "local-mcp-enabled-write-token");
     await acceptLocalMcpCapabilityTokenRecord(
       {
         id: "enabled-write-accept",
@@ -8347,8 +8306,12 @@ describe("mcpLocalRuntime", () => {
     expect(localMcpGuardErrorCode(guardLocalMcpToolExecution("starlane.import.preview"))).toBe(
       "tool_not_implemented",
     );
-    expect(localMcpGuardErrorCode(guardLocalMcpToolExecution("starlane.unknown"))).toBe("tool_unknown");
-    expect(localMcpGuardErrorCode(guardLocalMcpToolExecution("starlane.spaces.list"))).toBeUndefined();
+    expect(localMcpGuardErrorCode(guardLocalMcpToolExecution("starlane.unknown"))).toBe(
+      "tool_unknown",
+    );
+    expect(
+      localMcpGuardErrorCode(guardLocalMcpToolExecution("starlane.spaces.list")),
+    ).toBeUndefined();
     expect(preflightLocalMcpTransportRequest("stdio", "starlane.spaces.list")).not.toHaveProperty(
       "tool_error_code",
     );
@@ -8447,7 +8410,10 @@ describe("mcpLocalRuntime", () => {
       reason: "confirmation_mismatch",
     });
     expect(
-      validateLocalMcpConfirmation("starlane.spaces.list", "confirm local mcp starlane.spaces.list"),
+      validateLocalMcpConfirmation(
+        "starlane.spaces.list",
+        "confirm local mcp starlane.spaces.list",
+      ),
     ).toEqual({
       tool: "starlane.spaces.list",
       valid: false,
@@ -8852,7 +8818,9 @@ describe("mcpLocalRuntime", () => {
       read_only: true,
       runtime_mode: "local_vault",
       result: expect.objectContaining({
-        nodes: expect.arrayContaining([expect.objectContaining({ id: document.id, title: "Graph Node" })]),
+        nodes: expect.arrayContaining([
+          expect.objectContaining({ id: document.id, title: "Graph Node" }),
+        ]),
         edges: [],
       }),
     });
@@ -8895,7 +8863,12 @@ describe("mcpLocalRuntime", () => {
       token,
     );
     await acceptLocalMcpCapabilityTokenRecord(
-      { id: "document-create-token-accept", transport: "stdio", tool: "starlane.documents.create", request: { capability_token: token } },
+      {
+        id: "document-create-token-accept",
+        transport: "stdio",
+        tool: "starlane.documents.create",
+        request: { capability_token: token },
+      },
       "2026-07-21T17:01:00.000Z",
       { acceptance_enabled: true },
     );
@@ -8903,12 +8876,34 @@ describe("mcpLocalRuntime", () => {
       id: "document-create-once",
       transport: "stdio" as const,
       tool: "starlane.documents.create",
-      request: { capability_token: token, confirmation_text: "confirm local mcp starlane.documents.create", input: { space_id: space.id, title: "Created through MCP", content: "journaled" } },
+      request: {
+        capability_token: token,
+        confirmation_text: "confirm local mcp starlane.documents.create",
+        input: { space_id: space.id, title: "Created through MCP", content: "journaled" },
+      },
     };
 
-    await expect(executeConfirmedLocalMcpDocumentCreate(envelope, "2026-07-21T17:02:00.000Z")).resolves.toMatchObject({ read_only: false, result: { id: expect.any(String) } });
-    await expect(executeConfirmedLocalMcpDocumentCreate(envelope, "2026-07-21T17:03:00.000Z")).rejects.toThrow("already processed");
-    expect(await dataClient.listDocuments(space.id)).toHaveLength(1);
-    expect(listLocalMcpOperationJournalRecords()).toEqual(expect.arrayContaining([expect.objectContaining({ id: "local-mcp-journal:document-create-once", target: space.id })]));
+    await expect(
+      executeConfirmedLocalMcpDocumentCreate(envelope, "2026-07-21T17:02:00.000Z"),
+    ).resolves.toMatchObject({
+      read_only: false,
+      result: { id: expect.any(String), draft_id: expect.any(String) },
+    });
+    await expect(
+      executeConfirmedLocalMcpDocumentCreate(envelope, "2026-07-21T17:03:00.000Z"),
+    ).rejects.toThrow("already processed");
+    expect(await dataClient.listDocuments(space.id)).toEqual([
+      expect.objectContaining({
+        title: "Created through MCP",
+        published_at: undefined,
+        draft_id: expect.any(String),
+      }),
+    ]);
+    expect(await dataClient.listDocumentDrafts(space.id)).toHaveLength(1);
+    expect(listLocalMcpOperationJournalRecords()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "local-mcp-journal:document-create-once", target: space.id }),
+      ]),
+    );
   });
 });

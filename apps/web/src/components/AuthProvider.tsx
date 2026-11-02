@@ -1,11 +1,25 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { api, getSessionClientDetails } from "@/lib/api";
+import { api, getSessionClientDetails, isTauri } from "@/lib/api";
 import { dataClient } from "@/lib/dataClient";
 import { getPasskeyCredential } from "@/lib/passkeys";
-import { completeNativeAuthHandoffInBrowser, finishNativeAuthHandoff, rememberBrowserNativeAuthHandoff } from "@/lib/nativeAuthHandoff";
+import {
+  exchangeNativeAuthHandoff,
+  finishNativeAuthHandoff,
+  getBrowserNativeAuthHandoff,
+  hasPendingNativeAuthHandoff,
+  NATIVE_AUTH_HANDOFF_STARTED_EVENT,
+  rememberBrowserNativeAuthHandoff,
+  type NativeAuthHandoffResult,
+} from "@/lib/nativeAuthHandoff";
+import {
+  consumePendingNativeCallback,
+  NATIVE_AUTH_HANDOFF_EVENT,
+} from "@/lib/nativeDeepLinkCallbacks";
 import { isPersonalSpaceLabelCandidate } from "@/lib/spaceLabels";
 import { AuthContext, type AuthConfig, type User } from "@/hooks/useAuth";
 import type { AppLaunchMode } from "@/lib/launchMode";
+
+import { LOCAL_MODE_ACCOUNT_ID } from "@/lib/localModeIdentity";
 
 const LOCAL_MODE_CONFIG: AuthConfig = {
   google_enabled: false,
@@ -20,7 +34,7 @@ const LOCAL_MODE_CONFIG: AuthConfig = {
 };
 
 const LOCAL_MODE_USER: User = {
-  id: "local-user",
+  id: LOCAL_MODE_ACCOUNT_ID,
   email: "local@starlane.notes",
   display_name: "Local User",
   role: "owner",
@@ -81,8 +95,11 @@ interface DownloadablePersonalSpace {
   created_by?: string;
 }
 
-/** Downloads the personal-space index after sign-in; page bodies cache when opened. */
-export async function downloadPersonalSpaceIndex(user: Pick<User, "id">): Promise<void> {
+/**
+ * Downloads the complete personal space after sign-in. Other accessible spaces remain metadata-only
+ * until their folders, page lists, page bodies, and attachments are requested normally.
+ */
+export async function downloadServerWorkspace(user: Pick<User, "id">): Promise<void> {
   const spaces = await api.fetch<DownloadablePersonalSpace[]>("/spaces");
   const personalSpace = spaces.find(
     (space) =>
@@ -91,10 +108,35 @@ export async function downloadPersonalSpaceIndex(user: Pick<User, "id">): Promis
   );
   if (!personalSpace) return;
 
-  await Promise.all([
+  const [, documents] = await Promise.all([
     api.fetch(`/spaces/${personalSpace.id}/folders`),
-    api.fetch(`/spaces/${personalSpace.id}/documents`),
+    api.fetch<Array<{ id: string; draft_id?: string }>>(
+      `/spaces/${personalSpace.id}/documents?include_nested=true`,
+    ),
   ]);
+  await Promise.all(
+    documents.map(async (document) => {
+      const [, attachments] = await Promise.all([
+        api.fetch(
+          document.draft_id
+            ? `/spaces/${personalSpace.id}/documents/${document.id}/drafts/${document.draft_id}`
+            : `/spaces/${personalSpace.id}/documents/${document.id}/content`,
+        ),
+        dataClient.listDocumentAttachments(personalSpace.id, document.id),
+      ]);
+      await Promise.all(
+        attachments.map((attachment) =>
+          dataClient.downloadDocumentAttachmentToVault(
+            personalSpace.id,
+            document.id,
+            attachment,
+          ),
+        ),
+      );
+    }),
+  );
+  const { flushServerVaultMirror } = await import("@/lib/serverVaultMirror");
+  await flushServerVaultMirror();
 }
 
 export function AuthProvider({ children, mode = "server" }: AuthProviderProps) {
@@ -119,20 +161,82 @@ export function AuthProvider({ children, mode = "server" }: AuthProviderProps) {
 
   useEffect(() => {
     if (mode !== "server" || !user) return;
-    void completeNativeAuthHandoffInBrowser()?.catch(() => undefined);
+    const handoffId = getBrowserNativeAuthHandoff();
+    if (
+      !isTauri() &&
+      handoffId &&
+      !window.location.pathname.startsWith("/app-signin")
+    ) {
+      window.location.replace(
+        `/app-signin/?handoff_id=${encodeURIComponent(handoffId)}`,
+      );
+    }
   }, [mode, user]);
 
   useEffect(() => {
-    const complete = (event: Event) => {
-      const url = (event as CustomEvent<string>).detail;
-      void finishNativeAuthHandoff(url).then((data) => {
-        const result = data as { access_token: string; refresh_token: string; user: User };
-        api.setToken(result.access_token); api.setRefreshToken(result.refresh_token); setUser(result.user);
-      }).catch(() => undefined);
+    if (mode !== "server" || !isTauri()) return;
+
+    let stopped = false;
+    let polling = false;
+    let pollTimer: number | undefined;
+
+    const acceptResult = (result: NativeAuthHandoffResult | null) => {
+      if (!result || stopped) return false;
+      api.setToken(result.access_token);
+      api.setRefreshToken(result.refresh_token);
+      const nextUser = result.user as User;
+      setUser(nextUser);
+      void downloadServerWorkspace(nextUser).catch(() => undefined);
+      return true;
     };
-    document.addEventListener("starlane:native-auth-handoff", complete);
-    return () => document.removeEventListener("starlane:native-auth-handoff", complete);
-  }, []);
+    const schedulePoll = () => {
+      if (stopped || !hasPendingNativeAuthHandoff()) return;
+      window.clearTimeout(pollTimer);
+      pollTimer = window.setTimeout(() => void poll(), 5_000);
+    };
+    const poll = async () => {
+      if (stopped || polling || !hasPendingNativeAuthHandoff()) return;
+      polling = true;
+      try {
+        if (!acceptResult(await exchangeNativeAuthHandoff())) schedulePoll();
+      } catch {
+        // Terminal failures clear the handoff; transient failures retain it for the next poll.
+        schedulePoll();
+      } finally {
+        polling = false;
+      }
+    };
+    const completeUrl = async (url: string) => {
+      consumePendingNativeCallback("auth-handoff");
+      if (stopped || polling) return;
+      polling = true;
+      try {
+        if (!acceptResult(await finishNativeAuthHandoff(url))) schedulePoll();
+      } catch {
+        schedulePoll();
+      } finally {
+        polling = false;
+      }
+    };
+    const complete = (event: Event) => {
+      void completeUrl((event as CustomEvent<string>).detail);
+    };
+    const startPolling = () => void poll();
+    document.addEventListener(NATIVE_AUTH_HANDOFF_EVENT, complete);
+    document.addEventListener(NATIVE_AUTH_HANDOFF_STARTED_EVENT, startPolling);
+    const pendingUrl = consumePendingNativeCallback("auth-handoff");
+    if (pendingUrl) {
+      void completeUrl(pendingUrl);
+    } else {
+      void poll();
+    }
+    return () => {
+      stopped = true;
+      window.clearTimeout(pollTimer);
+      document.removeEventListener(NATIVE_AUTH_HANDOFF_EVENT, complete);
+      document.removeEventListener(NATIVE_AUTH_HANDOFF_STARTED_EVENT, startPolling);
+    };
+  }, [mode]);
 
   // Check for existing session
   useEffect(() => {
@@ -150,9 +254,11 @@ export function AuthProvider({ children, mode = "server" }: AuthProviderProps) {
       .fetch<User>("/auth/me")
       .then((nextUser) => {
         setUser(nextUser);
-        void downloadPersonalSpaceIndex(nextUser).catch(() => undefined);
+        void downloadServerWorkspace(nextUser).catch(() => undefined);
       })
-      .catch(() => api.logout())
+      // ApiClient clears credentials only when the refresh token is explicitly
+      // rejected. Transient server/network failures must not turn into logout.
+      .catch(() => undefined)
       .finally(() => setLoading(false));
   }, [mode]);
 
@@ -177,10 +283,9 @@ export function AuthProvider({ children, mode = "server" }: AuthProviderProps) {
         .fetch<User>("/auth/me")
         .then((nextUser) => {
           setUser(nextUser);
-          void downloadPersonalSpaceIndex(nextUser).catch(() => undefined);
+          void downloadServerWorkspace(nextUser).catch(() => undefined);
         })
         .catch(() => {
-          api.logout();
           setUser(null);
         })
         .finally(() => setLoading(false));
@@ -209,7 +314,7 @@ export function AuthProvider({ children, mode = "server" }: AuthProviderProps) {
       api.setToken(data.access_token);
       api.setRefreshToken(data.refresh_token);
       setUser(data.user);
-      void downloadPersonalSpaceIndex(data.user).catch(() => undefined);
+      void downloadServerWorkspace(data.user).catch(() => undefined);
     },
     [mode],
   );
@@ -235,7 +340,7 @@ export function AuthProvider({ children, mode = "server" }: AuthProviderProps) {
         username: data.user.username ?? undefined,
         avatar_url: data.user.avatar_url ?? undefined,
       });
-      void downloadPersonalSpaceIndex(data.user).catch(() => undefined);
+      void downloadServerWorkspace(data.user).catch(() => undefined);
     },
     [mode],
   );
@@ -258,7 +363,7 @@ export function AuthProvider({ children, mode = "server" }: AuthProviderProps) {
       api.setToken(data.access_token);
       api.setRefreshToken(data.refresh_token);
       setUser(data.user);
-      void downloadPersonalSpaceIndex(data.user).catch(() => undefined);
+      void downloadServerWorkspace(data.user).catch(() => undefined);
     },
     [mode],
   );

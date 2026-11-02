@@ -1,4 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { TemplatePickerDialog } from "@/components/TemplatePickerDialog";
+import { type TemplateFieldValues } from "@/lib/templateExperience";
+import { prepareTemplateCreation } from "@/lib/templateCreation";
+import { applyTemplatePageWidth } from "@/lib/templatePresentationContent";
+import { isPreferredJournalTemplate } from "@/lib/journalTemplatePreference";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   CalendarPlus,
@@ -8,8 +13,8 @@ import {
   FileText,
   ListFilter,
   Loader2,
+  NotebookPen,
   Plus,
-  Sparkles,
 } from "lucide-react";
 import { SearchInput } from "@/components/ui/search-input";
 import {
@@ -17,6 +22,7 @@ import {
   type DocumentRecord,
   type FolderRecord,
   type TemplateRecord,
+  type PropertySchemaRecord,
 } from "@/lib/dataClient";
 import { emitGraphDirty } from "@/lib/graphEvents";
 import { buildDocumentRoutePath } from "@/lib/lastViewedDocument";
@@ -25,7 +31,6 @@ import {
   findDailyFolder,
   findDailyTemplate,
   formatDateStamp,
-  renderDailyTemplateContent,
   templatePropertiesAsRecord,
 } from "@/lib/templates";
 
@@ -38,6 +43,88 @@ interface JournalEntry {
 }
 
 export type JournalFeedMode = "recent" | "week" | "missed";
+const EMPTY_JOURNAL_DATA: never[] = [];
+
+export interface JournalMutationLock {
+  scope: string;
+  dateStamp: string;
+}
+
+export function claimJournalMutation(
+  lock: JournalMutationLock,
+  scope: string,
+  dateStamp: string,
+): boolean {
+  if (lock.scope === scope && lock.dateStamp) return false;
+  lock.scope = scope;
+  lock.dateStamp = dateStamp;
+  return true;
+}
+
+export function releaseJournalMutation(
+  lock: JournalMutationLock,
+  scope: string,
+  dateStamp: string,
+): boolean {
+  if (lock.scope !== scope || lock.dateStamp !== dateStamp) return false;
+  lock.dateStamp = "";
+  return true;
+}
+
+export async function settleCurrentJournalRequest<T>(
+  request: Promise<T>,
+  isCurrent: () => boolean,
+  onSuccess: (result: T) => void | Promise<void>,
+  onError: () => void | Promise<void>,
+  onSettled: () => void | Promise<void>,
+): Promise<void> {
+  try {
+    const result = await request;
+    if (isCurrent()) await onSuccess(result);
+  } catch {
+    if (isCurrent()) await onError();
+  } finally {
+    if (isCurrent()) await onSettled();
+  }
+}
+
+const JOURNAL_FEED_MODES: Array<[JournalFeedMode, string]> = [
+  ["recent", "Recent"],
+  ["week", "This week"],
+  ["missed", "Missed"],
+];
+
+export function JournalFeedModeSelector({
+  mode,
+  onChange,
+}: {
+  mode: JournalFeedMode;
+  onChange: (mode: JournalFeedMode) => void;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="Journal feed mode"
+      className="border-border bg-surface rounded-button flex min-w-0 flex-1 border p-1"
+    >
+      {JOURNAL_FEED_MODES.map(([value, label]) => (
+        <button
+          key={value}
+          type="button"
+          onClick={() => onChange(value)}
+          aria-pressed={mode === value}
+          className={`rounded-button min-w-0 flex-1 px-2 py-1.5 text-xs font-medium transition-colors duration-100 ${
+            mode === value
+              ? "bg-primary text-primary-foreground"
+              : "text-text-muted hover:bg-surface-raised hover:text-text"
+          }`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export interface JournalMissingDay {
   dateStamp: string;
@@ -63,6 +150,23 @@ export interface JournalCalendarDay {
 
 export function getJournalDocumentPath(spaceId: string, documentId: string): string {
   return buildDocumentRoutePath(spaceId, documentId);
+}
+
+export function getJournalDataForSpace<T>(
+  spaceId: string | undefined,
+  loadedSpaceId: string | null,
+  data: T[],
+): T[] {
+  return spaceId && loadedSpaceId === spaceId ? data : EMPTY_JOURNAL_DATA;
+}
+
+export function canCreateJournalEntry(
+  spaceId: string | undefined,
+  loadedSpaceId: string | null,
+  loading: boolean,
+  error: string,
+): boolean {
+  return Boolean(spaceId) && loadedSpaceId === spaceId && !loading && !error;
 }
 
 function startOfDay(date: Date) {
@@ -103,13 +207,15 @@ export function journalEntriesFromDocuments(documents: DocumentRecord[]): Journa
     .flatMap((doc) => {
       const date = parseJournalDate(doc.title);
       if (!date) return [];
-      return [{
-        id: doc.id,
-        title: doc.title,
-        dateStamp: formatDateStamp(date),
-        date,
-        ...(doc.updated_at ? { updatedAt: doc.updated_at } : {}),
-      }];
+      return [
+        {
+          id: doc.id,
+          title: doc.title,
+          dateStamp: formatDateStamp(date),
+          date,
+          ...(doc.updated_at ? { updatedAt: doc.updated_at } : {}),
+        },
+      ];
     })
     .sort((a, b) => b.dateStamp.localeCompare(a.dateStamp));
 }
@@ -166,7 +272,10 @@ export function getRecentJournalEntries(entries: JournalEntry[], limit = 10): Jo
   return entries.slice(0, limit);
 }
 
-export function getWeeklyJournalEntries(entries: JournalEntry[], today = new Date()): JournalEntry[] {
+export function getWeeklyJournalEntries(
+  entries: JournalEntry[],
+  today = new Date(),
+): JournalEntry[] {
   const weekStart = startOfWeek(today);
   const weekEnd = addDays(weekStart, 7);
   return entries.filter((entry) => entry.date >= weekStart && entry.date < weekEnd);
@@ -291,6 +400,8 @@ export function getJournalPrompts(
       templateByCadence.set(cadence, template);
     }
   }
+  const preferredDaily = templates.find(isPreferredJournalTemplate);
+  if (preferredDaily) templateByCadence.set("daily", preferredDaily);
   const prompts: JournalPrompt[] = [];
 
   const pushPrompt = (definition: JournalPromptDefinition) => {
@@ -341,7 +452,9 @@ export function selectJournalFeedEntries(
   mode: Exclude<JournalFeedMode, "missed">,
   today = new Date(),
 ): JournalEntry[] {
-  return mode === "week" ? getWeeklyJournalEntries(entries, today) : getRecentJournalEntries(entries);
+  return mode === "week"
+    ? getWeeklyJournalEntries(entries, today)
+    : getRecentJournalEntries(entries);
 }
 
 export function JournalPage() {
@@ -350,18 +463,35 @@ export function JournalPage() {
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
   const [folders, setFolders] = useState<FolderRecord[]>([]);
   const [templates, setTemplates] = useState<TemplateRecord[]>([]);
+  const [loadedSpaceId, setLoadedSpaceId] = useState<string | null>(null);
   const [anchorDate, setAnchorDate] = useState(() => new Date());
   const [query, setQuery] = useState("");
   const [feedMode, setFeedMode] = useState<JournalFeedMode>("recent");
   const [loading, setLoading] = useState(false);
-  const [busyDate, setBusyDate] = useState("");
+  const [busyEntry, setBusyEntry] = useState<{ scope: string; dateStamp: string } | null>(null);
   const [error, setError] = useState("");
+  const journalRequestIdRef = useRef(0);
+  const journalMutationIdRef = useRef(0);
+  const journalScope = spaceId ?? "";
+  const activeJournalScopeRef = useRef(journalScope);
+  activeJournalScopeRef.current = journalScope;
+  const journalMutationLockRef = useRef<JournalMutationLock>({
+    scope: journalScope,
+    dateStamp: "",
+  });
+  const busyDate = busyEntry?.scope === journalScope ? busyEntry.dateStamp : "";
+  const journalDataAvailable = Boolean(spaceId) && loadedSpaceId === journalScope;
+  const journalDataReady = canCreateJournalEntry(spaceId, loadedSpaceId, loading, error);
+  const currentDocuments = getJournalDataForSpace(spaceId, loadedSpaceId, documents);
+  const currentFolders = getJournalDataForSpace(spaceId, loadedSpaceId, folders);
+  const currentTemplates = getJournalDataForSpace(spaceId, loadedSpaceId, templates);
 
   const loadJournal = useCallback(async () => {
     if (!spaceId) return;
+    const requestId = ++journalRequestIdRef.current;
     setLoading(true);
     setError("");
-    try {
+    const request = (async () => {
       const [nextFolders, nextTemplates] = await Promise.all([
         dataClient.listFolders(spaceId),
         dataClient.listTemplates(spaceId).catch(() => []),
@@ -370,32 +500,45 @@ export function JournalPage() {
       const nextDocuments = dailyFolder
         ? await dataClient.listDocuments(spaceId, { folder_id: dailyFolder.id })
         : await dataClient.listDocuments(spaceId);
-      setFolders(nextFolders);
-      setTemplates(nextTemplates);
-      setDocuments(nextDocuments);
-    } catch {
-      setError("Journal entries could not be loaded.");
-    } finally {
-      setLoading(false);
-    }
+      return { nextFolders, nextTemplates, nextDocuments };
+    })();
+    await settleCurrentJournalRequest(
+      request,
+      () => requestId === journalRequestIdRef.current,
+      ({ nextFolders, nextTemplates, nextDocuments }) => {
+        setFolders(nextFolders);
+        setTemplates(nextTemplates);
+        setDocuments(nextDocuments);
+        setLoadedSpaceId(spaceId);
+      },
+      () => setError("Journal entries could not be loaded."),
+      () => setLoading(false),
+    );
   }, [spaceId]);
 
   useEffect(() => {
     void loadJournal();
+    return () => {
+      journalRequestIdRef.current += 1;
+      journalMutationIdRef.current += 1;
+    };
   }, [loadJournal]);
 
-  const entries = useMemo(() => journalEntriesFromDocuments(documents), [documents]);
+  const entries = useMemo(() => journalEntriesFromDocuments(currentDocuments), [currentDocuments]);
   const filteredEntries = useMemo(() => filterJournalEntries(entries, query), [entries, query]);
   const feedEntries = useMemo(
-    () =>
-      feedMode === "missed"
-        ? []
-        : selectJournalFeedEntries(filteredEntries, feedMode),
+    () => (feedMode === "missed" ? [] : selectJournalFeedEntries(filteredEntries, feedMode)),
     [feedMode, filteredEntries],
   );
   const missingDays = useMemo(() => getMissingJournalDays(entries), [entries]);
-  const journalPrompts = useMemo(() => getJournalPrompts(entries, new Date(), templates), [entries, templates]);
-  const calendarDays = useMemo(() => buildJournalCalendar(anchorDate, entries), [anchorDate, entries]);
+  const journalPrompts = useMemo(
+    () => (journalDataAvailable ? getJournalPrompts(entries, new Date(), currentTemplates) : []),
+    [currentTemplates, entries, journalDataAvailable],
+  );
+  const calendarDays = useMemo(
+    () => buildJournalCalendar(anchorDate, entries),
+    [anchorDate, entries],
+  );
   const currentMonthCount = useMemo(
     () =>
       entries.filter(
@@ -409,34 +552,101 @@ export function JournalPage() {
   const todayStamp = formatDateStamp(new Date());
   const todayEntry = entries.find((entry) => entry.dateStamp === todayStamp);
 
-  const openOrCreateEntry = async (date: Date, promptTemplate?: TemplateRecord) => {
-    if (!spaceId) return;
+  const journalCreationIds = useRef(new Map<string, string>());
+  const [templateEntryRequest, setTemplateEntryRequest] = useState<{
+    spaceId: string;
+    template: TemplateRecord;
+    date: Date;
+    schemas: PropertySchemaRecord[];
+  } | null>(null);
+  const openOrCreateEntry = async (
+    date: Date,
+    promptTemplate?: TemplateRecord,
+    fieldValues: TemplateFieldValues = {},
+    sourceId?: string,
+  ) => {
+    if (!spaceId || !journalDataAvailable) return;
     const dateStamp = formatDateStamp(date);
     const existing = entries.find((entry) => entry.dateStamp === dateStamp);
     if (existing) {
       navigate(getJournalDocumentPath(spaceId, existing.id));
-      return;
+      return true;
     }
+    if (!journalDataReady) return;
 
-    setBusyDate(dateStamp);
+    const dailyTemplate = promptTemplate ?? findDailyTemplate(currentTemplates);
+    const schemas = dailyTemplate
+      ? await dataClient.listPropertySchemas(spaceId).catch(() => [])
+      : [];
+    if (activeJournalScopeRef.current !== spaceId) return false;
+    const prepared = dailyTemplate
+      ? prepareTemplateCreation({
+          template: dailyTemplate,
+          context: { date, title: dateStamp },
+          fieldValues,
+          schemas,
+        })
+      : undefined;
+    if (prepared?.kind === "held") {
+      setError(prepared.message);
+      return false;
+    }
+    const resolved = prepared?.resolved;
+    if (resolved?.unresolvedFields.length) {
+      setTemplateEntryRequest({ spaceId, template: dailyTemplate!, date, schemas });
+      return false;
+    }
+    if (!claimJournalMutation(journalMutationLockRef.current, spaceId, dateStamp)) return false;
+    const creationKey = `${spaceId}:${dateStamp}`;
+    const creationSourceId = sourceId ?? journalCreationIds.current.get(creationKey) ??
+      globalThis.crypto?.randomUUID?.() ?? `journal-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    journalCreationIds.current.set(creationKey, creationSourceId);
+    const requestId = ++journalMutationIdRef.current;
+    const requestScope = spaceId;
+    const isCurrent = () =>
+      requestId === journalMutationIdRef.current && requestScope === activeJournalScopeRef.current;
+    setBusyEntry({ scope: requestScope, dateStamp });
     setError("");
-    try {
+    const request = (async () => {
       const dailyFolder =
-        findDailyFolder(folders) ?? (await dataClient.createFolder(spaceId, DAILY_FOLDER_NAME));
-      const dailyTemplate = promptTemplate ?? findDailyTemplate(templates);
-      const created = await dataClient.createDocument(spaceId, {
+        findDailyFolder(currentFolders) ??
+        (await dataClient.createFolder(spaceId, DAILY_FOLDER_NAME));
+      return dataClient.createDocument(spaceId, {
         title: dateStamp,
         folder_id: dailyFolder.id,
-        content: dailyTemplate ? renderDailyTemplateContent(dailyTemplate, date) : undefined,
+        content: resolved
+          ? applyTemplatePageWidth(resolved.content, resolved.presentation)
+          : undefined,
+        template_id: dailyTemplate?.id,
+        icon: resolved?.presentation.icon,
+        cover_image: resolved?.presentation.cover_image,
+        property_values: resolved?.property_values,
+        source_id: creationSourceId,
+      }).catch(async (cause) => {
+        const existing = await dataClient.getDocument(spaceId, creationSourceId).catch(() => null);
+        if (!existing || existing.title !== dateStamp || existing.folder_id !== dailyFolder.id) throw cause;
+        return { id: existing.id, draft_id: existing.draft_id };
       });
-      emitGraphDirty(spaceId, "document-created");
-      await loadJournal();
-      navigate(getJournalDocumentPath(spaceId, created.id));
-    } catch {
-      setError("Journal entry could not be created.");
-    } finally {
-      setBusyDate("");
-    }
+    })();
+    let createdSuccessfully = false;
+    await settleCurrentJournalRequest(
+      request,
+      isCurrent,
+      async (created) => {
+        createdSuccessfully = true;
+        journalCreationIds.current.delete(creationKey);
+        emitGraphDirty(requestScope, "document-created");
+        await loadJournal();
+        if (isCurrent()) navigate(getJournalDocumentPath(requestScope, created.id));
+      },
+      () => setError("Journal entry could not be created."),
+      () => {
+        if (releaseJournalMutation(journalMutationLockRef.current, requestScope, dateStamp)) {
+          setBusyEntry(null);
+        }
+      },
+    );
+    return createdSuccessfully;
   };
 
   const moveMonth = (offset: number) => {
@@ -444,7 +654,7 @@ export function JournalPage() {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-bg">
+    <div className="bg-bg flex h-full min-h-0 flex-col">
       <header className="border-border flex flex-wrap items-center gap-3 border-b px-4 py-3">
         <div className="min-w-0 flex-1">
           <div className="text-text flex items-center gap-2 text-lg font-semibold">
@@ -458,11 +668,21 @@ export function JournalPage() {
         <button
           type="button"
           onClick={() => void openOrCreateEntry(new Date())}
-          disabled={busyDate === todayStamp}
-          className="rounded-button bg-primary text-primary-foreground hover:opacity-90 flex items-center gap-2 px-3 py-2 text-sm transition-opacity duration-100 disabled:opacity-60"
+          disabled={
+            !journalDataAvailable || ((!journalDataReady || Boolean(busyDate)) && !todayEntry)
+          }
+          aria-busy={busyDate === todayStamp}
+          aria-label={
+            busyDate === todayStamp ? `Creating journal entry for ${todayStamp}` : undefined
+          }
+          className="rounded-button bg-primary text-primary-foreground flex items-center gap-2 px-3 py-2 text-sm transition-opacity duration-100 hover:opacity-90 disabled:opacity-60"
         >
-          {busyDate === todayStamp ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />}
-          {todayEntry ? "Open Today" : "New Today"}
+          {busyDate === todayStamp ? (
+            <Loader2 size={15} className="animate-spin" />
+          ) : (
+            <Plus size={15} />
+          )}
+          {busyDate === todayStamp ? "Creating Today…" : todayEntry ? "Open Today" : "New Today"}
         </button>
       </header>
 
@@ -482,7 +702,13 @@ export function JournalPage() {
                 <div className="text-center">
                   <h2 className="text-text text-base font-semibold">{monthLabel(anchorDate)}</h2>
                   <p className="text-text-muted text-xs">
-                    {currentMonthCount} entries this month · {streak} day streak
+                    {journalDataAvailable
+                      ? `${currentMonthCount} entries this month · ${streak} day streak`
+                      : loading
+                        ? "Loading journal entries…"
+                        : error
+                          ? "Journal entries unavailable"
+                          : "Journal entries not loaded"}
                   </p>
                 </div>
                 <button
@@ -502,16 +728,24 @@ export function JournalPage() {
                       key={prompt.id}
                       type="button"
                       onClick={() => void openOrCreateEntry(prompt.date, prompt.template)}
-                      disabled={busyDate === prompt.dateStamp}
-                      className="rounded-button border-border hover:bg-surface-raised flex min-h-[88px] items-start gap-2 border bg-surface p-3 text-left transition-colors duration-100 disabled:opacity-60"
+                      disabled={!journalDataReady || Boolean(busyDate)}
+                      aria-busy={busyDate === prompt.dateStamp}
+                      aria-label={
+                        busyDate === prompt.dateStamp
+                          ? `Creating journal entry for ${prompt.dateStamp}`
+                          : undefined
+                      }
+                      className="rounded-button border-border hover:bg-surface-raised bg-surface flex min-h-[88px] items-start gap-2 border p-3 text-left transition-colors duration-100 disabled:opacity-60"
                     >
                       {busyDate === prompt.dateStamp ? (
                         <Loader2 size={15} className="text-primary mt-0.5 shrink-0 animate-spin" />
                       ) : (
-                        <Sparkles size={15} className="text-primary mt-0.5 shrink-0" />
+                        <NotebookPen size={15} className="text-text-muted mt-0.5 shrink-0" />
                       )}
                       <span className="min-w-0">
-                        <span className="text-text block text-sm font-semibold">{prompt.title}</span>
+                        <span className="text-text block text-sm font-semibold">
+                          {prompt.title}
+                        </span>
                         <span className="text-text-muted mt-1 block text-xs leading-5">
                           {prompt.description}
                         </span>
@@ -521,7 +755,7 @@ export function JournalPage() {
                 </div>
               )}
 
-              <div className="grid grid-cols-7 border-b border-border text-center text-xs font-medium text-text-muted">
+              <div className="border-border text-text-muted grid grid-cols-7 border-b text-center text-xs font-medium">
                 {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
                   <div key={day} className="px-2 py-2">
                     {day}
@@ -535,8 +769,17 @@ export function JournalPage() {
                     key={day.dateStamp}
                     type="button"
                     onClick={() => void openOrCreateEntry(day.date)}
-                    disabled={busyDate === day.dateStamp}
-                    className={`border-border min-h-[88px] border-b border-r p-2 text-left transition-colors duration-100 last:border-r-0 hover:bg-surface-raised ${
+                    disabled={
+                      !journalDataAvailable ||
+                      ((!journalDataReady || Boolean(busyDate)) && !day.entry)
+                    }
+                    aria-busy={busyDate === day.dateStamp}
+                    aria-label={
+                      busyDate === day.dateStamp
+                        ? `Creating journal entry for ${day.dateStamp}`
+                        : undefined
+                    }
+                    className={`border-border hover:bg-surface-raised min-h-[88px] border-r border-b p-2 text-left transition-colors duration-100 last:border-r-0 ${
                       day.inMonth ? "text-text" : "text-text-muted opacity-60"
                     } ${day.isToday ? "bg-primary/10" : ""}`}
                   >
@@ -548,7 +791,7 @@ export function JournalPage() {
                         <FileText size={13} className="text-primary" />
                       ) : null}
                     </span>
-                    <span className="mt-2 block min-h-5 text-xs text-text-muted">
+                    <span className="text-text-muted mt-2 block min-h-5 text-xs">
                       {day.entry ? "Journal entry" : "Create note"}
                     </span>
                   </button>
@@ -569,31 +812,16 @@ export function JournalPage() {
                 />
                 <div className="flex items-center gap-2">
                   <ListFilter size={15} className="text-text-muted shrink-0" />
-                  <div className="border-border bg-surface flex min-w-0 flex-1 rounded-button border p-1">
-                    {[
-                      ["recent", "Recent"],
-                      ["week", "This week"],
-                      ["missed", "Missed"],
-                    ].map(([mode, label]) => (
-                      <button
-                        key={mode}
-                        type="button"
-                        onClick={() => setFeedMode(mode as JournalFeedMode)}
-                        className={`rounded-button min-w-0 flex-1 px-2 py-1.5 text-xs font-medium transition-colors duration-100 ${
-                          feedMode === mode
-                            ? "bg-primary text-primary-foreground"
-                            : "text-text-muted hover:bg-surface-raised hover:text-text"
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
+                  <JournalFeedModeSelector mode={feedMode} onChange={setFeedMode} />
                 </div>
               </div>
               <div className="max-h-[620px] overflow-auto p-2">
                 {loading ? (
-                  <div className="text-text-muted flex items-center gap-2 px-2 py-6 text-sm">
+                  <div
+                    className="text-text-muted flex items-center gap-2 px-2 py-6 text-sm"
+                    role="status"
+                    aria-live="polite"
+                  >
                     <Loader2 size={15} className="animate-spin" />
                     Loading journal…
                   </div>
@@ -604,11 +832,20 @@ export function JournalPage() {
                         key={day.dateStamp}
                         type="button"
                         onClick={() => void openOrCreateEntry(day.date)}
-                        disabled={busyDate === day.dateStamp}
+                        disabled={!journalDataReady || Boolean(busyDate)}
+                        aria-busy={busyDate === day.dateStamp}
+                        aria-label={
+                          busyDate === day.dateStamp
+                            ? `Creating journal entry for ${day.dateStamp}`
+                            : undefined
+                        }
                         className="rounded-button hover:bg-surface-raised flex w-full items-start gap-2 px-2 py-2 text-left transition-colors duration-100 disabled:opacity-60"
                       >
                         {busyDate === day.dateStamp ? (
-                          <Loader2 size={14} className="text-primary mt-0.5 shrink-0 animate-spin" />
+                          <Loader2
+                            size={14}
+                            className="text-primary mt-0.5 shrink-0 animate-spin"
+                          />
                         ) : (
                           <CalendarPlus size={14} className="text-primary mt-0.5 shrink-0" />
                         )}
@@ -667,9 +904,38 @@ export function JournalPage() {
                 )}
               </div>
             </div>
-            {error && <div className="text-danger mt-3 text-sm">{error}</div>}
+            {error && (
+              <div className="text-danger mt-3 text-sm" role="alert">
+                {error}
+              </div>
+            )}
           </aside>
         </div>
+        {templateEntryRequest && templateEntryRequest.spaceId === spaceId && (
+          <TemplatePickerDialog
+            templates={[templateEntryRequest.template]}
+          initialTemplateId={templateEntryRequest.template.id}
+            schemas={templateEntryRequest.schemas}
+            allowBlank={false}
+            initialTitle={formatDateStamp(templateEntryRequest.date)}
+            destination={`${DAILY_FOLDER_NAME} / ${formatDateStamp(templateEntryRequest.date)}`}
+            renderContext={{
+              date: templateEntryRequest.date,
+              title: formatDateStamp(templateEntryRequest.date),
+            }}
+            onClose={() => setTemplateEntryRequest(null)}
+            onSelect={async (template, values, sourceId) => {
+              const success = await openOrCreateEntry(
+                templateEntryRequest.date,
+                template,
+                values,
+                sourceId,
+              );
+              if (success) setTemplateEntryRequest(null);
+              return success;
+            }}
+          />
+        )}
       </main>
     </div>
   );

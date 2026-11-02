@@ -248,7 +248,7 @@ export function StorageModeSetupPage({ onChooseLocal, onChooseServer }: StorageM
                           <span className="flex min-w-0 items-center gap-2">
                             <span className="text-text block truncate">{folder.name}</span>
                             {corruptedVaults[folder.path] && (
-                              <span className="text-warning border-warning/40 rounded-full border px-1.5 py-0.5 text-[10px] uppercase tracking-wide">
+                              <span className="text-warning border-warning/40 rounded-full border px-1.5 py-0.5 text-xs">
                                 Needs repair
                               </span>
                             )}

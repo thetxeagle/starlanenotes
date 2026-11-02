@@ -19,7 +19,7 @@ export function isLikelyMobilePlatform(platformName: string): boolean {
   return normalized.includes("ios") || normalized.includes("android");
 }
 
-interface BrowserPlatformSignals {
+export interface BrowserPlatformSignals {
   userAgent: string;
   platform: string;
   maxTouchPoints: number;
@@ -36,12 +36,27 @@ export function isLikelyMobileBrowser(signals: BrowserPlatformSignals): boolean 
   );
 }
 
-function detectBrowserPlatform(): RuntimePlatform {
-  return isLikelyMobileBrowser({
+/**
+ * Safari on iPad can report a desktop-class viewport and user agent. Keep the
+ * touch-first workspace shell for that device instead of relying on width alone.
+ */
+export function shouldUseMobileBrowserLayout(
+  isMobileViewport: boolean,
+  signals: BrowserPlatformSignals,
+): boolean {
+  return isMobileViewport || isLikelyMobileBrowser(signals);
+}
+
+function getBrowserPlatformSignals(): BrowserPlatformSignals {
+  return {
     userAgent: navigator.userAgent,
     platform: navigator.platform,
     maxTouchPoints: navigator.maxTouchPoints,
-  })
+  };
+}
+
+function detectBrowserPlatform(): RuntimePlatform {
+  return isLikelyMobileBrowser(getBrowserPlatformSignals())
     ? "tauri-mobile"
     : "tauri-desktop";
 }
@@ -96,11 +111,22 @@ export function useRuntimePlatform() {
     };
   }, []);
 
+  const browserSignals = typeof window !== "undefined" ? getBrowserPlatformSignals() : null;
+  const isMobileBrowser = browserSignals ? isLikelyMobileBrowser(browserSignals) : false;
+  const browserUsesMobileLayout = browserSignals
+    ? shouldUseMobileBrowserLayout(isMobileViewport, browserSignals)
+    : false;
+
   return {
     runtime: state.runtime,
     loading: state.loading,
     isMobileRuntime: state.runtime === "tauri-mobile",
-    isMobileViewport,
+    // Device classification is intentionally independent of viewport width so
+    // the authenticated shell owner stays mounted while a desktop window resizes.
+    isMobileBrowser,
+    // This retains the existing public property for callers while including
+    // full-width touch-first browsers such as iPad Safari.
+    isMobileViewport: browserUsesMobileLayout,
     isDesktopRuntime: state.runtime === "tauri-desktop",
   };
 }

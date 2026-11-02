@@ -11,7 +11,7 @@ use std::env;
 // Provider Configuration
 // ============================================================
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OAuthProvider {
     Google,
     GitHub,
@@ -119,32 +119,61 @@ struct GitHubEmail {
 // OAuth Flow
 // ============================================================
 
-pub fn build_client(
-    provider: &OAuthProvider,
+/// Captured configuration used for one real provider exchange. Never logged or
+/// serialized: the client secret is evidence, not an account principal.
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct ProviderConfig {
+    provider: OAuthProvider,
+    client_id: Option<String>,
+    client_secret: Option<String>,
+}
+impl ProviderConfig {
+    pub(crate) fn capture(provider: &OAuthProvider) -> Self {
+        Self {
+            provider: provider.clone(),
+            client_id: provider.client_id(),
+            client_secret: provider.client_secret(),
+        }
+    }
+    pub(crate) fn is_current(&self) -> bool {
+        self == &Self::capture(&self.provider)
+    }
+    pub(crate) fn name(&self) -> &str {
+        self.provider.name()
+    }
+}
+fn build_client_with_config(
+    config: &ProviderConfig,
     base_url: &str,
 ) -> Result<BasicClient, anyhow::Error> {
-    let client_id = provider
-        .client_id()
+    let provider = &config.provider;
+    let client_id = config
+        .client_id
+        .clone()
         .ok_or_else(|| anyhow::anyhow!("{} OAuth not configured", provider.name()))?;
-    let client_secret = provider
-        .client_secret()
+    let client_secret = config
+        .client_secret
+        .clone()
         .ok_or_else(|| anyhow::anyhow!("{} OAuth not configured", provider.name()))?;
-
     let redirect_url = format!(
         "{}/api/v1/auth/oauth/{}/callback",
         base_url,
         provider.name()
     );
-
-    let client = BasicClient::new(
+    Ok(BasicClient::new(
         ClientId::new(client_id),
         Some(ClientSecret::new(client_secret)),
         AuthUrl::new(provider.auth_url().to_string())?,
         Some(TokenUrl::new(provider.token_url().to_string())?),
     )
-    .set_redirect_uri(RedirectUrl::new(redirect_url)?);
+    .set_redirect_uri(RedirectUrl::new(redirect_url)?))
+}
 
-    Ok(client)
+pub fn build_client(
+    provider: &OAuthProvider,
+    base_url: &str,
+) -> Result<BasicClient, anyhow::Error> {
+    build_client_with_config(&ProviderConfig::capture(provider), base_url)
 }
 
 /// Generate the authorization URL with PKCE challenge.
@@ -170,24 +199,21 @@ pub fn get_auth_url(
 }
 
 /// Exchange the authorization code for tokens and fetch user info.
-pub async fn exchange_code(
-    provider: &OAuthProvider,
+pub(crate) async fn exchange_code_with_config(
+    config: &ProviderConfig,
     base_url: &str,
     code: &str,
     pkce_verifier: PkceCodeVerifier,
 ) -> Result<OAuthUserInfo, anyhow::Error> {
-    let client = build_client(provider, base_url)?;
-
+    let client = build_client_with_config(config, base_url)?;
     let token_result = client
         .exchange_code(AuthorizationCode::new(code.to_string()))
         .set_pkce_verifier(pkce_verifier)
         .request_async(async_http_client)
         .await
         .map_err(|e| anyhow::anyhow!("Token exchange failed: {}", e))?;
-
     let access_token = token_result.access_token().secret().clone();
-
-    fetch_user_info(provider, &access_token).await
+    fetch_user_info(&config.provider, &access_token).await
 }
 
 async fn fetch_user_info(

@@ -1,5 +1,15 @@
+import SharedWithMePage from "@/pages/SharedWithMePage";
 import { lazy, Suspense, useEffect, useState } from "react";
-import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from "react-router-dom";
+import {
+  createBrowserRouter,
+  RouterProvider,
+  Routes,
+  Route,
+  Navigate,
+  Outlet,
+  useLocation,
+  type Location,
+} from "react-router-dom";
 import { AuthProvider } from "@/components/AuthProvider";
 import { useAuth, type AuthConfig, type User } from "@/hooks/useAuth";
 import { api, isTauri, replayOfflineServerMutations } from "@/lib/api";
@@ -8,11 +18,12 @@ import { MobileAppLayout } from "@/components/layout/MobileAppLayout";
 import { ServerSetupPage } from "@/pages/ServerSetupPage";
 import { StorageModeSetupPage } from "@/pages/StorageModeSetupPage";
 import { useTauriEvents } from "@/hooks/useTauriEvents";
+import { ThemeEventHandler } from "@/components/ThemeEventHandler";
+import { LoadingState } from "@/components/ui/loading-state";
 import { useRuntimePlatform } from "@/hooks/useRuntimePlatform";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import {
   MobileNotificationsScreen,
-  MobileProfileScreen,
   MobileRecentScreen,
   MobileSearchScreen,
   MobileSpacesScreen,
@@ -38,50 +49,72 @@ import { startNativeBackgroundReplayScheduler } from "@/lib/backgroundReplay";
 import { dataClient } from "@/lib/dataClient";
 import { runLocalVaultStartupCheck } from "@/lib/localVault";
 import { checkServerStartup, hasOfflineServerWorkspace } from "@/lib/serverStartup";
-import { clearLastViewedDocumentRoute, readLastViewedDocumentRoute } from "@/lib/lastViewedDocument";
+import {
+  clearLastViewedDocumentRoute,
+  readLastViewedDocumentRoute,
+} from "@/lib/lastViewedDocument";
 import { getPreferredSpaceHomePath } from "@/lib/lastViewedSpace";
 import { shouldResolveDesktopStartupSpaceFallback } from "@/lib/startupRouting";
 
-// Heavy pages — lazy-loaded to split TipTap and admin code into separate chunks
+// Heavy pages stay lazy-loaded so authenticated startup does not parse editor,
+// graph, journal, or workflow code before the user opens those routes.
+const loadDocumentPage = () => import("@/pages/DocumentPage");
+const loadGraphPage = () => import("@/pages/GraphPage");
+const loadJournalPage = () => import("@/pages/JournalPage");
+const loadWorkflowQueuePage = () => import("@/pages/WorkflowQueuePage");
+const loadStarredDocumentsPage = () => import("@/pages/StarredDocumentsPage");
+const loadRecentDocumentsPage = () => import("@/pages/RecentDocumentsPage");
+const loadSpaceHomePage = () => import("@/pages/SpaceHomePage");
+
 const LoginPage = lazy(() => import("@/pages/LoginPage").then((m) => ({ default: m.LoginPage })));
+const AppSignInPage = lazy(() =>
+  import("@/pages/AppSignInPage").then((m) => ({ default: m.AppSignInPage })),
+);
 const RegisterPage = lazy(() =>
   import("@/pages/RegisterPage").then((m) => ({ default: m.RegisterPage })),
 );
 const ResetPasswordPage = lazy(() =>
   import("@/pages/ResetPasswordPage").then((m) => ({ default: m.ResetPasswordPage })),
 );
-const DocumentPage = lazy(() =>
-  import("@/pages/DocumentPage").then((m) => ({ default: m.DocumentPage })),
-);
+const DocumentPage = lazy(() => loadDocumentPage().then((m) => ({ default: m.DocumentPage })));
 const AdminPage = lazy(() => import("@/pages/AdminPage").then((m) => ({ default: m.AdminPage })));
 const SetupPage = lazy(() => import("@/pages/SetupPage").then((m) => ({ default: m.SetupPage })));
-const GraphPage = lazy(() => import("@/pages/GraphPage").then((m) => ({ default: m.GraphPage })));
-const JournalPage = lazy(() =>
-  import("@/pages/JournalPage").then((m) => ({ default: m.JournalPage })),
-);
+const GraphPage = lazy(() => loadGraphPage().then((m) => ({ default: m.GraphPage })));
+const JournalPage = lazy(() => loadJournalPage().then((m) => ({ default: m.JournalPage })));
 const WorkflowQueuePage = lazy(() =>
-  import("@/pages/WorkflowQueuePage").then((m) => ({ default: m.WorkflowQueuePage })),
+  loadWorkflowQueuePage().then((m) => ({ default: m.WorkflowQueuePage })),
 );
 const StarredDocumentsPage = lazy(() =>
-  import("@/pages/StarredDocumentsPage").then((m) => ({ default: m.StarredDocumentsPage })),
+  loadStarredDocumentsPage().then((m) => ({ default: m.StarredDocumentsPage })),
 );
 const RecentDocumentsPage = lazy(() =>
-  import("@/pages/RecentDocumentsPage").then((m) => ({ default: m.RecentDocumentsPage })),
+  loadRecentDocumentsPage().then((m) => ({ default: m.RecentDocumentsPage })),
 );
-const SpaceHomePage = lazy(() =>
-  import("@/pages/SpaceHomePage").then((m) => ({ default: m.SpaceHomePage })),
-);
+const SpaceHomePage = lazy(() => loadSpaceHomePage().then((m) => ({ default: m.SpaceHomePage })));
 const SpaceSettingsPage = lazy(() =>
   import("@/pages/SpaceSettingsPage").then((m) => ({ default: m.SpaceSettingsPage })),
 );
-const PublicPage = lazy(() => import("@/pages/PublicPage").then((m) => ({ default: m.PublicPage })));
+const TemplateEditorPage = lazy(() =>
+  import("@/pages/TemplateEditorPage").then((m) => ({ default: m.TemplateEditorPage })),
+);
+const AccountSettingsPage = lazy(() =>
+  import("@/pages/AccountSettingsPage").then((m) => ({ default: m.AccountSettingsPage })),
+);
+const AppSettingsPage = lazy(() =>
+  import("@/pages/AppSettingsPage").then((m) => ({ default: m.AppSettingsPage })),
+);
+const PublicPage = lazy(() =>
+  import("@/pages/PublicPage").then((m) => ({ default: m.PublicPage })),
+);
 
-function PageLoader() {
-  return (
-    <div className="flex h-full items-center justify-center">
-      <div className="text-text-muted text-sm">Loading…</div>
-    </div>
-  );
+function AuthenticatedRoutePreloader() {
+  // Route chunks intentionally load on navigation. Avoid an idle-time fan-out
+  // that parses every heavy workspace surface in the background.
+  return null;
+}
+
+function PageLoader({ label = "Loading page", viewport = false } = {}) {
+  return <LoadingState label={label} viewport={viewport} />;
 }
 
 function safeLocalStorageGetItem(key: string): string | null {
@@ -117,27 +150,41 @@ export function shouldRedirectToRequiredTwoFactorProfile(
   pathname: string,
 ): boolean {
   if (!config?.require_2fa || !user || user.totp_enabled) return false;
-  return pathname !== "/profile" && pathname !== "/mobile/profile";
+  return (
+    pathname !== "/profile" &&
+    pathname !== "/profile/security" &&
+    pathname !== "/mobile/profile" &&
+    pathname !== "/mobile/profile/security"
+  );
 }
 
 export function shouldUseMobileAppLayout(
   isMobileRuntime: boolean,
-  isMobileViewport: boolean,
+  isMobileBrowser: boolean,
 ): boolean {
-  return isMobileRuntime || isMobileViewport;
+  return isMobileRuntime || isMobileBrowser;
+}
+
+export interface SettingsOverlayLocationState {
+  backgroundLocation?: Location;
+}
+
+export function getSettingsOverlayBackground(
+  location: Location,
+  mobileLayout: boolean,
+): Location | null {
+  if (mobileLayout) return null;
+  const state = location.state as SettingsOverlayLocationState | null;
+  return state?.backgroundLocation ?? null;
 }
 
 function ProtectedRoute() {
   const { user, loading, config } = useAuth();
-  const { isMobileRuntime, isMobileViewport, loading: runtimeLoading } = useRuntimePlatform();
+  const { isMobileRuntime, isMobileBrowser, loading: runtimeLoading } = useRuntimePlatform();
   const location = useLocation();
 
   if (loading || runtimeLoading) {
-    return (
-      <div className="app-viewport app-background flex items-center justify-center">
-        <div className="text-text-muted text-sm">Loading...</div>
-      </div>
-    );
+    return <PageLoader label="Loading workspace" viewport />;
   }
 
   // Redirect to setup if not completed
@@ -153,9 +200,10 @@ function ProtectedRoute() {
     return <Navigate to="/profile" replace />;
   }
 
-  if (shouldUseMobileAppLayout(isMobileRuntime, isMobileViewport)) {
+  if (shouldUseMobileAppLayout(isMobileRuntime, isMobileBrowser)) {
     return (
       <MobileAppLayout>
+        <AuthenticatedRoutePreloader />
         <Outlet />
       </MobileAppLayout>
     );
@@ -163,6 +211,7 @@ function ProtectedRoute() {
 
   return (
     <AppLayout>
+      <AuthenticatedRoutePreloader />
       <Outlet />
     </AppLayout>
   );
@@ -206,7 +255,9 @@ function HomePage() {
   const [checkingDesktopHome, setCheckingDesktopHome] = useState(false);
   const [mobileHomePath, setMobileHomePath] = useState<string | null>(null);
   const mobileLayout = shouldUseMobileAppLayout(isMobileRuntime, isMobileViewport);
-  const [checkingMobileHome, setCheckingMobileHome] = useState(() => location.pathname === "/" && mobileLayout);
+  const [checkingMobileHome, setCheckingMobileHome] = useState(
+    () => location.pathname === "/" && mobileLayout,
+  );
   const siteName = config?.site_name ?? "Starlane Notes";
 
   useEffect(() => {
@@ -356,8 +407,8 @@ function AppTitleManager() {
       document.title = `Admin - ${siteName}`;
     } else if (/^\/spaces\/[^/]+\/settings\/?$/.test(location.pathname)) {
       document.title = `Space Settings - ${siteName}`;
-    } else if (location.pathname === "/profile") {
-      document.title = `Profile - ${siteName}`;
+    } else if (location.pathname === "/profile" || location.pathname === "/profile/security") {
+      document.title = `Account Settings - ${siteName}`;
     } else if (!location.pathname.includes("/docs/")) {
       document.title = siteName;
     }
@@ -368,14 +419,20 @@ function AppTitleManager() {
 
 function AppRoutes() {
   useTauriEvents();
+  const location = useLocation();
+  const { isMobileRuntime, isMobileViewport } = useRuntimePlatform();
+  const mobileLayout = shouldUseMobileAppLayout(isMobileRuntime, isMobileViewport);
+  const settingsBackground = getSettingsOverlayBackground(location, mobileLayout);
 
   return (
     <ErrorBoundary>
+      <ThemeEventHandler />
       <AppTitleManager />
       <Suspense fallback={<PageLoader />}>
-        <Routes>
+        <Routes location={settingsBackground ?? location}>
           {/* Public pages intentionally stay outside authenticated app chrome. */}
           <Route path="/p/:slug" element={<PublicPage />} />
+          <Route path="/app-signin/" element={<AppSignInPage />} />
 
           {/* Setup wizard (only when no users exist) */}
           <Route element={<SetupGuard />}>
@@ -393,6 +450,7 @@ function AppRoutes() {
           {/* Protected routes (require auth) */}
           <Route element={<ProtectedRoute />}>
             <Route path="/" element={<HomePage />} />
+            <Route path="/shared-with-me" element={<SharedWithMePage />} />
             <Route path="/spaces/:spaceId/docs" element={<SpaceHomePage />} />
             <Route path="/spaces/:spaceId/recent" element={<RecentDocumentsPage />} />
             <Route path="/spaces/:spaceId/docs/:docId" element={<DocumentPage />} />
@@ -401,18 +459,69 @@ function AppRoutes() {
             <Route path="/spaces/:spaceId/graph" element={<GraphPage />} />
             <Route path="/spaces/:spaceId/starred" element={<StarredDocumentsPage />} />
             <Route path="/spaces/:spaceId/settings" element={<SpaceSettingsPage />} />
-            <Route path="/profile" element={<MobileProfileScreen scope="profile" />} />
+            <Route path="/spaces/:spaceId/templates/new" element={<TemplateEditorPage />} />
+            <Route
+              path="/spaces/:spaceId/templates/:templateId/edit"
+              element={<TemplateEditorPage />}
+            />
+            <Route path="/profile" element={<AccountSettingsPage />} />
+            <Route
+              path="/profile/security"
+              element={<AccountSettingsPage initialSection="security" />}
+            />
             <Route path="/admin" element={<AdminPage />} />
             <Route path="/mobile/recent" element={<MobileRecentScreen />} />
             <Route path="/mobile/search" element={<MobileSearchScreen />} />
             <Route path="/mobile/notifications" element={<MobileNotificationsScreen />} />
-            <Route path="/mobile/app-settings" element={<MobileProfileScreen scope="app" />} />
-            <Route path="/mobile/profile" element={<MobileProfileScreen scope="profile" />} />
+            <Route path="/mobile/app-settings" element={<AppSettingsPage />} />
+            <Route path="/mobile/profile" element={<AccountSettingsPage />} />
+            <Route
+              path="/mobile/profile/security"
+              element={<AccountSettingsPage initialSection="security" />}
+            />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        {settingsBackground && (
+          <Suspense fallback={null}>
+            <Routes>
+              <Route path="/spaces/:spaceId/settings" element={<SpaceSettingsPage />} />
+              <Route path="/profile" element={<AccountSettingsPage />} />
+              <Route
+                path="/profile/security"
+                element={<AccountSettingsPage initialSection="security" />}
+              />
+              <Route path="/admin" element={<AdminPage />} />
+              <Route path="/mobile/app-settings" element={<AppSettingsPage />} />
+            </Routes>
+          </Suspense>
+        )}
       </Suspense>
     </ErrorBoundary>
+  );
+}
+
+function AppRouterHost({ mode }: { mode: "server" | "local" }) {
+  const [router, setRouter] = useState<ReturnType<typeof createBrowserRouter> | null>(null);
+
+  useEffect(() => {
+    const nextRouter = createBrowserRouter([{ path: "*", element: <AppRoutes /> }], {
+      future: { v7_relativeSplatPath: true },
+    });
+    setRouter(nextRouter);
+
+    return () => {
+      nextRouter.dispose();
+      setRouter((current) => (current === nextRouter ? null : current));
+    };
+  }, [mode]);
+
+  if (!router) return <PageLoader label="Loading application" viewport />;
+
+  return (
+    <AuthProvider mode={mode}>
+      <RouterProvider router={router} future={{ v7_startTransition: true }} />
+    </AuthProvider>
   );
 }
 
@@ -430,11 +539,30 @@ export function App() {
   const [storageConfigured, setStorageConfigured] = useState(
     () => !tauriRuntime || hasStoredStorageSelection() || !!safeLocalStorageGetItem("server_url"),
   );
-  const [serverReady, setServerReady] = useState(() => !tauriRuntime);
+  const [serverReady, setServerReady] = useState(() => {
+    if (!tauriRuntime) return true;
+    const serverUrl = safeLocalStorageGetItem("server_url");
+    return Boolean(
+      serverUrl && hasOfflineServerWorkspace(serverUrl, api.getToken(), api.getRefreshToken()),
+    );
+  });
   const [startupCheck, setStartupCheck] = useState<{
     status: "checking" | "ready" | "error";
     message?: string;
-  }>({ status: "checking" });
+  }>({
+    status:
+      !tauriRuntime ||
+      Boolean(
+        safeLocalStorageGetItem("server_url") &&
+        hasOfflineServerWorkspace(
+          safeLocalStorageGetItem("server_url") ?? "",
+          api.getToken(),
+          api.getRefreshToken(),
+        ),
+      )
+        ? "ready"
+        : "checking",
+  });
   const [startupCheckRetry, setStartupCheckRetry] = useState(0);
   const launchResolution = resolveLaunchMode(getStorageSelection(), runtime);
   setCurrentLaunchMode(launchResolution.mode);
@@ -455,7 +583,12 @@ export function App() {
   }, [launchResolution.mode, serverReady]);
 
   useEffect(() => {
-    if (runtimeLoading || storageConfigured || !tauriRuntime || safeLocalStorageGetItem("server_url")) {
+    if (
+      runtimeLoading ||
+      storageConfigured ||
+      !tauriRuntime ||
+      safeLocalStorageGetItem("server_url")
+    ) {
       return;
     }
 
@@ -503,8 +636,7 @@ export function App() {
         await runLocalVaultStartupCheck(launchResolution.selected.provider);
       } catch (error) {
         if (tauriRuntime && activeVault?.configured !== false && activeVault?.path) {
-          const message =
-            error instanceof Error ? error.message : "Vault health check failed.";
+          const message = error instanceof Error ? error.message : "Vault health check failed.";
           markCorruptedVault(activeVault.path, message);
           await clearVaultPathWithoutInitializing().catch(() => undefined);
           clearStorageSelection();
@@ -524,8 +656,7 @@ export function App() {
       if (!cancelled) {
         setStartupCheck({
           status: "error",
-          message:
-            error instanceof Error ? error.message : "Local storage could not be checked.",
+          message: error instanceof Error ? error.message : "Local storage could not be checked.",
         });
       }
     });
@@ -559,8 +690,17 @@ export function App() {
     }
 
     let cancelled = false;
-    setServerReady(false);
-    setStartupCheck({ status: "checking", message: "Checking server connection…" });
+    const hasCachedWorkspace = hasOfflineServerWorkspace(
+      serverUrl,
+      api.getToken(),
+      api.getRefreshToken(),
+    );
+    setServerReady(hasCachedWorkspace);
+    setStartupCheck(
+      hasCachedWorkspace
+        ? { status: "ready", message: "Refreshing server connection…" }
+        : { status: "checking", message: "Checking server connection…" },
+    );
 
     checkServerStartup(serverUrl)
       .then((result) => {
@@ -571,7 +711,7 @@ export function App() {
       })
       .catch((error) => {
         if (cancelled) return;
-        if (hasOfflineServerWorkspace(serverUrl, api.getToken())) {
+        if (hasOfflineServerWorkspace(serverUrl, api.getToken(), api.getRefreshToken())) {
           setServerReady(true);
           setStartupCheck({
             status: "ready",
@@ -580,7 +720,9 @@ export function App() {
           return;
         }
         const message =
-          error instanceof Error ? error.message : "Starlane Notes could not reach the linked server.";
+          error instanceof Error
+            ? error.message
+            : "Starlane Notes could not reach the linked server.";
         console.error("[starlane:start] server startup check failed", {
           serverUrl,
           message,
@@ -592,13 +734,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [
-    launchResolution.mode,
-    runtimeLoading,
-    startupCheckRetry,
-    storageConfigured,
-    tauriRuntime,
-  ]);
+  }, [launchResolution.mode, runtimeLoading, startupCheckRetry, storageConfigured, tauriRuntime]);
 
   const applyInitialLocalVault = async (name: string, path?: string) => {
     if (!tauriRuntime) return;
@@ -610,11 +746,7 @@ export function App() {
   };
 
   if (runtimeLoading) {
-    return (
-      <div className="app-viewport app-background flex items-center justify-center">
-        <div className="text-text-muted text-sm">Loading...</div>
-      </div>
-    );
+    return <PageLoader label="Loading application" viewport />;
   }
 
   if (!storageConfigured) {
@@ -654,7 +786,7 @@ export function App() {
   if (launchResolution.mode === "server" && startupCheck.status === "error") {
     return (
       <div className="app-viewport app-background flex items-center justify-center p-4">
-        <div className="rounded-card border border-border bg-surface p-4 shadow-card">
+        <div className="rounded-card border-border bg-surface shadow-card border p-4">
           <h1 className="text-text text-base font-medium">Server connection needs attention</h1>
           <p className="text-text-muted mt-2 max-w-md text-sm">
             Starlane Notes could not reach the linked server, so it stopped before opening the
@@ -667,7 +799,7 @@ export function App() {
             <button
               type="button"
               onClick={() => setStartupCheckRetry((value) => value + 1)}
-              className="rounded-button border border-border px-3 py-1.5 text-sm text-text-muted transition-colors duration-100 hover:bg-surface-raised hover:text-text"
+              className="rounded-button border-border text-text-muted hover:bg-surface-raised hover:text-text border px-3 py-1.5 text-sm transition-colors duration-100"
             >
               Retry connection
             </button>
@@ -678,7 +810,7 @@ export function App() {
                 setServerReady(false);
                 setStartupCheck({ status: "ready" });
               }}
-              className="rounded-button border border-border px-3 py-1.5 text-sm text-text-muted transition-colors duration-100 hover:bg-surface-raised hover:text-text"
+              className="rounded-button border-border text-text-muted hover:bg-surface-raised hover:text-text border px-3 py-1.5 text-sm transition-colors duration-100"
             >
               Change server
             </button>
@@ -746,11 +878,11 @@ export function App() {
   if (launchResolution.mode === "local" && startupCheck.status === "error") {
     return (
       <div className="app-viewport app-background flex items-center justify-center p-4">
-        <div className="rounded-card border border-border bg-surface p-4 shadow-card">
+        <div className="rounded-card border-border bg-surface shadow-card border p-4">
           <h1 className="text-text text-base font-medium">Storage check needs attention</h1>
           <p className="text-text-muted mt-2 max-w-md text-sm">
-            Starlane Notes could not confirm that local storage is active and structurally safe.
-            No local records were deleted.
+            Starlane Notes could not confirm that local storage is active and structurally safe. No
+            local records were deleted.
           </p>
           {startupCheck.message && (
             <p className="text-text-muted mt-2 max-w-md text-xs">{startupCheck.message}</p>
@@ -759,7 +891,7 @@ export function App() {
             <button
               type="button"
               onClick={() => setStartupCheckRetry((value) => value + 1)}
-              className="rounded-button border border-border px-3 py-1.5 text-sm text-text-muted transition-colors duration-100 hover:bg-surface-raised hover:text-text"
+              className="rounded-button border-border text-text-muted hover:bg-surface-raised hover:text-text border px-3 py-1.5 text-sm transition-colors duration-100"
             >
               Retry check
             </button>
@@ -776,11 +908,5 @@ export function App() {
     );
   }
 
-  return (
-    <BrowserRouter>
-      <AuthProvider mode={launchResolution.mode}>
-        <AppRoutes />
-      </AuthProvider>
-    </BrowserRouter>
-  );
+  return <AppRouterHost mode={launchResolution.mode} />;
 }

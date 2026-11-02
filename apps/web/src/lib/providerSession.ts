@@ -1,4 +1,4 @@
-import type { SyncProviderKind } from "@/lib/storageProviders";
+import { getStorageSelection, type SyncProviderKind } from "@/lib/storageProviders";
 
 export type ProviderSyncMode = "simulated" | "manual";
 
@@ -1496,4 +1496,69 @@ export function createProviderNotConnectedError(
   const error = new Error(`${providerLabel} must be connected before ${operation}.`);
   (error as Error & { code?: string }).code = "provider_not_connected";
   return error;
+}
+
+/** Nonsecret original Drive identity, not an authorization grant or remote move ACK. */
+export interface GoogleDriveReviewedMoveBinding {
+  readonly schema_version: 1;
+  readonly provider: "google-drive";
+  readonly account_permission_id: string;
+  readonly root_id: string;
+}
+export interface GoogleDriveReviewedMoveEnrollment {
+  readonly binding: GoogleDriveReviewedMoveBinding;
+  verifyCurrent(): void;
+}
+
+/** Dedicated real enrollment; ordinary OAuth, refresh and sync are unchanged. */
+export async function captureGoogleDriveReviewedMoveEnrollment({
+  selectionCurrent,
+  transport = createGoogleDriveApiFetchTransport(),
+}: {
+  selectionCurrent: () => boolean;
+  transport?: GoogleDriveApiTransport;
+}): Promise<GoogleDriveReviewedMoveEnrollment> {
+  const unavailable = () => new Error("Google Drive move enrollment is unavailable; retain the original workspace and review its account/root");
+  const storage = safeLocalStorage();
+  const raw = storage?.getItem(storageKey("google-drive"));
+  if (!storage || !raw) throw unavailable();
+  let session: ProviderSessionRecord;
+  try { session = JSON.parse(raw) as ProviderSessionRecord; } catch { throw unavailable(); }
+  const auth = session?.auth;
+  if (session?.provider !== "google-drive" || session.connected !== true || session.sync_mode !== "manual" ||
+    !auth || typeof auth.access_token !== "string" || !auth.access_token.trim() ||
+    typeof auth.provider_root_id !== "string" || !auth.provider_root_id.trim() ||
+    typeof auth.expires_at !== "string" || !Array.isArray(auth.scopes) || !auth.scopes.every(scope => typeof scope === "string") ||
+    !["drive.file", "drive"].some(scope => auth.scopes.includes(scope) || auth.scopes.includes(`https://www.googleapis.com/auth/${scope}`))) throw unavailable();
+  const root = auth.provider_root_id, bearer = auth.access_token;
+  const expires = Date.parse(auth.expires_at);
+  const verifyCurrent = () => {
+    const selection = getStorageSelection();
+    if (safeLocalStorage() !== storage || storage.getItem(storageKey("google-drive")) !== raw ||
+      selection.mode !== "local" || selection.provider !== "google-drive" || !selectionCurrent() ||
+      !Number.isFinite(expires) || expires <= Date.now()) throw unavailable();
+  };
+  const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
+  const read = async (url: string): Promise<Record<string, unknown>> => {
+    verifyCurrent();
+    let response: GoogleDriveApiResponse;
+    try { response = await transport.fetch(url, { method: "GET", headers: { Authorization: `Bearer ${bearer}` } }); }
+    catch { verifyCurrent(); throw unavailable(); }
+    verifyCurrent();
+    if (response.status !== 200 || !response.ok || !response.json) throw unavailable();
+    let value: unknown;
+    try { value = await response.json(); } catch { verifyCurrent(); throw unavailable(); }
+    verifyCurrent();
+    if (!object(value)) throw unavailable();
+    return value;
+  };
+  verifyCurrent();
+  const account = await read("https://www.googleapis.com/drive/v3/about?fields=user(permissionId,me)");
+  if (!object(account.user) || account.user.me !== true || typeof account.user.permissionId !== "string" || !account.user.permissionId.trim()) throw unavailable();
+  const permissionId = account.user.permissionId;
+  const folder = await read(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(root)}?fields=id,mimeType,trashed,capabilities(canAddChildren,canListChildren)&supportsAllDrives=true`);
+  if (folder.id !== root || folder.mimeType !== "application/vnd.google-apps.folder" || folder.trashed !== false ||
+    !object(folder.capabilities) || folder.capabilities.canAddChildren !== true || folder.capabilities.canListChildren !== true) throw unavailable();
+  verifyCurrent();
+  return { binding: Object.freeze({ schema_version: 1, provider: "google-drive", account_permission_id: permissionId, root_id: root }), verifyCurrent };
 }

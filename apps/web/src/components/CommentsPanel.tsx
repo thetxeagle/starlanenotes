@@ -1,21 +1,14 @@
-import { useCallback, useEffect, useState } from "react";
-import { MessageSquare, Check, Send } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Check, Send, Reply, X } from "lucide-react";
 import { api } from "@/lib/api";
+import {
+  emitDocumentCommentsChanged,
+  listDocumentComments,
+  subscribeToDocumentComments,
+  type DocumentComment,
+} from "@/lib/documentComments";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-
-interface Comment {
-  id: string;
-  document_id: string;
-  parent_id?: string;
-  user_id: string;
-  user_name: string;
-  content: string;
-  selection_text?: string;
-  resolved: boolean;
-  created_at: string;
-  replies: Comment[];
-}
 
 interface ReactionGroup {
   emoji: string;
@@ -23,235 +16,442 @@ interface ReactionGroup {
   user_reacted: boolean;
 }
 
+interface CommentMutationLock {
+  scope: string;
+  action: string;
+}
+
 const QUICK_REACTIONS = ["👍", "❤️", "🎉"];
+
+export function claimCommentMutation(
+  lock: CommentMutationLock,
+  scope: string,
+  action: string,
+): boolean {
+  if (lock.scope === scope && lock.action) return false;
+  lock.scope = scope;
+  lock.action = action;
+  return true;
+}
+
+export function releaseCommentMutation(
+  lock: CommentMutationLock,
+  scope: string,
+  action: string,
+): boolean {
+  if (lock.scope !== scope || lock.action !== action) return false;
+  lock.action = "";
+  return true;
+}
+
+export function shouldSubmitCommentOnEnter(key: string, isComposing: boolean): boolean {
+  return key === "Enter" && !isComposing;
+}
+
+export async function settleCurrentCommentsRequest<T>(
+  request: Promise<T>,
+  isCurrent: () => boolean,
+  onSuccess: (result: T) => void | Promise<void>,
+  onError: () => void | Promise<void>,
+  onSettled: () => void | Promise<void>,
+): Promise<void> {
+  try {
+    const result = await request;
+    if (isCurrent()) await onSuccess(result);
+  } catch {
+    if (isCurrent()) await onError();
+  } finally {
+    if (isCurrent()) await onSettled();
+  }
+}
+
+function CommentAvatar({ name }: { name: string }) {
+  const initial = name.trim().slice(0, 1).toUpperCase() || "?";
+  return (
+    <span
+      aria-hidden="true"
+      className="border-border bg-surface-raised text-text-muted flex size-7 shrink-0 items-center justify-center border text-xs font-medium"
+    >
+      {initial}
+    </span>
+  );
+}
 
 interface CommentsPanelProps {
   spaceId: string;
   docId: string;
+  selectedCommentId?: string | null;
+  inlineOnly?: boolean;
+  onClose?: () => void;
 }
 
-export function CommentsPanel({ spaceId, docId }: CommentsPanelProps) {
-  const [comments, setComments] = useState<Comment[]>([]);
+export function CommentsPanel({
+  spaceId,
+  docId,
+  selectedCommentId,
+  inlineOnly = false,
+  onClose,
+}: CommentsPanelProps) {
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const [comments, setComments] = useState<DocumentComment[]>([]);
   const [newComment, setNewComment] = useState("");
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [replyContent, setReplyContent] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [pendingAction, setPendingAction] = useState("");
+  const [pendingAction, setPendingAction] = useState<CommentMutationLock | null>(null);
   const [reactions, setReactions] = useState<ReactionGroup[]>([]);
   const [reactionsError, setReactionsError] = useState(false);
+  const commentsRequestIdRef = useRef(0);
+  const reactionsRequestIdRef = useRef(0);
+  const mutationRequestIdRef = useRef(0);
+  const documentScope = `${spaceId}\u0000${docId}`;
+  const activeDocumentScopeRef = useRef(documentScope);
+  activeDocumentScopeRef.current = documentScope;
+  const mutationLockRef = useRef<CommentMutationLock>({ scope: documentScope, action: "" });
+  const activePendingAction = pendingAction?.scope === documentScope ? pendingAction.action : "";
 
-  const unresolvedCount = comments.filter((c) => !c.resolved).length;
+  const visibleComments = inlineOnly
+    ? comments.filter((comment) => Boolean(comment.selection_text))
+    : comments;
+  const unresolvedCount = visibleComments.filter((c) => !c.resolved).length;
 
   const loadComments = useCallback(async () => {
+    const requestId = ++commentsRequestIdRef.current;
     setLoading(true);
     setError("");
-    try {
-      const data = await api.fetch<Comment[]>(
-        `/spaces/${spaceId}/documents/${docId}/comments`,
-      );
-      setComments(data);
-    } catch {
-      setError("Unable to load comments. Check your connection and try again.");
-    } finally {
-      setLoading(false);
-    }
+    await settleCurrentCommentsRequest(
+      listDocumentComments(spaceId, docId),
+      () => requestId === commentsRequestIdRef.current,
+      setComments,
+      () => setError("Unable to load comments. Check your connection and try again."),
+      () => setLoading(false),
+    );
   }, [spaceId, docId]);
 
   const loadReactions = useCallback(async () => {
+    const requestScope = `${spaceId}\u0000${docId}`;
+    if (activeDocumentScopeRef.current !== requestScope) return;
+
+    const requestId = ++reactionsRequestIdRef.current;
     setReactionsError(false);
-    try {
-      const data = await api.fetch<ReactionGroup[]>(
-        `/spaces/${spaceId}/documents/${docId}/reactions`,
-      );
-      setReactions(data);
-    } catch {
-      setReactionsError(true);
-    }
-  }, [spaceId, docId]);
+    await settleCurrentCommentsRequest(
+      api.fetch<ReactionGroup[]>(`/spaces/${spaceId}/documents/${docId}/reactions`),
+      () =>
+        requestId === reactionsRequestIdRef.current &&
+        requestScope === activeDocumentScopeRef.current,
+      setReactions,
+      () => setReactionsError(true),
+      () => undefined,
+    );
+  }, [docId, spaceId]);
 
   useEffect(() => {
     loadComments();
     loadReactions();
+    return () => {
+      reactionsRequestIdRef.current += 1;
+      mutationRequestIdRef.current += 1;
+    };
   }, [loadComments, loadReactions]);
 
+  useEffect(
+    () => subscribeToDocumentComments(spaceId, docId, () => void loadComments()),
+    [docId, loadComments, spaceId],
+  );
+
+  useEffect(() => {
+    if (!selectedCommentId) return;
+    const comment = listRef.current?.querySelector<HTMLElement>(
+      `[data-document-comment-id="${selectedCommentId}"]`,
+    );
+    comment?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [comments, inlineOnly, selectedCommentId]);
+
   const toggleReaction = async (emoji: string) => {
-    setPendingAction(`reaction:${emoji}`);
-    try {
-      await api.fetch(`/spaces/${spaceId}/documents/${docId}/reactions`, {
+    const action = `reaction:${emoji}`;
+    if (!claimCommentMutation(mutationLockRef.current, documentScope, action)) return;
+    const requestId = ++mutationRequestIdRef.current;
+    const requestScope = documentScope;
+    const isCurrent = () =>
+      requestId === mutationRequestIdRef.current &&
+      requestScope === activeDocumentScopeRef.current;
+    setPendingAction({ scope: documentScope, action });
+    await settleCurrentCommentsRequest(
+      api.fetch(`/spaces/${spaceId}/documents/${docId}/reactions`, {
         method: "POST",
         body: { emoji },
-      });
-      await loadReactions();
-    } catch {
-      setReactionsError(true);
-    } finally {
-      setPendingAction("");
-    }
+      }),
+      isCurrent,
+      async () => {
+        await loadReactions();
+      },
+      () => setReactionsError(true),
+      () => {
+        if (releaseCommentMutation(mutationLockRef.current, requestScope, action)) {
+          setPendingAction(null);
+        }
+      },
+    );
   };
 
   const addComment = async () => {
     if (!newComment.trim()) return;
-    setPendingAction("comment");
+    const action = "comment";
+    if (!claimCommentMutation(mutationLockRef.current, documentScope, action)) return;
+    const requestId = ++mutationRequestIdRef.current;
+    const requestScope = documentScope;
+    const isCurrent = () =>
+      requestId === mutationRequestIdRef.current &&
+      requestScope === activeDocumentScopeRef.current;
+    setPendingAction({ scope: documentScope, action });
     setError("");
-    try {
-      await api.fetch(`/spaces/${spaceId}/documents/${docId}/comments`, {
+    await settleCurrentCommentsRequest(
+      api.fetch(`/spaces/${spaceId}/documents/${docId}/comments`, {
         method: "POST",
         body: { content: newComment },
-      });
-      setNewComment("");
-      await loadComments();
-    } catch {
-      setError("Unable to add your comment. Please try again.");
-    } finally {
-      setPendingAction("");
-    }
+      }),
+      isCurrent,
+      async () => {
+        setNewComment("");
+        await loadComments();
+        if (isCurrent()) emitDocumentCommentsChanged(spaceId, docId);
+      },
+      () => setError("Unable to add your comment. Please try again."),
+      () => {
+        if (releaseCommentMutation(mutationLockRef.current, requestScope, action)) {
+          setPendingAction(null);
+        }
+      },
+    );
   };
 
   const addReply = async (parentId: string) => {
     if (!replyContent.trim()) return;
-    setPendingAction(`reply:${parentId}`);
+    const action = `reply:${parentId}`;
+    if (!claimCommentMutation(mutationLockRef.current, documentScope, action)) return;
+    const requestId = ++mutationRequestIdRef.current;
+    const requestScope = documentScope;
+    const isCurrent = () =>
+      requestId === mutationRequestIdRef.current &&
+      requestScope === activeDocumentScopeRef.current;
+    setPendingAction({ scope: documentScope, action });
     setError("");
-    try {
-      await api.fetch(`/spaces/${spaceId}/documents/${docId}/comments`, {
+    await settleCurrentCommentsRequest(
+      api.fetch(`/spaces/${spaceId}/documents/${docId}/comments`, {
         method: "POST",
         body: { content: replyContent, parent_id: parentId },
-      });
-      setReplyTo(null);
-      setReplyContent("");
-      await loadComments();
-    } catch {
-      setError("Unable to add your reply. Please try again.");
-    } finally {
-      setPendingAction("");
-    }
+      }),
+      isCurrent,
+      async () => {
+        setReplyTo(null);
+        setReplyContent("");
+        await loadComments();
+        if (isCurrent()) emitDocumentCommentsChanged(spaceId, docId);
+      },
+      () => setError("Unable to add your reply. Please try again."),
+      () => {
+        if (releaseCommentMutation(mutationLockRef.current, requestScope, action)) {
+          setPendingAction(null);
+        }
+      },
+    );
   };
 
   const resolveComment = async (commentId: string) => {
-    setPendingAction(`resolve:${commentId}`);
+    const action = `resolve:${commentId}`;
+    if (!claimCommentMutation(mutationLockRef.current, documentScope, action)) return;
+    const requestId = ++mutationRequestIdRef.current;
+    const requestScope = documentScope;
+    const isCurrent = () =>
+      requestId === mutationRequestIdRef.current &&
+      requestScope === activeDocumentScopeRef.current;
+    setPendingAction({ scope: documentScope, action });
     setError("");
-    try {
-      await api.fetch(
-        `/spaces/${spaceId}/documents/${docId}/comments/${commentId}/resolve`,
-        { method: "POST" },
-      );
-      await loadComments();
-    } catch {
-      setError("Unable to resolve this comment. Please try again.");
-    } finally {
-      setPendingAction("");
-    }
+    await settleCurrentCommentsRequest(
+      api.fetch(`/spaces/${spaceId}/documents/${docId}/comments/${commentId}/resolve`, {
+        method: "POST",
+      }),
+      isCurrent,
+      async () => {
+        await loadComments();
+        if (isCurrent()) emitDocumentCommentsChanged(spaceId, docId);
+      },
+      () => setError("Unable to resolve this comment. Please try again."),
+      () => {
+        if (releaseCommentMutation(mutationLockRef.current, requestScope, action)) {
+          setPendingAction(null);
+        }
+      },
+    );
   };
 
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <div className="flex items-center gap-2 border-b border-border px-4 py-2">
-        <MessageSquare size={14} className="text-text-muted" />
-        <span className="text-sm font-medium text-text">Comments</span>
-        {unresolvedCount > 0 && (
-          <span className="rounded-full bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium text-accent">
-            {unresolvedCount}
-          </span>
+      <div className="border-border flex items-center justify-between gap-2 border-b px-4 py-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="text-text text-sm font-medium">Comments</span>
+          {unresolvedCount > 0 && (
+            <span className="bg-accent/10 text-accent rounded-full px-1.5 py-0.5 text-[10px] font-medium">
+              {unresolvedCount}
+            </span>
+          )}
+        </div>
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="focus-ring rounded-button text-text-muted hover:bg-surface-raised hover:text-text flex h-7 w-7 shrink-0 items-center justify-center transition-colors duration-100"
+            aria-label="Close comments panel"
+            title="Close panel"
+          >
+            <X size={14} />
+          </button>
         )}
       </div>
 
       {/* Comment list */}
-      <div className="flex-1 overflow-y-auto p-3">
+      <div ref={listRef} className="flex-1 overflow-y-auto p-3">
         {loading ? (
-          <div className="py-8 text-center text-sm text-text-muted">Loading comments...</div>
+          <div
+            className="text-text-muted py-8 text-center text-sm"
+            role="status"
+            aria-live="polite"
+          >
+            Loading comments...
+          </div>
         ) : error ? (
-          <div className="grid gap-3 py-8 text-center text-sm text-text-muted">
+          <div className="text-text-muted grid gap-3 py-8 text-center text-sm" role="alert">
             <p>{error}</p>
-            <Button variant="secondary" size="sm" className="justify-self-center" onClick={() => void loadComments()}>
+            <Button
+              variant="secondary"
+              size="sm"
+              className="justify-self-center"
+              onClick={() => void loadComments()}
+            >
               Retry
             </Button>
           </div>
-        ) : comments.length === 0 ? (
-          <div className="py-8 text-center text-sm text-text-muted">No comments yet</div>
+        ) : visibleComments.length === 0 ? (
+          <div className="text-text-muted py-8 text-center text-sm">
+            {inlineOnly ? "No inline comments yet" : "No comments yet"}
+          </div>
         ) : (
-          comments.map((comment) => (
+          visibleComments.map((comment) => (
             <div
               key={comment.id}
-              className={`mb-3 rounded-card border border-border p-3 ${
+              data-document-comment-id={comment.id}
+              className={`border-border border-b py-4 last:border-b-0 ${
+                selectedCommentId === comment.id ? "bg-primary/5 -mx-2 rounded-input px-2" : ""
+              } ${
                 comment.resolved ? "opacity-60" : ""
               }`}
+              aria-current={selectedCommentId === comment.id ? "true" : undefined}
             >
               {/* Selection context */}
               {comment.selection_text && (
-                <div className="mb-2 border-l-2 border-accent pl-2 text-xs italic text-text-muted">
+                <div className="border-accent text-text-muted mb-2 border-l-2 pl-2 text-xs italic">
                   "{comment.selection_text}"
                 </div>
               )}
 
               {/* Comment header */}
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-text">{comment.user_name}</span>
-                <span className="text-[10px] text-text-muted">
-                  {new Date(comment.created_at).toLocaleDateString()}
-                </span>
+              <div className="flex items-start gap-2">
+                <CommentAvatar name={comment.user_name} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-text truncate text-sm font-medium">
+                      {comment.user_name}
+                    </span>
+                    <span className="text-text-muted shrink-0 text-xs">
+                      {new Date(comment.created_at).toLocaleDateString()}
+                    </span>
+                  </div>
+                  {comment.resolved ? (
+                    <span className="text-success mt-1 inline-flex items-center gap-1 text-xs">
+                      <Check size={12} /> Resolved
+                    </span>
+                  ) : null}
+                </div>
               </div>
 
               {/* Content */}
-              <p className="mt-1 text-sm text-text">{comment.content}</p>
+              <p className="text-text ml-9 mt-2 text-sm leading-6">{comment.content}</p>
 
               {/* Actions */}
-              <div className="mt-2 flex items-center gap-2">
+              <div className="ml-9 mt-2 flex items-center gap-1">
                 {!comment.resolved && (
                   <Button
                     variant="ghost"
                     size="sm"
                     onClick={() => resolveComment(comment.id)}
-                    disabled={Boolean(pendingAction)}
+                    disabled={Boolean(activePendingAction)}
                     className="h-auto gap-1 px-0 py-0 text-[10px]"
                   >
-                    <Check size={10} /> {pendingAction === `resolve:${comment.id}` ? "Resolving..." : "Resolve"}
+                    <Check size={12} />{" "}
+                    {activePendingAction === `resolve:${comment.id}` ? "Resolving..." : "Resolve"}
                   </Button>
                 )}
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={() => setReplyTo(replyTo === comment.id ? null : comment.id)}
-                  disabled={Boolean(pendingAction)}
-                  className="h-auto px-0 py-0 text-[10px]"
+                  disabled={Boolean(activePendingAction)}
+                  className="h-auto gap-1 px-2 py-1 text-xs"
+                  aria-expanded={replyTo === comment.id}
+                  aria-controls={
+                    replyTo === comment.id ? `comment-reply-composer-${comment.id}` : undefined
+                  }
                 >
-                  Reply
+                  <Reply size={12} /> Reply
                 </Button>
               </div>
 
               {/* Replies */}
               {comment.replies.map((reply) => (
-                <div key={reply.id} className="ml-4 mt-2 border-l border-border pl-3">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium text-text">{reply.user_name}</span>
-                    <span className="text-[10px] text-text-muted">
-                      {new Date(reply.created_at).toLocaleDateString()}
-                    </span>
+                <div key={reply.id} className="border-border ml-9 mt-3 border-l pl-3">
+                  <div className="flex items-start gap-2">
+                    <CommentAvatar name={reply.user_name} />
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-text text-xs font-medium">{reply.user_name}</span>
+                        <span className="text-text-muted text-xs">
+                          {new Date(reply.created_at).toLocaleDateString()}
+                        </span>
+                      </div>
+                      <p className="text-text mt-1 text-sm leading-6">{reply.content}</p>
+                    </div>
                   </div>
-                  <p className="mt-0.5 text-sm text-text">{reply.content}</p>
                 </div>
               ))}
 
               {/* Reply input */}
               {replyTo === comment.id && (
-                <div className="ml-4 mt-2 flex gap-1">
+                <div id={`comment-reply-composer-${comment.id}`} className="ml-4 mt-2 flex gap-1">
                   <Input
                     type="text"
                     value={replyContent}
                     onChange={(e) => setReplyContent(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && addReply(comment.id)}
+                    onKeyDown={(event) => {
+                      if (!shouldSubmitCommentOnEnter(event.key, event.nativeEvent.isComposing)) {
+                        return;
+                      }
+                      event.preventDefault();
+                      void addReply(comment.id);
+                    }}
                     placeholder="Reply..."
                     aria-label="Reply to comment"
-                    className="h-6 flex-1 bg-bg px-2 py-1 text-xs"
+                    className="bg-bg h-6 flex-1 px-2 py-1 text-xs"
                     autoFocus
-                    disabled={Boolean(pendingAction)}
+                    disabled={Boolean(activePendingAction)}
                   />
                   <Button
                     variant="ghost"
                     size="sm"
                     onClick={() => addReply(comment.id)}
-                    disabled={!replyContent.trim() || Boolean(pendingAction)}
-                    className="h-6 w-6 px-0 text-primary"
+                    disabled={!replyContent.trim() || Boolean(activePendingAction)}
+                    className="text-primary h-6 w-6 px-0"
                     aria-label="Send reply"
                   >
                     <Send size={12} />
@@ -264,12 +464,24 @@ export function CommentsPanel({ spaceId, docId }: CommentsPanelProps) {
       </div>
 
       {/* New comment input */}
-      <div className="border-t border-border p-3">
-        <div className="mb-3 flex flex-wrap items-center gap-1" aria-label="Document reactions">
+      <div className="border-border border-t p-3">
+        <div
+          className="mb-3 flex flex-wrap items-center gap-1"
+          role="group"
+          aria-label="Document reactions"
+        >
           {reactionsError ? (
-            <Button variant="ghost" size="sm" className="h-6 px-1.5 text-xs" onClick={() => void loadReactions()}>
-              Retry reactions
-            </Button>
+            <div className="flex items-center gap-2 text-xs" role="alert">
+              <span className="text-text-muted">Unable to load reactions.</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-1.5 text-xs"
+                onClick={() => void loadReactions()}
+              >
+                Retry
+              </Button>
+            </div>
           ) : (
             QUICK_REACTIONS.map((emoji) => {
               const reaction = reactions.find((item) => item.emoji === emoji);
@@ -281,10 +493,12 @@ export function CommentsPanel({ spaceId, docId }: CommentsPanelProps) {
                   size="sm"
                   className={`h-6 gap-1 px-1.5 text-xs ${active ? "bg-primary/10 text-primary" : ""}`}
                   onClick={() => void toggleReaction(emoji)}
-                  disabled={Boolean(pendingAction)}
+                  disabled={Boolean(activePendingAction)}
                   aria-label={`React with ${emoji}`}
+                  aria-pressed={active}
                 >
-                  {emoji}{reaction ? ` ${reaction.count}` : ""}
+                  {emoji}
+                  {reaction ? ` ${reaction.count}` : ""}
                 </Button>
               );
             })
@@ -295,13 +509,22 @@ export function CommentsPanel({ spaceId, docId }: CommentsPanelProps) {
             type="text"
             value={newComment}
             onChange={(e) => setNewComment(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && addComment()}
+            onKeyDown={(event) => {
+              if (!shouldSubmitCommentOnEnter(event.key, event.nativeEvent.isComposing)) return;
+              event.preventDefault();
+              void addComment();
+            }}
             placeholder="Add a comment..."
             aria-label="New comment"
-            className="h-8 flex-1 bg-bg px-3 py-1.5 text-sm"
-            disabled={Boolean(pendingAction)}
+            className="bg-bg h-8 flex-1 px-3 py-1.5 text-sm"
+            disabled={Boolean(activePendingAction)}
           />
-          <Button size="sm" onClick={addComment} disabled={!newComment.trim() || Boolean(pendingAction)}>
+          <Button
+            size="sm"
+            onClick={addComment}
+            disabled={!newComment.trim() || Boolean(activePendingAction)}
+            aria-label="Send comment"
+          >
             <Send size={12} />
           </Button>
         </div>

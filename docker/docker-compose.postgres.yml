@@ -1,0 +1,46 @@
+services:
+  starlane-notes:
+    image: ${STARLANE_IMAGE:-ghcr.io/hbftechnologies/starlanenotes:latest}
+    container_name: starlane-notes
+    restart: unless-stopped
+    ports:
+      - "9320:3000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/v1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    volumes:
+      # PostgreSQL stores relational data only. Documents, attachments, logs, and search data
+      # remain under /data and must be backed up with the database.
+      - type: bind
+        source: ./storage
+        target: /data
+        bind:
+          create_host_path: false
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: starlane-notes-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-starlane}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-starlane_notes}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    volumes:
+      - starlane-notes-postgres-data:/var/lib/postgresql/data
+
+volumes:
+  starlane-notes-postgres-data:

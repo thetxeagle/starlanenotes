@@ -24,6 +24,61 @@ pub struct SearchHit {
     pub score: f32,
 }
 
+/// One immutable candidate snapshot per request; SQL remains the authority.
+pub(crate) struct SearchSnapshot {
+    searcher: tantivy::Searcher,
+    query: Box<dyn tantivy::query::Query>,
+    inner: Arc<SearchIndexInner>,
+}
+pub(crate) struct SearchCandidate {
+    pub doc_id: String,
+    pub space_id: String,
+    pub title: String,
+    pub body: String,
+    pub tags: String,
+}
+impl SearchSnapshot {
+    pub(crate) fn page(
+        &self,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Vec<SearchCandidate>, anyhow::Error> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        let hits = self
+            .searcher
+            .search(&self.query, &TopDocs::with_limit(limit).and_offset(offset))?;
+        hits.into_iter()
+            .map(|(_, address)| {
+                let doc: TantivyDocument = self.searcher.doc(address)?;
+                let value = |field| {
+                    doc.get_first(field)
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string()
+                };
+                Ok(SearchCandidate {
+                    doc_id: value(self.inner.f_doc_id),
+                    space_id: value(self.inner.f_space_id),
+                    title: value(self.inner.f_title),
+                    body: value(self.inner.f_body),
+                    tags: value(self.inner.f_tags),
+                })
+            })
+            .collect()
+    }
+}
+pub(crate) fn excerpt(body: &str, limit: usize) -> String {
+    let mut chars = body.chars();
+    let prefix: String = chars.by_ref().take(limit).collect();
+    if chars.next().is_some() {
+        format!("{prefix}...")
+    } else {
+        prefix
+    }
+}
+
 #[derive(Clone)]
 pub struct SearchIndex {
     inner: Arc<SearchIndexInner>,
@@ -123,6 +178,23 @@ impl SearchIndex {
         Ok(())
     }
 
+    pub(crate) fn snapshot(&self, query_str: &str) -> Result<SearchSnapshot, anyhow::Error> {
+        let i = &self.inner;
+        i.reader.reload()?;
+        let parser = QueryParser::for_index(&i.index, vec![i.f_title, i.f_body, i.f_tags]);
+        let query = parser.parse_query(query_str).unwrap_or_else(|_| {
+            Box::new(tantivy::query::TermQuery::new(
+                tantivy::Term::from_field_text(i.f_title, query_str),
+                tantivy::schema::IndexRecordOption::Basic,
+            ))
+        });
+        Ok(SearchSnapshot {
+            searcher: i.reader.searcher(),
+            query,
+            inner: i.clone(),
+        })
+    }
+
     /// Search the index
     pub fn search(
         &self,
@@ -177,11 +249,7 @@ impl SearchIndex {
             }
 
             // Generate excerpt — first 200 chars of body
-            let excerpt = if body.len() > 200 {
-                format!("{}...", &body[..200])
-            } else {
-                body
-            };
+            let excerpt = excerpt(&body, 200);
 
             results.push(SearchHit {
                 doc_id,
@@ -199,28 +267,87 @@ impl SearchIndex {
         Ok(results)
     }
 
-    /// Rebuild the entire index from scratch
+    /// Publish a replacement snapshot with a single commit.
     pub fn rebuild(&self, entries: Vec<DocEntry>) -> Result<(), anyhow::Error> {
+        self.rebuild_inner(entries, || Ok(()))
+    }
+
+    fn rebuild_inner(
+        &self,
+        entries: Vec<DocEntry>,
+        before_commit: impl FnOnce() -> Result<(), anyhow::Error>,
+    ) -> Result<(), anyhow::Error> {
         let i = &self.inner;
         let mut writer = i.writer.write().map_err(|e| anyhow::anyhow!("{}", e))?;
-
-        // Clear the index
-        writer.delete_all_documents()?;
-        writer.commit()?;
-
-        // Re-add all documents
-        for entry in entries {
-            writer.add_document(doc!(
-                i.f_doc_id => entry.doc_id,
-                i.f_space_id => entry.space_id,
-                i.f_title => entry.title,
-                i.f_body => entry.body,
-                i.f_tags => entry.tags,
+        let staged = (|| -> Result<(), anyhow::Error> {
+            writer.delete_all_documents()?;
+            for entry in entries {
+                writer.add_document(doc!(
+                    i.f_doc_id => entry.doc_id,
+                    i.f_space_id => entry.space_id,
+                    i.f_title => entry.title,
+                    i.f_body => entry.body,
+                    i.f_tags => entry.tags,
+                ))?;
+            }
+            before_commit()?;
+            writer.commit()?;
+            Ok(())
+        })();
+        if let Err(error) = staged {
+            writer.rollback().map_err(|rollback| anyhow::anyhow!(
+                "Rebuild failed: {error}; rollback failed: {rollback}"
             ))?;
+            return Err(error);
         }
-
-        writer.commit()?;
+        i.reader.reload()?;
         tracing::info!("Search index rebuilt successfully");
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod rebuild_tests {
+    use super::*;
+    fn entry(id: &str, body: &str) -> DocEntry {
+        DocEntry { doc_id: id.into(), space_id: "space".into(), title: id.into(), body: body.into(), tags: String::new() }
+    }
+    #[test]
+    fn rebuild_is_immediately_visible_and_survives_reopen() {
+        let path = std::env::temp_dir().join(format!("search-rebuild-{}", uuid::Uuid::new_v4()));
+        let index = SearchIndex::new(path.clone()).unwrap();
+        index.rebuild(vec![entry("old", "previous")]).unwrap();
+        index.rebuild(vec![entry("new", "nebula")]).unwrap();
+        assert_eq!(index.search("nebula", None, 10).unwrap()[0].doc_id, "new");
+        assert!(index.search("previous", None, 10).unwrap().is_empty());
+        drop(index);
+        let reopened = SearchIndex::new(path.clone()).unwrap();
+        assert_eq!(reopened.search("nebula", None, 10).unwrap()[0].doc_id, "new");
+        drop(reopened);
+        std::fs::remove_dir_all(path).unwrap();
+    }
+    #[test]
+    fn interrupted_staged_rebuild_preserves_committed_snapshot_and_future_writes() {
+        let path = std::env::temp_dir().join(format!("search-rebuild-{}", uuid::Uuid::new_v4()));
+        let index = SearchIndex::new(path.clone()).unwrap();
+        index.rebuild(vec![entry("old", "previous")]).unwrap();
+        assert!(index.rebuild_inner(vec![entry("new", "nebula")], || {
+            assert_eq!(index.search("previous", None, 10).unwrap()[0].doc_id, "old");
+            assert!(index.search("nebula", None, 10).unwrap().is_empty());
+            Err(anyhow::anyhow!("injected precommit interruption"))
+        }).is_err());
+        assert_eq!(index.search("previous", None, 10).unwrap()[0].doc_id, "old");
+        drop(index);
+        let index = SearchIndex::new(path.clone()).unwrap();
+        assert_eq!(index.search("previous", None, 10).unwrap()[0].doc_id, "old");
+        index.rebuild(vec![entry("retry", "retrytoken")]).unwrap();
+        assert!(index.search("nebula", None, 10).unwrap().is_empty());
+        assert_eq!(index.search("retrytoken", None, 10).unwrap()[0].doc_id, "retry");
+        drop(index);
+        let reopened = SearchIndex::new(path.clone()).unwrap();
+        assert!(reopened.search("nebula", None, 10).unwrap().is_empty());
+        assert_eq!(reopened.search("retrytoken", None, 10).unwrap()[0].doc_id, "retry");
+        drop(reopened);
+        std::fs::remove_dir_all(path).unwrap();
     }
 }

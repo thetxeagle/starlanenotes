@@ -7,6 +7,8 @@ import {
   Heading2,
   Heading3,
   Image,
+  Images,
+  LayoutGrid,
   Keyboard,
   Link,
   List,
@@ -23,6 +25,12 @@ import {
 } from "lucide-react";
 import type { Editor } from "@tiptap/react";
 import { EditorUrlDialog, type EditorUrlInsertKind } from "./EditorUrlDialog";
+import {
+  CONTROL_CHROME_ACTIVE_ACTION_CLASS,
+  CONTROL_CHROME_RAIL_CLASS,
+  CONTROL_CHROME_SURFACE_CLASS,
+  CONTROL_CHROME_TOUCH_ACTION_CLASS,
+} from "@/components/ui/control-chrome";
 
 interface MobileEditorToolbarProps {
   editor: Editor | null;
@@ -89,10 +97,8 @@ export function MobileEditorToolbar({ editor, locked }: MobileEditorToolbarProps
       type="button"
       onClick={action}
       disabled={locked}
-      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-button transition-colors duration-100 ${
-        isActive
-          ? "bg-surface-raised text-text"
-          : "text-text-muted hover:bg-surface-raised hover:text-text"
+      className={`${CONTROL_CHROME_TOUCH_ACTION_CLASS} ${
+        isActive ? CONTROL_CHROME_ACTIVE_ACTION_CLASS : ""
       } disabled:opacity-40`}
       aria-label={label}
     >
@@ -113,7 +119,7 @@ export function MobileEditorToolbar({ editor, locked }: MobileEditorToolbarProps
         <button
           type="button"
           onClick={() => setVisible(true)}
-          className="flex items-center gap-1 rounded-full border border-border bg-surface px-3 py-1.5 text-xs text-text shadow-card"
+          className={`${CONTROL_CHROME_SURFACE_CLASS} flex items-center gap-1 px-3 py-1.5 text-xs`}
           aria-label="Show mobile editor toolbar"
         >
           <Rows3 size={12} />
@@ -134,8 +140,8 @@ export function MobileEditorToolbar({ editor, locked }: MobileEditorToolbarProps
           onSubmit={insertUrl}
         />
       )}
-      <div className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+3.6rem)] z-40 border-t border-border bg-surface">
-        <div className="flex gap-1 overflow-x-auto px-2 py-1.5">
+      <div className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+3.6rem)] z-40 px-2 py-1.5">
+        <div className={`${CONTROL_CHROME_RAIL_CLASS} overflow-x-auto`}>
         {btn(<Undo2 size={14} />, "Undo", () => editor.chain().focus().undo().run())}
         {btn(<Redo2 size={14} />, "Redo", () => editor.chain().focus().redo().run())}
         <div className="mx-0.5 h-8 w-px shrink-0 bg-border" />
@@ -158,11 +164,41 @@ export function MobileEditorToolbar({ editor, locked }: MobileEditorToolbarProps
         {btn(<Link size={14} />, "Link", () => openUrlDialog("link"), editor.isActive("link"))}
         {btn(<Bookmark size={14} />, "Bookmark", () => openUrlDialog("bookmark"))}
         {btn(<Image size={14} />, "Image", () => openUrlDialog("image"))}
+        {btn(
+          <Images size={14} />,
+          "Carousel",
+          () =>
+            editor
+              .chain()
+              .focus()
+              .insertContent({
+                type: "carousel",
+                attrs: { title: "Carousel", items: [{ src: "", alt: "Image 1" }] },
+              })
+              .run(),
+        )}
+        {btn(
+          <LayoutGrid size={14} />,
+          "Gallery",
+          () =>
+            editor
+              .chain()
+              .focus()
+              .insertContent({
+                type: "gallery",
+                attrs: {
+                  title: "Gallery",
+                  layout: "responsive-columns",
+                  items: [{ src: "", alt: "Image 1" }],
+                },
+              })
+              .run(),
+        )}
         <div className="mx-0.5 h-8 w-px shrink-0 bg-border" />
         <button
           type="button"
           onClick={dismissKeyboard}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-button text-text-muted transition-colors duration-100 hover:bg-surface-raised hover:text-text"
+          className={CONTROL_CHROME_TOUCH_ACTION_CLASS}
           aria-label="Dismiss keyboard"
         >
           <Keyboard size={14} />
@@ -170,7 +206,7 @@ export function MobileEditorToolbar({ editor, locked }: MobileEditorToolbarProps
         <button
           type="button"
           onClick={() => setVisible(false)}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-button text-text-muted transition-colors duration-100 hover:bg-surface-raised hover:text-text"
+          className={CONTROL_CHROME_TOUCH_ACTION_CLASS}
           aria-label="Hide mobile editor toolbar"
         >
           <Rows3 size={14} />

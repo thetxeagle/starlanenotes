@@ -23,6 +23,12 @@ async function run() {
       console.error(`\n[A11Y] ${url} has ${results.violations.length} violation(s):`);
       for (const violation of results.violations) {
         console.error(`- ${violation.id}: ${violation.help}`);
+        for (const node of violation.nodes) {
+          console.error(`  target: ${node.target.join(" > ")}`);
+          if (node.failureSummary) {
+            console.error(`  ${node.failureSummary.replace(/\n/g, "\n  ")}`);
+          }
+        }
       }
     } else {
       console.log(`[A11Y] ${url} passed`);

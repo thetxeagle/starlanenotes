@@ -11,4 +11,12 @@ describe("document outline", () => {
       { id: "heading-5", text: "Three", level: 3, line: 5, position: 1 },
     ]);
   });
+
+  it("uses rendered labels for emphasized and linked headings", () => {
+    expect(parseDocumentHeadings("# **Hella Glitchy**\n## [Page edits](https://example.com)"))
+      .toMatchObject([
+        { text: "Hella Glitchy" },
+        { text: "Page edits" },
+      ]);
+  });
 });

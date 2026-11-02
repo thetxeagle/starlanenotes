@@ -1,17 +1,27 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
 import type { DocumentRecord, TemplateRecord } from "@/lib/dataClient";
+import { withJournalTemplatePreference } from "@/lib/journalTemplatePreference";
 import {
   buildJournalCalendar,
+  canCreateJournalEntry,
   calculateJournalStreak,
+  claimJournalMutation,
   filterJournalEntries,
   getJournalDocumentPath,
+  getJournalDataForSpace,
   getJournalPrompts,
   getJournalPromptTemplateCadence,
   getMissingJournalDays,
   getWeeklyJournalEntries,
+  JournalFeedModeSelector,
   journalEntriesFromDocuments,
   parseJournalDate,
+  releaseJournalMutation,
   selectJournalFeedEntries,
+  settleCurrentJournalRequest,
 } from "@/pages/JournalPage";
 
 function doc(id: string, title: string, updated_at = "2026-07-05T12:00:00.000Z"): DocumentRecord {
@@ -32,6 +42,165 @@ function template(input: Partial<TemplateRecord> & Pick<TemplateRecord, "id" | "
 }
 
 describe("JournalPage helpers", () => {
+  it("uses the explicit daily template while preserving the weekly prompt template", () => {
+    const selected = template({ id: "selected", name: "Morning recipe", properties: withJournalTemplatePreference({}, true) });
+    const weekly = template({ id: "weekly", name: "Weekly reflection", tags: ["journal-prompt", "weekly"] });
+    const legacy = template({ id: "legacy", name: "_daily" });
+    const prompts = getJournalPrompts([], new Date(2026, 9, 7), [legacy, weekly, selected]);
+    expect(prompts.find((item) => item.id.startsWith("daily:"))?.template?.id).toBe("selected");
+    expect(prompts.find((item) => item.id.startsWith("weekly:"))?.template?.id).toBe("weekly");
+  });
+
+  it("announces new entries so the Files tree can refresh its document and daily folder list", () => {
+    const source = readFileSync(resolve(process.cwd(), "src/pages/JournalPage.tsx"), "utf8");
+
+    expect(source).toContain('emitGraphDirty(requestScope, "document-created")');
+  });
+
+  it("announces journal failures", () => {
+    const source = readFileSync(resolve(process.cwd(), "src/pages/JournalPage.tsx"), "utf8");
+
+    expect(source).toContain('className="text-danger mt-3 text-sm" role="alert"');
+  });
+
+  it("announces Journal loading as a polite status", () => {
+    const source = readFileSync(resolve(process.cwd(), "src/pages/JournalPage.tsx"), "utf8");
+
+    expect(source).toContain('role="status"');
+    expect(source).toContain('aria-live="polite"');
+    expect(source).toContain("Loading journal…");
+  });
+
+  it("ignores a superseded journal request", async () => {
+    let resolveOld!: (value: string) => void;
+    const oldRequest = new Promise<string>((resolve) => {
+      resolveOld = resolve;
+    });
+    let currentRequestId = 1;
+    let visible = "new space";
+
+    const settling = settleCurrentJournalRequest(
+      oldRequest,
+      () => currentRequestId === 1,
+      (value) => {
+        visible = value;
+      },
+      () => {
+        visible = "error";
+      },
+      () => undefined,
+    );
+    currentRequestId = 2;
+    resolveOld("old space");
+    await settling;
+
+    expect(visible).toBe("new space");
+  });
+
+  it("hides the previous space's entries immediately while the next Journal loads", () => {
+    const previousSpaceEntries = journalEntriesFromDocuments([doc("old-entry", "2026-07-05")]);
+
+    expect(getJournalDataForSpace("space-a", "space-a", previousSpaceEntries)).toEqual(
+      previousSpaceEntries,
+    );
+    expect(getJournalDataForSpace("space-b", "space-a", previousSpaceEntries)).toEqual([]);
+    expect(getJournalDataForSpace("space-b", null, previousSpaceEntries)).toEqual([]);
+  });
+
+  it("blocks Journal creation while the current load is pending or failed", () => {
+    expect(canCreateJournalEntry("space-a", "space-a", false, "")).toBe(true);
+    expect(canCreateJournalEntry("space-a", "space-a", true, "")).toBe(false);
+    expect(canCreateJournalEntry("space-a", "space-a", false, "load failed")).toBe(false);
+    expect(canCreateJournalEntry("space-b", "space-a", false, "")).toBe(false);
+  });
+
+  it("ignores entry creation completion after the active space changes", async () => {
+    let resolveCreation!: (value: string) => void;
+    const creation = new Promise<string>((resolve) => {
+      resolveCreation = resolve;
+    });
+    let activeScope = "space-a";
+    const requestScope = activeScope;
+    let destination = "current space";
+    let busy = true;
+
+    const settling = settleCurrentJournalRequest(
+      creation,
+      () => requestScope === activeScope,
+      (documentId) => {
+        destination = documentId;
+      },
+      () => {
+        destination = "error";
+      },
+      () => {
+        busy = false;
+      },
+    );
+    activeScope = "space-b";
+    resolveCreation("old-space-document");
+    await settling;
+
+    expect(destination).toBe("current space");
+    expect(busy).toBe(true);
+  });
+
+  it("binds journal creation state and navigation to the active space", () => {
+    const source = readFileSync(resolve(process.cwd(), "src/pages/JournalPage.tsx"), "utf8");
+
+    expect(source).toContain("requestScope === activeJournalScopeRef.current");
+    expect(source).toContain("busyEntry?.scope === journalScope");
+    expect(source).toContain("if (isCurrent()) navigate(getJournalDocumentPath(requestScope, created.id))");
+  });
+
+  it("serializes Journal creation before React renders disabled controls", () => {
+    const lock = { scope: "space-a", dateStamp: "" };
+
+    expect(claimJournalMutation(lock, "space-a", "2026-10-03")).toBe(true);
+    expect(claimJournalMutation(lock, "space-a", "2026-10-03")).toBe(false);
+    expect(claimJournalMutation(lock, "space-a", "2026-10-02")).toBe(false);
+    expect(releaseJournalMutation(lock, "space-a", "2026-10-02")).toBe(false);
+    expect(releaseJournalMutation(lock, "space-a", "2026-10-03")).toBe(true);
+  });
+
+  it("starts with an independent Journal creation lock after a space change", () => {
+    const lock = { scope: "space-a", dateStamp: "2026-10-03" };
+
+    expect(claimJournalMutation(lock, "space-b", "2026-10-03")).toBe(true);
+    expect(lock).toEqual({ scope: "space-b", dateStamp: "2026-10-03" });
+  });
+
+  it("exposes the active Journal creation date as busy", () => {
+    const source = readFileSync(resolve(process.cwd(), "src/pages/JournalPage.tsx"), "utf8");
+
+    expect(source.match(/aria-busy=\{busyDate ===/g)).toHaveLength(4);
+    expect(source).toContain("Creating journal entry for ${todayStamp}");
+    expect(source).toContain('"Creating Today…"');
+  });
+
+  it("announces the default Recent feed mode as selected", () => {
+    const html = renderToStaticMarkup(
+      <JournalFeedModeSelector mode="recent" onChange={() => undefined} />,
+    );
+
+    expect(html).toContain('role="group"');
+    expect(html).toContain('aria-label="Journal feed mode"');
+    expect(html).toContain('<button type="button" aria-pressed="true"');
+    expect(html.match(/aria-pressed="true"/g)).toHaveLength(1);
+    expect(html).toContain("Recent");
+  });
+
+  it("moves the announced selected state when the feed mode changes", () => {
+    const html = renderToStaticMarkup(
+      <JournalFeedModeSelector mode="week" onChange={() => undefined} />,
+    );
+
+    expect(html.match(/aria-pressed="true"/g)).toHaveLength(1);
+    expect(html).toMatch(/aria-pressed="false"[^>]*>Recent</);
+    expect(html).toMatch(/aria-pressed="true"[^>]*>This week</);
+    expect(html).toMatch(/aria-pressed="false"[^>]*>Missed</);
+  });
+
   it("builds encoded document routes for journal entries", () => {
     expect(getJournalDocumentPath("space-1", "doc-1")).toBe("/spaces/space-1/docs/doc-1");
     expect(getJournalDocumentPath("space/one", "doc/one")).toBe(

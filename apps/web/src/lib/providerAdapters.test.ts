@@ -9,6 +9,7 @@ import {
   buildProviderRemoteSyncManifest,
   buildProviderRemoteWriteRequestSpec,
   createProviderAdapter,
+  parseDocumentMetadataIntent,
   executeProviderRemoteImportApplyPlan,
   executeProviderRemoteMutationEnvelope,
   executeProviderRemoteMutationEnvelopeWithTransport,
@@ -37,6 +38,13 @@ describe("providerAdapters", () => {
 
   afterEach(() => {
     delete (globalThis as { window?: unknown }).window;
+  });
+
+  it("accepts only explicit known metadata intent fields and exact source/draft context", () => {
+    const payload = { space_id: "raw space", folder_id: null, parent_id: "raw parent", metadata_intent: { version: 1, fields: ["folder_id", "parent_id"], source: { page_updated_at: "base", published_at: null } } };
+    expect(parseDocumentMetadataIntent(payload).fields).toEqual(["folder_id", "parent_id"]);
+    for (const patch of [{ folder_id: 3 }, { metadata_intent: { ...payload.metadata_intent, fields: ["folder_id", "folder_id"] } }, { metadata_intent: { ...payload.metadata_intent, fields: ["title"] } }, { metadata_intent: { ...payload.metadata_intent, draft: { mode: "shared_latest" } } }, { metadata_intent: { ...payload.metadata_intent, source: { page_updated_at: "base" } } }])
+      expect(() => parseDocumentMetadataIntent({ ...payload, ...patch })).toThrow();
   });
 
   it("identifies provider remote import operation families supported by the local merge executor", () => {

@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, State},
+    extract::{FromRef, FromRequestParts, Path, State},
     routing::{get, post},
     Json, Router,
 };
@@ -15,11 +15,79 @@ use crate::AppState;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/mcp/manifest", get(get_mcp_manifest))
-        .route("/mcp/tools/{tool_name}", post(execute_mcp_tool))
+        .route("/mcp/tools/{tool_name}", post(execute_mcp_tool_http))
 }
 
 pub async fn get_mcp_manifest(_auth: AuthUser) -> Json<McpServerManifest> {
     Json(mcp_server_manifest())
+}
+
+/// Read POST tools use an explicit key ceiling; the request method and identity
+/// evidence are never rewritten. New tools do not inherit this allowlist.
+struct McpToolAuth(AuthUser);
+impl<S> FromRequestParts<S> for McpToolAuth
+where
+    S: Send + Sync,
+    AppState: FromRef<S>,
+{
+    type Rejection = crate::auth::middleware::AuthError;
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        state: &S,
+    ) -> Result<Self, Self::Rejection> {
+        let Path(name) = Path::<String>::from_request_parts(parts, state)
+            .await
+            .map_err(|_| crate::auth::middleware::AuthError::InvalidToken)?;
+        let operation = if mcp_tool_is_executable_http(&name)
+            && matches!(
+                name.as_str(),
+                "starlane.spaces.list"
+                    | "starlane.spaces.get"
+                    | "starlane.folders.list"
+                    | "starlane.documents.get"
+                    | "starlane.search.query"
+                    | "starlane.graph.get"
+                    | "starlane.tags.list"
+                    | "starlane.properties.list"
+                    | "starlane.templates.list"
+                    | "starlane.admin.users.list"
+            ) {
+            crate::auth::middleware::ApiKeyRequestOperation::Read
+        } else {
+            crate::auth::middleware::ApiKeyRequestOperation::for_method(&parts.method)
+        };
+        let state = AppState::from_ref(state);
+        crate::auth::middleware::authenticate_request(parts, &state, operation)
+            .await
+            .map(Self)
+    }
+}
+#[cfg(test)]
+thread_local! {
+    static MCP_AFTER_DOCUMENT_READ:std::cell::RefCell<Option<std::pin::Pin<Box<dyn std::future::Future<Output=()>+Send>>>>=std::cell::RefCell::new(None);
+    static MCP_AFTER_FINAL_DOCUMENT_SOURCE:std::cell::RefCell<Option<std::pin::Pin<Box<dyn std::future::Future<Output=()>+Send>>>>=std::cell::RefCell::new(None);
+    static MCP_AFTER_FINAL_PAGE_VIEW:std::cell::RefCell<Option<std::pin::Pin<Box<dyn std::future::Future<Output=()>+Send>>>>=std::cell::RefCell::new(None);
+    static MCP_BEFORE_FINAL_RESPONSE:std::cell::RefCell<Option<std::pin::Pin<Box<dyn std::future::Future<Output=()>+Send>>>>=std::cell::RefCell::new(None);
+}
+/// Test pause occurs before the consumer's last current resource proof, never
+/// after a proof-complete shared result. Production has no additional await.
+#[cfg(test)]
+async fn before_mcp_final_resource_proof() {
+    #[cfg(test)]
+    {
+        let hook = MCP_BEFORE_FINAL_RESPONSE.with(|slot| slot.borrow_mut().take());
+        if let Some(hook) = hook {
+            hook.await;
+        }
+    }
+}
+async fn execute_mcp_tool_http(
+    State(state): State<AppState>,
+    McpToolAuth(auth): McpToolAuth,
+    Path(name): Path<String>,
+    Json(request): Json<McpToolExecutionRequest>,
+) -> Result<Json<McpToolExecutionResponse>, AppError> {
+    execute_mcp_tool(State(state), auth, Path(name), Json(request)).await
 }
 
 pub async fn execute_mcp_tool(
@@ -36,6 +104,7 @@ pub async fn execute_mcp_tool(
         ));
     }
 
+    require_mcp_current_read(&state, &auth, tool.name == "starlane.admin.users.list").await?;
     let result = match tool.name {
         "starlane.spaces.list" => execute_spaces_list(&state, &auth).await?,
         "starlane.spaces.get" => execute_space_get(&state, &auth, &request.input).await?,
@@ -777,6 +846,7 @@ pub fn mcp_tool_is_executable_http(name: &str) -> bool {
 }
 
 async fn execute_spaces_list(state: &AppState, auth: &AuthUser) -> Result<Value, AppError> {
+    let mut conn = state.db.acquire().await.map_err(AppError::internal)?;
     let rows: Vec<(
         String,
         String,
@@ -794,21 +864,33 @@ async fn execute_spaces_list(state: &AppState, auth: &AuthUser) -> Result<Value,
          sm.role, \
          (SELECT sgp.role FROM space_group_permissions sgp \
           JOIN group_members gm ON gm.group_id = sgp.group_id \
-          WHERE sgp.space_id = s.id AND gm.user_id = ?1 \
+          WHERE sgp.space_id = s.id AND gm.user_id = $1 \
           ORDER BY CASE sgp.role WHEN 'owner' THEN 1 WHEN 'editor' THEN 2 ELSE 3 END LIMIT 1), \
          s.created_at, s.updated_at \
          FROM spaces s \
-         LEFT JOIN space_members sm ON s.id = sm.space_id AND sm.user_id = ?1 \
-         WHERE sm.user_id IS NOT NULL \
-            OR EXISTS (SELECT 1 FROM space_group_permissions sgp JOIN group_members gm ON gm.group_id = sgp.group_id WHERE sgp.space_id = s.id AND gm.user_id = ?1) \
-            OR s.visibility IN ('internal', 'public') \
+         LEFT JOIN space_members sm ON s.id = sm.space_id AND sm.user_id = $1 \
          ORDER BY s.name",
     )
     .bind(&auth.claims.sub)
-    .fetch_all(&state.db)
+    .fetch_all(&mut *conn)
     .await
     .map_err(AppError::internal)?;
 
+    let mut current = Vec::new();
+    for row in rows {
+        if mcp_space_visible(&mut conn, auth, &row.0).await? {
+            current.push(row);
+        }
+    }
+    #[cfg(test)]
+    before_mcp_final_resource_proof().await;
+    crate::spaces::access::require_current_human_read(&mut conn, auth).await?;
+    let mut rows = Vec::new();
+    for row in current {
+        if mcp_space_visible(&mut conn, auth, &row.0).await? {
+            rows.push(row);
+        }
+    }
     Ok(Value::Array(
         rows.into_iter()
             .map(
@@ -849,6 +931,8 @@ async fn execute_space_get(
     input: &Value,
 ) -> Result<Value, AppError> {
     let space_id = required_input_string(input, "space_id")?;
+    let mut conn = state.db.acquire().await.map_err(AppError::internal)?;
+    mcp_space_view(&mut conn, auth, space_id).await?;
     let space: Option<(
         String,
         String,
@@ -861,25 +945,19 @@ async fn execute_space_get(
         String,
     )> = sqlx::query_as(
         "SELECT id, name, slug, description, icon, accent_color, visibility, created_at, updated_at \
-         FROM spaces WHERE id = ?1",
+         FROM spaces WHERE id = $1",
     )
     .bind(space_id)
-    .fetch_optional(&state.db)
+    .fetch_optional(&mut *conn)
     .await
     .map_err(AppError::internal)?;
 
     let (id, name, slug, description, icon, accent_color, visibility, created_at, updated_at) =
         space.ok_or_else(|| AppError::NotFound("Space not found".into()))?;
-    if visibility == "private" {
-        crate::spaces::routes::require_space_role(
-            state,
-            space_id,
-            &auth.claims.sub,
-            &["owner", "editor", "viewer"],
-        )
-        .await?;
-    }
 
+    #[cfg(test)]
+    before_mcp_final_resource_proof().await;
+    mcp_space_view(&mut conn, auth, space_id).await?;
     Ok(json!({
         "id": id,
         "name": name,
@@ -898,51 +976,60 @@ async fn execute_document_get(
     auth: &AuthUser,
     input: &Value,
 ) -> Result<Value, AppError> {
-    let space_id = required_input_string(input, "space_id")?;
-    let document_id = required_input_string(input, "document_id")?;
-    crate::spaces::routes::require_space_role(
-        state,
-        space_id,
-        &auth.claims.sub,
-        &["owner", "editor", "viewer"],
+    let space = required_input_string(input, "space_id")?;
+    let document = required_input_string(input, "document_id")?;
+    let mut conn = state.db.acquire().await.map_err(AppError::internal)?;
+    mcp_page_view(&mut conn, auth, space, document).await?;
+    let row:Option<(String,String,String,Option<String>,String,String,String,String,String)>=sqlx::query_as("SELECT id,space_id,title,folder_id,content_path,created_by,created_at,updated_at,published_at FROM documents WHERE id=$1 AND space_id=$2 AND published_at IS NOT NULL AND archived_at IS NULL AND deleted_at IS NULL").bind(document).bind(space).fetch_optional(&mut *conn).await.map_err(AppError::internal)?;
+    let (id, space_id, title, folder_id, path, created_by, created_at, updated_at, published) =
+        row.ok_or_else(|| AppError::NotFound("Target unavailable".into()))?;
+    crate::spaces::documents::require_current_document_read_source(
+        &mut conn,
+        space,
+        &id,
+        &published,
+        &path,
+        &updated_at,
     )
     .await?;
-
-    let row: Option<(
-        String,
-        String,
-        String,
-        Option<String>,
-        String,
-        String,
-        String,
-        String,
-    )> = sqlx::query_as(
-        "SELECT id, space_id, title, folder_id, content_path, created_by, created_at, updated_at \
-         FROM documents WHERE id = ?1 AND space_id = ?2",
-    )
-    .bind(document_id)
-    .bind(space_id)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(AppError::internal)?;
-
-    let (id, space_id, title, folder_id, content_path, created_by, created_at, updated_at) =
-        row.ok_or_else(|| AppError::NotFound("Document not found".into()))?;
-    let content = storage::read_document(&content_path)
+    let content = storage::read_document(&path)
         .await
-        .map_err(|e| AppError::Internal(format!("Failed to read document: {}", e)))?;
-
-    Ok(json!({
-        "id": id,
-        "space_id": space_id,
-        "folder_id": folder_id,
-        "title": title,
-        "content": content,
-        "created_by": created_by,
-        "created_at": created_at,
-        "updated_at": updated_at
-    }))
+        .map_err(|_| AppError::NotFound("Document content unavailable".into()))?;
+    #[cfg(test)]
+    {
+        let hook = MCP_AFTER_DOCUMENT_READ.with(|slot| slot.borrow_mut().take());
+        if let Some(hook) = hook {
+            hook.await;
+        }
+    }
+    #[cfg(test)]
+    before_mcp_final_resource_proof().await;
+    mcp_page_view(&mut conn, auth, space, &id).await?;
+    #[cfg(test)]
+    {
+        let hook = MCP_AFTER_FINAL_PAGE_VIEW.with(|slot| slot.borrow_mut().take());
+        if let Some(hook) = hook {
+            hook.await;
+        }
+    }
+    // Source-row equality does not retain member authority after the final wait.
+    // Legacy View deliberately excludes unsupported guest MCP page access.
+    mcp_page_view(&mut conn, auth, space, &id).await?;
+    crate::spaces::documents::require_current_document_read_source(
+        &mut conn,
+        space,
+        &id,
+        &published,
+        &path,
+        &updated_at,
+    )
+    .await?;
+    #[cfg(test)]
+    {let hook=MCP_AFTER_FINAL_DOCUMENT_SOURCE.with(|slot|slot.borrow_mut().take());if let Some(hook)=hook {hook.await;}}
+    crate::spaces::access::require_current_human_member_read(&mut conn, auth).await?;
+    Ok(
+        json!({"id":id,"space_id":space_id,"folder_id":folder_id,"title":title,"content":content,"created_by":created_by,"created_at":created_at,"updated_at":updated_at}),
+    )
 }
 
 async fn execute_folders_list(
@@ -951,7 +1038,9 @@ async fn execute_folders_list(
     input: &Value,
 ) -> Result<Value, AppError> {
     let space_id = required_input_string(input, "space_id")?;
-    require_mcp_readable_space(state, auth, space_id).await?;
+    let mut conn = state.db.acquire().await.map_err(AppError::internal)?;
+    mcp_space_view(&mut conn, auth, space_id).await?;
+
     let rows: Vec<(
         String,
         String,
@@ -963,13 +1052,16 @@ async fn execute_folders_list(
         String,
     )> = sqlx::query_as(
         "SELECT id, space_id, parent_id, name, icon, sort_order, created_at, updated_at \
-             FROM folders WHERE space_id = ?1 ORDER BY sort_order, name",
+             FROM folders WHERE space_id = $1 ORDER BY sort_order, name",
     )
     .bind(space_id)
-    .fetch_all(&state.db)
+    .fetch_all(&mut *conn)
     .await
     .map_err(AppError::internal)?;
 
+    #[cfg(test)]
+    before_mcp_final_resource_proof().await;
+    mcp_space_view(&mut conn, auth, space_id).await?;
     Ok(Value::Array(
         rows.into_iter()
             .map(
@@ -995,10 +1087,7 @@ async fn execute_search_query(
     auth: &AuthUser,
     input: &Value,
 ) -> Result<Value, AppError> {
-    let q = required_input_string(input, "q")?.trim().to_string();
-    if q.is_empty() {
-        return Err(AppError::BadRequest("MCP search query is required".into()));
-    }
+    let q = required_input_string(input, "q")?.trim().to_owned();
     if q.len() > 500 {
         return Err(AppError::BadRequest(
             "MCP search query must be at most 500 characters".into(),
@@ -1009,44 +1098,17 @@ async fn execute_search_query(
         .and_then(Value::as_u64)
         .unwrap_or(20)
         .clamp(1, 100) as usize;
-    let requested_space_id = optional_input_string(input, "space_id");
-    if let Some(space_id) = requested_space_id {
-        crate::spaces::routes::require_space_role(
-            state,
-            space_id,
-            &auth.claims.sub,
-            &["owner", "editor", "viewer"],
-        )
-        .await?;
-    }
-
-    let hits = state
-        .search_index
-        .search(&q, requested_space_id, limit)
-        .map_err(|e| AppError::Internal(format!("Search error: {}", e)))?;
-    let mut results = Vec::new();
-    for hit in hits {
-        if requested_space_id.is_none()
-            && crate::spaces::routes::require_space_role(
-                state,
-                &hit.space_id,
-                &auth.claims.sub,
-                &["owner", "editor", "viewer"],
-            )
-            .await
-            .is_err()
-        {
-            continue;
-        }
-        results.push(json!({
-            "document_id": hit.doc_id,
-            "space_id": hit.space_id,
-            "title": hit.title,
-            "excerpt": hit.excerpt
-        }));
-    }
-
-    Ok(Value::Array(results))
+    let query = crate::search::SearchQuery {
+        q: Some(q),
+        space_id: optional_input_string(input, "space_id").map(str::to_owned),
+        limit: Some(limit),
+        is_draft: Some(false),
+        ..Default::default()
+    };
+    #[cfg(test)]
+    before_mcp_final_resource_proof().await;
+    let hits = crate::search::search_visible_pages(state, auth, &query).await?;
+    Ok(Value::Array(hits.into_iter().map(|hit|json!({"document_id":hit.document_id,"space_id":hit.space_id,"title":hit.title,"excerpt":hit.excerpt})).collect()))
 }
 
 async fn execute_graph_get(
@@ -1054,36 +1116,11 @@ async fn execute_graph_get(
     auth: &AuthUser,
     input: &Value,
 ) -> Result<Value, AppError> {
-    let space_id = required_input_string(input, "space_id")?;
-    crate::spaces::routes::require_space_role(
-        state,
-        space_id,
-        &auth.claims.sub,
-        &["owner", "editor"],
-    )
-    .await?;
-
-    let rows: Vec<(String, String, Option<String>)> = sqlx::query_as(
-        "SELECT id, title, folder_id FROM documents WHERE space_id = ?1 ORDER BY title",
-    )
-    .bind(space_id)
-    .fetch_all(&state.db)
-    .await
-    .map_err(AppError::internal)?;
-
-    Ok(json!({
-        "nodes": rows
-            .into_iter()
-            .map(|(id, title, folder_id)| json!({
-                "id": id,
-                "title": title,
-                "folder_id": folder_id,
-                "connection_count": 0,
-                "orphan": true
-            }))
-            .collect::<Vec<_>>(),
-        "edges": []
-    }))
+    let space = required_input_string(input, "space_id")?;
+    #[cfg(test)]
+    before_mcp_final_resource_proof().await;
+    serde_json::to_value(crate::spaces::graph::read_space_graph(state, auth, space).await?)
+        .map_err(AppError::internal)
 }
 
 async fn execute_tags_list(
@@ -1091,31 +1128,11 @@ async fn execute_tags_list(
     auth: &AuthUser,
     input: &Value,
 ) -> Result<Value, AppError> {
-    let space_id = required_input_string(input, "space_id")?;
-    require_mcp_readable_space(state, auth, space_id).await?;
-    let rows: Vec<(String, String, String, String, i64)> = sqlx::query_as(
-        "SELECT t.id, t.name, t.color, t.created_at, COUNT(dt.document_id) as doc_count \
-         FROM tags t LEFT JOIN doc_tags dt ON t.id = dt.tag_id \
-         WHERE t.space_id = ?1 GROUP BY t.id, t.name, t.color, t.created_at ORDER BY t.name",
-    )
-    .bind(space_id)
-    .fetch_all(&state.db)
-    .await
-    .map_err(AppError::internal)?;
-
-    Ok(Value::Array(
-        rows.into_iter()
-            .map(|(id, name, color, created_at, doc_count)| {
-                json!({
-                    "id": id,
-                    "name": name,
-                    "color": color,
-                    "created_at": created_at,
-                    "doc_count": doc_count
-                })
-            })
-            .collect(),
-    ))
+    let space = required_input_string(input, "space_id")?;
+    #[cfg(test)]
+    before_mcp_final_resource_proof().await;
+    serde_json::to_value(crate::spaces::tags::read_tag_catalog(state, auth, space).await?)
+        .map_err(AppError::internal)
 }
 
 async fn execute_properties_list(
@@ -1124,16 +1141,21 @@ async fn execute_properties_list(
     input: &Value,
 ) -> Result<Value, AppError> {
     let space_id = required_input_string(input, "space_id")?;
-    require_mcp_readable_space(state, auth, space_id).await?;
+    let mut conn = state.db.acquire().await.map_err(AppError::internal)?;
+    mcp_space_view(&mut conn, auth, space_id).await?;
+
     let rows: Vec<(String, String, String, Option<String>, i32)> = sqlx::query_as(
         "SELECT id, name, property_type, options, sort_order FROM properties_schema \
-         WHERE space_id = ?1 ORDER BY sort_order",
+         WHERE space_id = $1 ORDER BY sort_order",
     )
     .bind(space_id)
-    .fetch_all(&state.db)
+    .fetch_all(&mut *conn)
     .await
     .map_err(AppError::internal)?;
 
+    #[cfg(test)]
+    before_mcp_final_resource_proof().await;
+    mcp_space_view(&mut conn, auth, space_id).await?;
     Ok(Value::Array(
         rows.into_iter()
             .map(|(id, name, property_type, options, sort_order)| {
@@ -1155,7 +1177,9 @@ async fn execute_templates_list(
     input: &Value,
 ) -> Result<Value, AppError> {
     let space_id = required_input_string(input, "space_id")?;
-    require_mcp_readable_space(state, auth, space_id).await?;
+    let mut conn = state.db.acquire().await.map_err(AppError::internal)?;
+    mcp_space_view(&mut conn, auth, space_id).await?;
+
     let rows: Vec<(
         String,
         String,
@@ -1169,13 +1193,16 @@ async fn execute_templates_list(
         String,
     )> = sqlx::query_as(
         "SELECT id, space_id, name, description, content, properties, tags, created_by, created_at, updated_at \
-         FROM templates WHERE space_id = ?1 ORDER BY name",
+         FROM templates WHERE space_id = $1 ORDER BY name",
     )
     .bind(space_id)
-    .fetch_all(&state.db)
+    .fetch_all(&mut *conn)
     .await
     .map_err(AppError::internal)?;
 
+    #[cfg(test)]
+    before_mcp_final_resource_proof().await;
+    mcp_space_view(&mut conn, auth, space_id).await?;
     Ok(Value::Array(
         rows.into_iter()
             .map(
@@ -1216,7 +1243,7 @@ async fn execute_admin_users_list(
     auth: &AuthUser,
     input: &Value,
 ) -> Result<Value, AppError> {
-    require_mcp_admin(auth)?;
+    require_mcp_current_read(state, auth, true).await?;
     let role_filter = optional_input_string(input, "role");
     if let Some(role) = role_filter {
         if !matches!(role, "admin" | "member") {
@@ -1248,10 +1275,10 @@ async fn execute_admin_users_list(
     )> = sqlx::query_as(
         "SELECT id, email, display_name, avatar_url, role, is_active, created_at, updated_at \
              FROM users \
-             WHERE (?1 IS NULL OR role = ?1) \
-               AND (?2 IS NULL OR is_active = ?2) \
-               AND (?3 IS NULL OR lower(email) LIKE ?3 OR lower(display_name) LIKE ?3) \
-             ORDER BY email LIMIT ?4",
+             WHERE ($1 IS NULL OR role = $1) \
+               AND ($2 IS NULL OR is_active = $2) \
+               AND ($3 IS NULL OR lower(email) LIKE $3 OR lower(display_name) LIKE $3) \
+             ORDER BY email LIMIT $4",
     )
     .bind(role_filter)
     .bind(active_filter.map(|active| if active { 1 } else { 0 }))
@@ -1261,6 +1288,9 @@ async fn execute_admin_users_list(
     .await
     .map_err(AppError::internal)?;
 
+    #[cfg(test)]
+    before_mcp_final_resource_proof().await;
+    require_mcp_current_read(state, auth, true).await?;
     Ok(Value::Array(
         rows.into_iter()
             .map(
@@ -1281,32 +1311,89 @@ async fn execute_admin_users_list(
     ))
 }
 
-async fn require_mcp_readable_space(
+async fn require_mcp_current_read(
     state: &AppState,
     auth: &AuthUser,
-    space_id: &str,
+    admin: bool,
 ) -> Result<(), AppError> {
-    crate::spaces::routes::require_space_role(
-        state,
-        space_id,
-        &auth.claims.sub,
-        &["owner", "editor", "viewer"],
-    )
-    .await
-    .map(|_| ())
+    use crate::spaces::access::{
+        principal_from_auth, ApiKeyScope, CurrentKeyCapability, Principal,
+    };
+    let mut conn = state.db.acquire().await.map_err(AppError::internal)?;
+    let principal = principal_from_auth(auth)?;
+    if let Principal::ServiceKey { key_id } = principal {
+        if !admin {
+            return Err(AppError::Unauthorized(
+                "MCP human principal required".into(),
+            ));
+        }
+        return match crate::spaces::access::resolve_current_key(&mut conn, key_id).await? {
+            CurrentKeyCapability::Service(capability)
+                if capability.scopes.contains(&ApiKeyScope::Admin) =>
+            {
+                Ok(())
+            }
+            _ => Err(AppError::Forbidden("Admin capability required".into())),
+        };
+    }
+    let actor = crate::spaces::access::require_current_human_read(&mut conn, auth).await?;
+    if admin {
+        if let Principal::UserKey { key_id, .. } = principal {
+            match crate::spaces::access::resolve_current_key(&mut conn, key_id).await? {
+                CurrentKeyCapability::User(capability)
+                    if capability.user_id == actor
+                        && capability.scopes.contains(&ApiKeyScope::Admin) => {}
+                _ => return Err(AppError::Forbidden("Admin API key scope required".into())),
+            }
+        }
+        crate::spaces::access::require_current_human_instance_admin(&mut conn, auth)
+            .await.map_err(|_| AppError::Forbidden("Admin access required".into()))?;
+    }
+    Ok(())
 }
-
-fn require_mcp_admin(auth: &AuthUser) -> Result<(), AppError> {
-    if auth.claims.role != "admin" {
-        return Err(AppError::Forbidden("Admin access required".into()));
+async fn mcp_space_view(
+    conn: &mut sqlx::AnyConnection,
+    auth: &AuthUser,
+    space: &str,
+) -> Result<(), AppError> {
+    let access = crate::spaces::access::resolve_space_access(
+        conn,
+        crate::spaces::access::principal_from_auth(auth)?,
+        space,
+        crate::spaces::access::Purpose::Routine,
+    )
+    .await?;
+    if !access.allows(crate::spaces::access::Permission::View) {
+        return Err(AppError::NotFound("Target unavailable".into()));
     }
-    if auth
-        .api_key_scopes
-        .as_ref()
-        .is_some_and(|scopes| !scopes.iter().any(|scope| scope == "admin"))
-    {
-        return Err(AppError::Forbidden("Admin API key scope required".into()));
+    Ok(())
+}
+async fn mcp_space_visible(
+    conn: &mut sqlx::AnyConnection,
+    auth: &AuthUser,
+    space: &str,
+) -> Result<bool, AppError> {
+    match mcp_space_view(conn, auth, space).await {
+        Ok(()) => Ok(true),
+        Err(AppError::NotFound(_)) => Ok(false),
+        Err(error) => Err(error),
     }
+}
+async fn mcp_page_view(
+    conn: &mut sqlx::AnyConnection,
+    auth: &AuthUser,
+    space: &str,
+    document: &str,
+) -> Result<(), AppError> {
+    crate::spaces::access::resolve_page_access(
+        conn,
+        crate::spaces::access::principal_from_auth(auth)?,
+        space,
+        document,
+        crate::spaces::access::PageOperation::View,
+        crate::spaces::access::Purpose::Routine,
+    )
+    .await?;
     Ok(())
 }
 
@@ -1407,6 +1494,7 @@ mod tests {
             base_url: "http://localhost:3000".to_string(),
             search_index: crate::search::SearchIndex::new(index_path).expect("search index"),
             oauth_cache: crate::auth::routes::OAuthStateCache::new(),
+            ws_rooms: crate::sync::WsRooms::default(),
         }
     }
 
@@ -1424,6 +1512,725 @@ mod tests {
             api_key_scopes: api_key_scopes
                 .map(|scopes| scopes.into_iter().map(str::to_string).collect()),
         }
+    }
+
+    async fn current_mcp_state() -> AppState {
+        let state = crate::spaces::properties::tests::property_test_state().await;
+        let slug = format!("mcp-read-{}", uuid::Uuid::new_v4());
+        sqlx::query("UPDATE spaces SET slug=$1 WHERE id='space-a'")
+            .bind(&slug)
+            .execute(&state.db)
+            .await
+            .unwrap();
+        let path = crate::storage::write_document(
+            &slug,
+            "target-a",
+            "Visible target",
+            "",
+            "MCP searchable nebula",
+        )
+        .await
+        .unwrap();
+        sqlx::query(
+            "UPDATE documents SET title='Visible target',content_path=$1 WHERE id='target-a'",
+        )
+        .bind(path)
+        .execute(&state.db)
+        .await
+        .unwrap();
+        state
+            .search_index
+            .upsert(crate::search::index::DocEntry {
+                doc_id: "target-a".into(),
+                space_id: "space-a".into(),
+                title: "Visible target".into(),
+                body: "MCP searchable nebula".into(),
+                tags: String::new(),
+            })
+            .unwrap();
+        sqlx::query("INSERT INTO tags(id,space_id,name) VALUES('mcp-tag','space-a','Tag')")
+            .execute(&state.db)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO doc_tags(document_id,tag_id) VALUES('target-a','mcp-tag')")
+            .execute(&state.db)
+            .await
+            .unwrap();
+        state
+    }
+    async fn current_mcp_key(
+        state: &AppState,
+        id: &str,
+        user: Option<&str>,
+        scopes: &str,
+    ) -> String {
+        let key = format!("plaintext-{id}");
+        sqlx::query("INSERT INTO api_keys(id,user_id,name,key_hash,key_prefix,is_service_account,scopes) VALUES($1,$2,'MCP',$3,'prefix',$4,$5)").bind(id).bind(user).bind(crate::auth::api_keys::hash_api_key(&key)).bind(if user.is_none(){1_i64}else{0}).bind(scopes).execute(&state.db).await.unwrap();
+        key
+    }
+    async fn call_mcp(
+        state: &AppState,
+        key: &str,
+        tool: &str,
+        input: Value,
+    ) -> (axum::http::StatusCode, Value) {
+        use tower::ServiceExt;
+        let response = super::router()
+            .with_state(state.clone())
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri(format!("/mcp/tools/{tool}"))
+                    .header("X-API-Key", key)
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(json!({"input":input}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+        (status, body)
+    }
+    #[tokio::test]
+    async fn current_router_admits_read_keys_for_all_enabled_human_tools_and_retains_write_gate() {
+        let state = current_mcp_state().await;
+        let read = current_mcp_key(&state, "read", Some("viewer-a"), "[\"read\"]").await;
+        for (tool, input) in [
+            ("starlane.spaces.list", json!({})),
+            ("starlane.spaces.get", json!({"space_id":"space-a"})),
+            ("starlane.folders.list", json!({"space_id":"space-a"})),
+            (
+                "starlane.documents.get",
+                json!({"space_id":"space-a","document_id":"target-a"}),
+            ),
+            ("starlane.graph.get", json!({"space_id":"space-a"})),
+            ("starlane.tags.list", json!({"space_id":"space-a"})),
+            ("starlane.properties.list", json!({"space_id":"space-a"})),
+            ("starlane.templates.list", json!({"space_id":"space-a"})),
+            (
+                "starlane.search.query",
+                json!({"q":"nebula","space_id":"space-a"}),
+            ),
+        ] {
+            let (status, body) = call_mcp(&state, &read, tool, input).await;
+            assert_eq!(status, axum::http::StatusCode::OK, "{tool}: {body}");
+            assert_eq!(body["tool"], tool);
+            assert_eq!(body["read_only"], true);
+        }
+        let (status, body) = call_mcp(
+            &state,
+            &read,
+            "starlane.documents.get",
+            json!({"space_id":"space-a","document_id":"target-a"}),
+        )
+        .await;
+        assert_eq!(status, axum::http::StatusCode::OK);
+        assert!(body["result"]["content"]
+            .as_str()
+            .unwrap()
+            .contains("nebula"));
+        assert_eq!(body["result"]["title"], "Visible target");
+        let (_, hits) = call_mcp(
+            &state,
+            &read,
+            "starlane.search.query",
+            json!({"q":"nebula","space_id":"space-a"}),
+        )
+        .await;
+        assert_eq!(hits["result"].as_array().unwrap().len(), 1);
+        assert_eq!(hits["result"][0]["title"], "Visible target");
+        assert!(hits["result"][0]["excerpt"]
+            .as_str()
+            .unwrap()
+            .contains("nebula"));
+        let slug: String = sqlx::query_scalar("SELECT slug FROM spaces WHERE id='space-a'")
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+        let peer =
+            crate::storage::write_document(&slug, "visible-peer", "Peer", "", "/docs/target-a")
+                .await
+                .unwrap();
+        sqlx::query("INSERT INTO documents(id,space_id,title,content_path,created_by,last_updated_by,published_at) VALUES('visible-peer','space-a','Peer',$1,'owner-a','owner-a','published')").bind(peer).execute(&state.db).await.unwrap();
+        let (_, graph) = call_mcp(
+            &state,
+            &read,
+            "starlane.graph.get",
+            json!({"space_id":"space-a"}),
+        )
+        .await;
+        assert_eq!(graph["result"]["edges"].as_array().unwrap().len(), 1);
+        assert!(graph["result"]["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|node| node["connection_count"] == 1 && node["orphan"] == false));
+        let write = current_mcp_key(&state, "write", Some("owner-a"), "[\"write\"]").await;
+        for key in [&read, &write] {
+            assert_eq!(
+                call_mcp(
+                    &state,
+                    key,
+                    "starlane.documents.create",
+                    json!({"space_id":"space-a","title":"Deferred"})
+                )
+                .await
+                .0,
+                axum::http::StatusCode::FORBIDDEN
+            );
+        }
+        assert_eq!(
+            call_mcp(
+                &state,
+                &write,
+                "starlane.documents.get",
+                json!({"space_id":"space-a","document_id":"target-a"})
+            )
+            .await
+            .0,
+            axum::http::StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            call_mcp(&state, &read, "starlane.unknown", json!({}))
+                .await
+                .0,
+            axum::http::StatusCode::FORBIDDEN
+        );
+    }
+    #[tokio::test]
+    async fn ordinary_auth_routes_keep_method_key_ceiling_while_mcp_reads_use_explicit_admission() {
+        use tower::ServiceExt;
+        async fn normal(auth: AuthUser) -> String {
+            auth.claims.sub
+        }
+        let state = current_mcp_state().await;
+        let read = current_mcp_key(&state, "normal-read", Some("owner-a"), "[\"read\"]").await;
+        let write = current_mcp_key(&state, "normal-write", Some("owner-a"), "[\"write\"]").await;
+        let app = axum::Router::new()
+            .route("/normal", axum::routing::get(normal).post(normal))
+            .with_state(state.clone());
+        for (key, method, expected) in [
+            (&read, "GET", 200),
+            (&read, "POST", 403),
+            (&write, "GET", 403),
+            (&write, "POST", 200),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    axum::http::Request::builder()
+                        .method(method)
+                        .uri("/normal")
+                        .header("X-API-Key", key)
+                        .body(axum::body::Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status().as_u16(), expected);
+        }
+        let service = current_mcp_key(&state, "normal-service", None, "[\"admin\"]").await;
+        let response = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/normal")
+                    .header("X-API-Key", service)
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), 1000)
+            .await
+            .unwrap();
+        assert_eq!(
+            std::str::from_utf8(&body).unwrap(),
+            "service:normal-service"
+        );
+    }
+
+    #[tokio::test]
+    async fn current_router_page_reads_counts_and_catalogs_hide_private_ancestors_and_blocks() {
+        let state = current_mcp_state().await;
+        let read = current_mcp_key(&state, "private-read", Some("viewer-a"), "[\"read\"]").await;
+        sqlx::query("INSERT INTO documents(id,space_id,title,content_path,created_by,last_updated_by) VALUES('hidden-parent','space-a','Hidden parent','','owner-a','owner-a')").execute(&state.db).await.unwrap();
+        sqlx::query("UPDATE documents SET parent_id='hidden-parent' WHERE id='target-a'")
+            .execute(&state.db)
+            .await
+            .unwrap();
+        assert_eq!(
+            call_mcp(
+                &state,
+                &read,
+                "starlane.documents.get",
+                json!({"space_id":"space-a","document_id":"target-a"})
+            )
+            .await
+            .0,
+            axum::http::StatusCode::NOT_FOUND
+        );
+        let (_, graph) = call_mcp(
+            &state,
+            &read,
+            "starlane.graph.get",
+            json!({"space_id":"space-a"}),
+        )
+        .await;
+        assert_eq!(graph["result"]["nodes"], json!([]));
+        let (_, tags) = call_mcp(
+            &state,
+            &read,
+            "starlane.tags.list",
+            json!({"space_id":"space-a"}),
+        )
+        .await;
+        assert_eq!(tags["result"][0]["doc_count"], 0);
+        let (_, hits) = call_mcp(
+            &state,
+            &read,
+            "starlane.search.query",
+            json!({"q":"nebula","space_id":"space-a"}),
+        )
+        .await;
+        assert_eq!(hits["result"], json!([]));
+        sqlx::query(
+            "UPDATE documents SET parent_id=NULL,archived_at='archived' WHERE id='target-a'",
+        )
+        .execute(&state.db)
+        .await
+        .unwrap();
+        assert_eq!(
+            call_mcp(
+                &state,
+                &read,
+                "starlane.documents.get",
+                json!({"space_id":"space-a","document_id":"target-a"})
+            )
+            .await
+            .0,
+            axum::http::StatusCode::NOT_FOUND
+        );
+        sqlx::query(
+            "UPDATE documents SET archived_at=NULL,deleted_at='deleted' WHERE id='target-a'",
+        )
+        .execute(&state.db)
+        .await
+        .unwrap();
+        assert_eq!(
+            call_mcp(
+                &state,
+                &read,
+                "starlane.documents.get",
+                json!({"space_id":"space-a","document_id":"target-a"})
+            )
+            .await
+            .0,
+            axum::http::StatusCode::NOT_FOUND
+        );
+        sqlx::query("UPDATE spaces SET visibility='public' WHERE id='space-a'")
+            .execute(&state.db)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO space_user_blocks(space_id,user_id,created_by) VALUES('space-a','viewer-a','owner-a')").execute(&state.db).await.unwrap();
+        assert_eq!(
+            call_mcp(
+                &state,
+                &read,
+                "starlane.spaces.get",
+                json!({"space_id":"space-a"})
+            )
+            .await
+            .0,
+            axum::http::StatusCode::NOT_FOUND
+        );
+        let (_, spaces) = call_mcp(&state, &read, "starlane.spaces.list", json!({})).await;
+        assert!(!spaces["result"].to_string().contains("space-a"));
+    }
+    #[tokio::test]
+    async fn current_router_admin_requires_actual_human_or_explicit_service_admin_capability() {
+        let state = current_mcp_state().await;
+        let key = current_mcp_key(&state, "admin", Some("owner-a"), "[\"admin\"]").await;
+        assert_eq!(
+            call_mcp(&state, &key, "starlane.admin.users.list", json!({}))
+                .await
+                .0,
+            axum::http::StatusCode::FORBIDDEN
+        );
+        sqlx::query("UPDATE users SET role='admin' WHERE id='owner-a'")
+            .execute(&state.db)
+            .await
+            .unwrap();
+        assert_eq!(
+            call_mcp(&state, &key, "starlane.admin.users.list", json!({}))
+                .await
+                .0,
+            axum::http::StatusCode::OK
+        );
+        let read = current_mcp_key(&state, "admin-read", Some("owner-a"), "[\"read\"]").await;
+        assert_eq!(
+            call_mcp(&state, &read, "starlane.admin.users.list", json!({}))
+                .await
+                .0,
+            axum::http::StatusCode::FORBIDDEN
+        );
+        let service = current_mcp_key(&state, "service", None, "[\"admin\"]").await;
+        assert_eq!(
+            call_mcp(&state, &service, "starlane.admin.users.list", json!({}))
+                .await
+                .0,
+            axum::http::StatusCode::OK
+        );
+        assert_eq!(
+            call_mcp(&state, &service, "starlane.spaces.list", json!({}))
+                .await
+                .0,
+            axum::http::StatusCode::UNAUTHORIZED
+        );
+        sqlx::query("UPDATE api_keys SET scopes='[\"read\"]' WHERE id='service'")
+            .execute(&state.db)
+            .await
+            .unwrap();
+        assert_eq!(
+            call_mcp(&state, &service, "starlane.admin.users.list", json!({}))
+                .await
+                .0,
+            axum::http::StatusCode::FORBIDDEN
+        );
+    }
+    #[tokio::test]
+    async fn current_router_rechecks_key_expiry_downgrade_inactive_owner_and_global_role_provenance(
+    ) {
+        let state = current_mcp_state().await;
+        let read = current_mcp_key(&state, "current-key", Some("viewer-a"), "[\"read\"]").await;
+        sqlx::query("DELETE FROM space_members WHERE user_id='viewer-a'")
+            .execute(&state.db)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO global_roles(id,name,permissions) VALUES('opaque-read-role','ADMIN','[\"view\"]')").execute(&state.db).await.unwrap();
+        sqlx::query("INSERT INTO groups(id,name) VALUES('mcp-global','MCP group')")
+            .execute(&state.db)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO group_members(id,group_id,user_id) VALUES('mcp-global-member','mcp-global','viewer-a')").execute(&state.db).await.unwrap();
+        sqlx::query("INSERT INTO group_global_roles(group_id,role_id) VALUES('mcp-global','opaque-read-role')").execute(&state.db).await.unwrap();
+        assert_eq!(
+            call_mcp(
+                &state,
+                &read,
+                "starlane.documents.get",
+                json!({"space_id":"space-a","document_id":"target-a"})
+            )
+            .await
+            .0,
+            axum::http::StatusCode::OK
+        );
+        sqlx::query("UPDATE api_keys SET expires_at='2000-01-01T00:00:00Z' WHERE id='current-key'")
+            .execute(&state.db)
+            .await
+            .unwrap();
+        assert_eq!(
+            call_mcp(&state, &read, "starlane.spaces.list", json!({}))
+                .await
+                .0,
+            axum::http::StatusCode::UNAUTHORIZED
+        );
+        sqlx::query(
+            "UPDATE api_keys SET expires_at=NULL,scopes='[\"write\"]' WHERE id='current-key'",
+        )
+        .execute(&state.db)
+        .await
+        .unwrap();
+        assert_eq!(
+            call_mcp(&state, &read, "starlane.spaces.list", json!({}))
+                .await
+                .0,
+            axum::http::StatusCode::FORBIDDEN
+        );
+        sqlx::query("UPDATE api_keys SET scopes='[\"read\"]' WHERE id='current-key'")
+            .execute(&state.db)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE users SET is_active=0 WHERE id='viewer-a'")
+            .execute(&state.db)
+            .await
+            .unwrap();
+        assert_eq!(
+            call_mcp(&state, &read, "starlane.spaces.list", json!({}))
+                .await
+                .0,
+            axum::http::StatusCode::UNAUTHORIZED
+        );
+    }
+
+    async fn wal_mcp_state() -> AppState {
+        let mut state = crate::spaces::properties::tests::property_test_state().await;
+        let file = std::env::temp_dir().join(format!("mcp-wal-{}.db", uuid::Uuid::new_v4()));
+        state.db = sqlx::any::AnyPoolOptions::new()
+            .max_connections(2)
+            .after_connect(|conn, _| {
+                Box::pin(async move {
+                    sqlx::query("PRAGMA journal_mode=WAL")
+                        .execute(&mut *conn)
+                        .await?;
+                    sqlx::query("PRAGMA busy_timeout=5000")
+                        .execute(conn)
+                        .await?;
+                    Ok(())
+                })
+            })
+            .connect(&format!("sqlite://{}?mode=rwc", file.display()))
+            .await
+            .unwrap();
+        sqlx::migrate!("./migrations").run(&state.db).await.unwrap();
+        for sql in [
+            "INSERT INTO users(id,email,display_name,role) VALUES('owner-a','mcp-wal@example.test','Owner','member')",
+            "INSERT INTO sessions(id,user_id,refresh_token_hash,expires_at) VALUES('metadata-owner-a','owner-a','hash','2999-01-01T00:00:00Z')",
+            "INSERT INTO spaces(id,name,slug,created_by) VALUES('space-a','Space','mcp-wal','owner-a')",
+            "INSERT INTO space_members(id,space_id,user_id,role) VALUES('owner','space-a','owner-a','owner')",
+            "INSERT INTO documents(id,space_id,title,content_path,created_by,last_updated_by,published_at) VALUES('target-a','space-a','Target','','owner-a','owner-a','published')",
+        ] {sqlx::query(sql).execute(&state.db).await.unwrap();}
+        let slug = format!("mcp-wal-{}", uuid::Uuid::new_v4());
+        let path = crate::storage::write_document(
+            &slug,
+            "target-a",
+            "Published target",
+            "",
+            "UNSHARED CANONICAL BODY",
+        )
+        .await
+        .unwrap();
+        sqlx::query("UPDATE spaces SET slug=$1 WHERE id='space-a'")
+            .bind(slug)
+            .execute(&state.db)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE documents SET content_path=$1 WHERE id='target-a'")
+            .bind(path)
+            .execute(&state.db)
+            .await
+            .unwrap();
+        state
+    }
+    #[tokio::test]
+    async fn current_router_rechecks_external_key_revocation_and_document_source_after_io() {
+        for change in [
+            "DELETE FROM api_keys WHERE id='wait-key'",
+            "UPDATE documents SET published_at=NULL WHERE id='target-a'",
+        ] {
+            let state = wal_mcp_state().await;
+            let key = current_mcp_key(&state, "wait-key", Some("owner-a"), "[\"read\"]").await;
+            let db = state.db.clone();
+            super::MCP_AFTER_DOCUMENT_READ.with(|slot|*slot.borrow_mut()=Some(Box::pin(async move {sqlx::query(change).execute(&db).await.unwrap();if change.contains("published_at") {sqlx::query("INSERT INTO document_drafts(id,space_id,document_id,owner_id,title,content,base_updated_at) VALUES('own-draft','space-a','target-a','owner-a','Private','Readable different draft','base')").execute(&db).await.unwrap();}})));
+            let (status, body) = call_mcp(
+                &state,
+                &key,
+                "starlane.documents.get",
+                json!({"space_id":"space-a","document_id":"target-a"}),
+            )
+            .await;
+            assert!(!status.is_success(), "{change}: {body}");
+            assert!(!body.to_string().contains("UNSHARED CANONICAL"));
+        }
+        let state = wal_mcp_state().await;
+        let key = current_mcp_key(&state, "late-key", Some("owner-a"), "[\"read\"]").await;
+        let db = state.db.clone();
+        super::MCP_BEFORE_FINAL_RESPONSE.with(|slot| {
+            *slot.borrow_mut() = Some(Box::pin(async move {
+                sqlx::query("UPDATE api_keys SET scopes='[\"write\"]' WHERE id='late-key'")
+                    .execute(&db)
+                    .await
+                    .unwrap();
+            }))
+        });
+        let (status, body) = call_mcp(&state, &key, "starlane.spaces.list", json!({})).await;
+        assert!(!status.is_success(), "{body}");
+        assert!(!body.to_string().contains("mcp-wal"));
+    }
+    #[tokio::test]
+    async fn current_router_final_resource_proof_denies_external_block_and_unpublication() {
+        for (tool, change) in [
+            ("starlane.documents.get", "INSERT INTO space_user_blocks(space_id,user_id,created_by) VALUES('space-a','owner-a','owner-a')"),
+            ("starlane.documents.get", "UPDATE documents SET published_at=NULL WHERE id='target-a'"),
+            ("starlane.spaces.get", "INSERT INTO space_user_blocks(space_id,user_id,created_by) VALUES('space-a','owner-a','owner-a')"),
+        ] {
+            let state = wal_mcp_state().await;
+            let key = current_mcp_key(&state, "final-key", Some("owner-a"), "[\"read\"]").await;
+            let db = state.db.clone();
+            super::MCP_BEFORE_FINAL_RESPONSE.with(|slot| *slot.borrow_mut()=Some(Box::pin(async move {
+                sqlx::query(change).execute(&db).await.unwrap();
+                if change.contains("published_at") {
+                    sqlx::query("INSERT INTO document_drafts(id,space_id,document_id,owner_id,title,content,base_updated_at) VALUES('own-draft','space-a','target-a','owner-a','Private','Readable different draft','base')").execute(&db).await.unwrap();
+                }
+            })));
+            let (status, body)=call_mcp(&state,&key,tool,json!({"space_id":"space-a","document_id":"target-a"})).await;
+            assert!(!status.is_success(), "{tool}: {change}: {body}");
+            assert!(!body.to_string().contains("UNSHARED CANONICAL"));
+            assert!(!body.to_string().contains("mcp-wal"));
+            // This regression uses an externally committed second connection,
+            // not an in-transaction trigger or a rolled-back mutation.
+            let changed:i64=sqlx::query_scalar(if change.contains("published_at") {"SELECT COUNT(*) FROM documents WHERE id='target-a' AND published_at IS NULL"} else {"SELECT COUNT(*) FROM space_user_blocks WHERE space_id='space-a' AND user_id='owner-a'"}).fetch_one(&state.db).await.unwrap();
+            assert_eq!(changed,1);
+        }
+    }
+    #[tokio::test]
+    async fn guest_mcp_actual_router_late_classification_after_final_page_policy_denies_body() {
+        let state=wal_mcp_state().await;
+        let key=current_mcp_key(&state,"guest-final-key",Some("owner-a"),"[\"read\"]").await;
+        let input=json!({"space_id":"space-a","document_id":"target-a"});
+        let (status,body)=call_mcp(&state,&key,"starlane.documents.get",input.clone()).await;
+        assert!(status.is_success(),"{body}");assert!(body.to_string().contains("UNSHARED CANONICAL"));
+        let db=state.db.clone();super::MCP_AFTER_FINAL_PAGE_VIEW.with(|slot|*slot.borrow_mut()=Some(Box::pin(async move {
+            sqlx::query("UPDATE users SET account_kind='guest' WHERE id='owner-a'").execute(&db).await.unwrap();
+        })));
+        let (status,body)=call_mcp(&state,&key,"starlane.documents.get",input).await;
+        assert!(!status.is_success(),"{body}");assert!(!body.to_string().contains("UNSHARED CANONICAL"));
+        let kind:String=sqlx::query_scalar("SELECT account_kind FROM users WHERE id='owner-a'").fetch_one(&state.db).await.unwrap();assert_eq!(kind,"guest");
+    }
+
+    #[tokio::test]
+    async fn guest_mcp_stored_admin_kind_cannot_expose_users_service_admin_unchanged() {
+        let state=current_mcp_state().await;
+        sqlx::query("UPDATE users SET role='admin' WHERE id='owner-a'").execute(&state.db).await.unwrap();
+        let key=current_mcp_key(&state,"guest-admin-kind",Some("owner-a"),"[\"admin\"]").await;
+        assert_eq!(call_mcp(&state,&key,"starlane.admin.users.list",json!({})).await.0,axum::http::StatusCode::OK);
+        sqlx::query("UPDATE users SET account_kind='guest' WHERE id='owner-a'").execute(&state.db).await.unwrap();
+        let (status,body)=call_mcp(&state,&key,"starlane.admin.users.list",json!({})).await;assert!(!status.is_success(),"{body}");
+        let service=current_mcp_key(&state,"guest-ordinary-service",None,"[\"admin\"]").await;
+        assert_eq!(call_mcp(&state,&service,"starlane.admin.users.list",json!({})).await.0,axum::http::StatusCode::OK);
+        assert!(!call_mcp(&state,&service,"starlane.documents.get",json!({"space_id":"space-a","document_id":"target-a"})).await.0.is_success());
+    }
+    #[tokio::test]
+    async fn guest_mcp_actual_router_final_source_wait_classification_denies_body() {
+        let state=wal_mcp_state().await;let key=current_mcp_key(&state,"guest-source-key",Some("owner-a"),"[\"read\"]").await;
+        let input=json!({"space_id":"space-a","document_id":"target-a"});
+        let (status,body)=call_mcp(&state,&key,"starlane.documents.get",input.clone()).await;assert!(status.is_success(),"{body}");assert!(body.to_string().contains("UNSHARED CANONICAL"));
+        let db=state.db.clone();super::MCP_AFTER_FINAL_DOCUMENT_SOURCE.with(|slot|*slot.borrow_mut()=Some(Box::pin(async move {sqlx::query("UPDATE users SET account_kind='guest' WHERE id='owner-a'").execute(&db).await.unwrap();})));
+        let (status,body)=call_mcp(&state,&key,"starlane.documents.get",input).await;assert!(!status.is_success(),"{body}");assert!(!body.to_string().contains("UNSHARED CANONICAL"));
+        let kind:String=sqlx::query_scalar("SELECT account_kind FROM users WHERE id='owner-a'").fetch_one(&state.db).await.unwrap();assert_eq!(kind,"guest");
+    }
+    #[tokio::test]
+    async fn current_router_canonical_source_is_last_after_typed_page_wait() {
+        let state = wal_mcp_state().await;
+        let key = current_mcp_key(&state, "final-source-key", Some("owner-a"), "[\"read\"]").await;
+        sqlx::query("INSERT INTO document_drafts(id,space_id,document_id,owner_id,title,content,base_updated_at) VALUES('own-draft','space-a','target-a','owner-a','Private','Readable different draft','base')").execute(&state.db).await.unwrap();
+        let db = state.db.clone();
+        super::MCP_AFTER_FINAL_PAGE_VIEW.with(|slot| {
+            *slot.borrow_mut() = Some(Box::pin(async move {
+                sqlx::query("UPDATE documents SET published_at=NULL WHERE id='target-a'")
+                    .execute(&db)
+                    .await
+                    .unwrap();
+            }))
+        });
+        let (status, body) = call_mcp(
+            &state,
+            &key,
+            "starlane.documents.get",
+            json!({"space_id":"space-a","document_id":"target-a"}),
+        )
+        .await;
+        assert!(!status.is_success(), "{body}");
+        assert!(!body.to_string().contains("UNSHARED CANONICAL"));
+        let mut conn = state.db.acquire().await.unwrap();
+        assert!(
+            super::mcp_page_view(
+                &mut conn,
+                &crate::spaces::properties::tests::test_auth("owner-a"),
+                "space-a",
+                "target-a"
+            )
+            .await
+            .is_ok(),
+            "Own different draft still permits generic page View"
+        );
+        let published: Option<String> =
+            sqlx::query_scalar("SELECT published_at FROM documents WHERE id='target-a'")
+                .fetch_one(&mut *conn)
+                .await
+                .unwrap();
+        assert!(published.is_none());
+    }
+    #[tokio::test]
+    async fn current_router_bearer_read_requires_current_real_session_and_instance_admin() {
+        use tower::ServiceExt;
+        let state = current_mcp_state().await;
+        let token = crate::auth::jwt::create_token_pair_for_session(
+            "owner-a",
+            "owner-a@example.test",
+            "admin",
+            &state.jwt_secret,
+            Some("metadata-owner-a"),
+            30,
+        )
+        .unwrap()
+        .access_token;
+        let call = |tool: &str| {
+            axum::http::Request::builder()
+                .method("POST")
+                .uri(format!("/mcp/tools/{tool}"))
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    json!({"input":{"space_id":"space-a","document_id":"target-a"}}).to_string(),
+                ))
+                .unwrap()
+        };
+        let app = super::router().with_state(state.clone());
+        assert_eq!(
+            app.clone()
+                .oneshot(call("starlane.documents.get"))
+                .await
+                .unwrap()
+                .status(),
+            axum::http::StatusCode::OK
+        );
+        assert_eq!(
+            app.clone()
+                .oneshot(call("starlane.admin.users.list"))
+                .await
+                .unwrap()
+                .status(),
+            axum::http::StatusCode::FORBIDDEN
+        );
+        let mut expired_claims = crate::spaces::properties::tests::test_auth("owner-a").claims;
+        expired_claims.exp = chrono::Utc::now().timestamp() - 600;
+        let expired = jsonwebtoken::encode(
+            &jsonwebtoken::Header::default(),
+            &expired_claims,
+            &jsonwebtoken::EncodingKey::from_secret(state.jwt_secret.as_bytes()),
+        )
+        .unwrap();
+        let response = app
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/mcp/tools/starlane.spaces.list")
+                    .header("authorization", format!("Bearer {expired}"))
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from("{\"input\":{}}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), axum::http::StatusCode::UNAUTHORIZED);
+        sqlx::query("DELETE FROM sessions WHERE id='metadata-owner-a'")
+            .execute(&state.db)
+            .await
+            .unwrap();
+        assert_eq!(
+            app.oneshot(call("starlane.documents.get"))
+                .await
+                .unwrap()
+                .status(),
+            axum::http::StatusCode::UNAUTHORIZED
+        );
     }
 
     #[test]
@@ -1537,31 +2344,24 @@ mod tests {
 
     #[tokio::test]
     async fn http_admin_execution_requires_admin_role_and_api_key_scope() {
-        let member_state = mcp_execution_test_state().await;
-        let member_error = execute_mcp_tool(
-            State(member_state),
-            mcp_auth_user("member", None),
-            Path("starlane.admin.users.list".to_string()),
-            Json(McpToolExecutionRequest { input: json!({}) }),
-        )
-        .await
-        .expect_err("admin tools should reject non-admin users");
-        assert!(
-            matches!(member_error, AppError::Forbidden(message) if message == "Admin access required")
-        );
-
-        let scoped_state = mcp_execution_test_state().await;
-        let scoped_error = execute_mcp_tool(
-            State(scoped_state),
-            mcp_auth_user("admin", Some(vec!["read"])),
-            Path("starlane.admin.users.list".to_string()),
-            Json(McpToolExecutionRequest { input: json!({}) }),
-        )
-        .await
-        .expect_err("admin API keys should require the admin scope");
-        assert!(
-            matches!(scoped_error, AppError::Forbidden(message) if message == "Admin API key scope required")
-        );
+        let state = current_mcp_state().await;
+        let auth = crate::spaces::properties::tests::test_auth("owner-a");
+        assert!(matches!(
+            require_mcp_current_read(&state, &auth, true).await,
+            Err(AppError::Forbidden(_))
+        ));
+        sqlx::query("UPDATE users SET role='admin' WHERE id='owner-a'")
+            .execute(&state.db)
+            .await
+            .unwrap();
+        let _key = current_mcp_key(&state, "scope-proof", Some("owner-a"), "[\"read\"]").await;
+        let mut auth = crate::spaces::properties::tests::test_auth("owner-a");
+        auth.claims.sid = "api-key:scope-proof".into();
+        auth.api_key_scopes = Some(vec!["admin".into()]);
+        assert!(matches!(
+            require_mcp_current_read(&state, &auth, true).await,
+            Err(AppError::Forbidden(_))
+        ));
     }
 
     #[test]

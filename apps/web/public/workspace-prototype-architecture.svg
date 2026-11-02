@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 360" width="960" height="360" role="img" aria-labelledby="title desc">
+  <title id="title">Illustrative offline workspace data flow</title>
+  <desc id="desc">A local editor saves to a durable content store, a change journal sends operations through a transport adapter to a remote document service, and acknowledgements return to the client. A reconciliation path brings a fresh snapshot back to the merge step.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0 0L8 4L0 8Z" fill="#2563eb"/>
+    </marker>
+  </defs>
+  <rect x="1" y="1" width="958" height="358" rx="8" fill="#fff" stroke="#d6dbe3"/>
+  <g fill="#fff" stroke="#9aa8b8" stroke-width="1.5">
+    <rect x="32" y="92" width="180" height="84" rx="6"/>
+    <rect x="278" y="92" width="180" height="84" rx="6"/>
+    <rect x="524" y="92" width="180" height="84" rx="6"/>
+    <rect x="748" y="92" width="180" height="84" rx="6"/>
+    <rect x="278" y="236" width="180" height="70" rx="6"/>
+  </g>
+  <g fill="#17212f" font-family="Inter, Arial, sans-serif" text-anchor="middle">
+    <text x="122" y="122" font-size="16" font-weight="600">Editor</text>
+    <text x="122" y="148" font-size="13" fill="#596579">Markdown + revision</text>
+    <text x="368" y="122" font-size="16" font-weight="600">Local content store</text>
+    <text x="368" y="148" font-size="13" fill="#596579">Durable transaction</text>
+    <text x="614" y="122" font-size="16" font-weight="600">Change journal</text>
+    <text x="614" y="148" font-size="13" fill="#596579">Stable operation IDs</text>
+    <text x="838" y="122" font-size="16" font-weight="600">Remote service</text>
+    <text x="838" y="148" font-size="13" fill="#596579">Validate + acknowledge</text>
+    <text x="368" y="264" font-size="16" font-weight="600">Reconciliation</text>
+    <text x="368" y="288" font-size="13" fill="#596579">Fresh snapshot + merge</text>
+  </g>
+  <g fill="none" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow)">
+    <path d="M212 134H270"/>
+    <path d="M458 134H516"/>
+    <path d="M704 134H740"/>
+    <path d="M838 176V215H458V228"/>
+    <path d="M278 271H122V184"/>
+  </g>
+  <g fill="#596579" font-family="Inter, Arial, sans-serif" font-size="12" text-anchor="middle">
+    <text x="241" y="122">commit</text>
+    <text x="487" y="122">enqueue</text>
+    <text x="722" y="122">deliver</text>
+    <text x="654" y="208">stale revision</text>
+    <text x="194" y="259">resolved update</text>
+  </g>
+  <text x="32" y="335" fill="#596579" font-family="Inter, Arial, sans-serif" font-size="12">Illustrative reference flow · no live system state represented</text>
+</svg>

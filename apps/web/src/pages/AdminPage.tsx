@@ -1,3 +1,12 @@
+import {NativeArchiveOutcomeReviewControl} from "@/components/NativeArchiveOutcomeReviewControl";
+import {exportCurrentCompleteNativeVaultArchive} from "@/lib/nativeCompleteVaultArchive";
+import {saveBrowserServerSpaceStaticArchive,saveBrowserServerSpaceArchive,pendingBrowserPortableArchives,acknowledgeBrowserPortableArchiveReview,supportsBrowserPortableArchive} from "@/lib/browserPortableArchiveSave";
+import { StorageHealthPanel } from "@/components/admin/StorageHealthPanel";
+import { ReviewedDraftTransferPanel } from "@/components/admin/ReviewedDraftTransferPanel";
+import { GuestAccountControls } from "@/components/GuestAccountControls";
+import { accountKindLabel, canUseHumanAdministration, captureGuestClassificationTransport } from "@/lib/guestClassification";
+import { nativeJsonValueEquals } from "@/lib/nativeLocalDatabase";
+import type { NativeArchiveBinding, NativeArchiveInventoryRow } from "@/lib/nativeArchiveReferences";
 import {
   useCallback,
   useContext,
@@ -30,20 +39,50 @@ import {
   Download,
   Upload,
   Trash2,
-  Puzzle,
-  ArrowLeft,
+  Pencil,
   ChevronRight,
-  ChevronLeft,
+  Building2,
+  LockKeyhole,
+  LogIn,
+  Plus,
+  Bot,
+  CheckCircle2,
+  CircleAlert,
+  PlugZap,
+  ServerCog,
 } from "lucide-react";
 import { api, getApiBase } from "@/lib/api";
 import { useAuth, type User } from "@/hooks/useAuth";
 import { useRuntimePlatform } from "@/hooks/useRuntimePlatform";
-import { Button } from "@/components/ui/button";
+import {
+  Button,
+  RESPONSIVE_TOUCH_ACTION_CLASS,
+  RESPONSIVE_TOUCH_ICON_ACTION_CLASS,
+} from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { DialogShell } from "@/components/ui/dialog-shell";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { SettingsWorkspace } from "@/components/settings/SettingsDialog";
+import {
+  AdminApiKeyManagementCard,
+  type ApiKeyDisplayItem,
+} from "@/components/admin/ApiKeyManagementCard";
+import {
+  ApiKeyCreateDialog,
+  type ApiKeyCreateInput,
+  type ApiKeyCreateResult,
+} from "@/components/admin/ApiKeyCreateDialog";
+import { useDesktopSettingsDialog } from "@/hooks/useDesktopSettingsDialog";
 import { getCurrentLaunchMode } from "@/lib/launchMode";
+import {
+  consumePendingNativeCallback,
+  NATIVE_GOOGLE_DRIVE_CALLBACK_EVENT,
+} from "@/lib/nativeDeepLinkCallbacks";
+import { getSpaceRoleLabel } from "@/lib/spacePermissions";
+import { STARLANE_VERSION } from "@/lib/appMetadata";
 import {
   clearStorageSelection,
   getSyncProvider,
@@ -104,39 +143,8 @@ import {
   summarizeVaultImportSnapshot,
   type VaultImportPreflightSummary,
 } from "@/lib/vaultImportPreflight";
-import {
-  summarizePluginPermissionReview,
-  validatePluginManifest,
-  validatePluginRegistryIndex,
-  type PluginManifestValidationResult,
-  type PluginPermissionReviewLevel,
-  type PluginRegistryIndexEntry,
-  type PluginRegistryIndexValidationResult,
-} from "@/lib/pluginManifest";
-import {
-  appendPluginInstallAuditEvent,
-  appendPluginRuntimeAuditEvent,
-  filterPluginRuntimeAuditEvents,
-  formatPluginInstallAuditAction,
-  formatPluginInstallSourceDetails,
-  formatPluginRuntimeAuditAction,
-  getPluginInstallSourceDetailsForManifest,
-  getPluginRuntimeStatus,
-  readPluginInstallAuditEvents,
-  readPluginInstallRecords,
-  readPluginRuntimeAuditEvents,
-  removePluginInstallRecord,
-  setPluginInstallRecordEnabled,
-  setPluginInstallRecordSpaceEnabled,
-  serializePluginRuntimeAuditEvents,
-  upsertPluginInstallRecord,
-  writePluginInstallAuditEvents,
-  writePluginInstallRecords,
-  writePluginRuntimeAuditEvents,
-  type PluginInstallAuditEvent,
-  type PluginInstallRecord,
-  type PluginRuntimeAuditEvent,
-} from "@/lib/pluginInstallRecords";
+import type { PluginPermissionReviewLevel } from "@/lib/pluginManifest";
+import { PluginArchiveSection } from "@/components/admin/PluginArchiveSection";
 import {
   findSharedSpaceDownloadCheckpoint,
   formatSharedSpaceDownloadCheckpoint,
@@ -147,7 +155,6 @@ import {
 import { AdminSidebarContext } from "@/components/layout/AppLayout";
 import {
   canUseNativeVaultControls,
-  chooseVaultArchiveExportPath,
   chooseVaultArchiveImportPath,
   chooseVaultFolder,
   clearVaultPath,
@@ -166,6 +173,7 @@ type AdminSection =
   | "users"
   | "spaces"
   | "groups"
+  | "roles"
   | "auth"
   | "api-keys"
   | "webhooks"
@@ -184,6 +192,7 @@ interface UserItem {
   role: string;
   is_active: boolean;
   created_at: string;
+  account_kind?: "member" | "guest";
 }
 
 interface UserInviteResult extends UserItem {
@@ -201,6 +210,43 @@ interface UserBulkLifecycleResult {
   updated_count: number;
   skipped_count: number;
   skipped: { user_id: string; reason: string }[];
+}
+
+interface AdminAiConfig {
+  enabled: boolean;
+  enabled_locked: boolean;
+  default_provider: string;
+  providers: string[];
+}
+
+type AdminAiProviderId = "ollama" | "openai" | "anthropic" | "xai";
+
+interface AdminAiProvider {
+  id: AdminAiProviderId;
+  label: string;
+  configured: boolean;
+  source: "environment" | "database" | "unconfigured";
+  locked: boolean;
+  base_url_locked: boolean;
+  base_url: string;
+  model: string;
+  has_api_key: boolean;
+  api_key_locked: boolean;
+  removable: boolean;
+  is_default: boolean;
+}
+
+interface AdminAiProviderDraft {
+  id: AdminAiProviderId;
+  base_url: string;
+  api_key: string;
+  model: string;
+}
+
+interface AdminAiProviderTest {
+  connected: boolean;
+  message: string;
+  models: string[];
 }
 
 export type AdminUserBulkLifecycleAction = "activate" | "deactivate";
@@ -360,6 +406,29 @@ export function getAdminQueuedSyncReplayConfirmationMessage(count?: number): str
   return "Replay supported queued local operations to the linked server? Unsupported or failed operations will remain queued.";
 }
 
+export interface AdminArchiveRecoverySession {
+  operationId: string;
+  abandon(): Promise<void>;
+}
+export async function createAdminArchiveRecoverySession(binding: NativeArchiveBinding, row: NativeArchiveInventoryRow, verifyCurrent: () => void): Promise<AdminArchiveRecoverySession> {
+  verifyCurrent();
+  const original = JSON.parse(JSON.stringify({ binding, row })) as { binding: NativeArchiveBinding; row: NativeArchiveInventoryRow };
+  const inspected = await dataClient.inspectLocalVaultArchiveImport(original.binding, original.row.operation_id, original.row.request_fingerprint);
+  verifyCurrent();
+  if (!nativeJsonValueEquals(inspected.intent, original.row.intent) || inspected.receipt || inspected.resolution) throw new Error("Archive operation is no longer unresolved; inspect its original evidence again");
+  let dispatched = false;
+  return {
+    operationId: original.row.operation_id,
+    abandon: async () => {
+      verifyCurrent();
+      if (dispatched) throw new Error("Retain this resolution request; inspect its original acknowledgement before another action");
+      dispatched = true;
+      await dataClient.abandonLocalVaultArchiveImport(original.binding, original.row.operation_id, original.row.request_fingerprint);
+      verifyCurrent();
+    },
+  };
+}
+
 export function getAdminVaultArchiveImportConfirmationMessage(): string {
   return "Importing this vault will replace the current local vault.";
 }
@@ -517,17 +586,32 @@ interface GroupItem {
   name: string;
   description?: string;
   member_count: number;
+  space_grant_count: number;
+  scim_managed: boolean;
+  managed_space_id?: string;
   created_at: string;
   updated_at: string;
 }
 
-interface SpaceGroupItem {
-  group_id: string;
+interface GroupSpaceGrantItem {
+  space_id: string;
   name: string;
-  description?: string;
+  slug: string;
   role: string;
-  member_count: number;
-  granted_at: string;
+}
+
+interface GlobalRoleItem {
+  id: string;
+  name: string;
+  description: string;
+  permissions: string[];
+  built_in: boolean;
+}
+
+export function getAdminGroupDeleteConfirmationMessage(
+  group: Pick<GroupItem, "name" | "member_count" | "space_grant_count">,
+): string {
+  return `Delete ${group.name}? This removes ${group.member_count} group membership${group.member_count === 1 ? "" : "s"} and ${group.space_grant_count} space access grant${group.space_grant_count === 1 ? "" : "s"}. It does not delete users, spaces, or documents.`;
 }
 
 interface ConfigEntry {
@@ -546,18 +630,68 @@ interface WebhookItem {
   name: string;
   url: string;
   events: string[];
-  space_id?: string;
+  space_id?: string | null;
   is_active: boolean;
   created_at: string;
+  created_by?: string;
 }
 
 export interface WebhookDeliveryItem {
   id: string;
   event_type: string;
-  response_status?: number;
+  response_status?: number | null;
   success: boolean;
   attempt_number: number;
   delivered_at: string;
+  test_id?: string | null;
+}
+
+export interface AdminWebhookHealth {
+  label: "Configured" | "Healthy" | "Retrying" | "Needs attention" | "Inactive";
+  detail: string;
+  className: string;
+}
+
+export function getAdminWebhookHealth(
+  active: boolean,
+  deliveries: WebhookDeliveryItem[],
+): AdminWebhookHealth {
+  if (!active) {
+    return {
+      label: "Inactive",
+      detail: "This connection is not accepting new deliveries.",
+      className: "border-border text-text-muted",
+    };
+  }
+  const latest = [...deliveries].sort(
+    (left, right) => Date.parse(right.delivered_at) - Date.parse(left.delivered_at),
+  )[0];
+  if (!latest) {
+    return {
+      label: "Configured",
+      detail: "No receiver result is recorded yet. Run a test before relying on this connection.",
+      className: "border-border text-text-muted",
+    };
+  }
+  if (latest.success && latest.response_status !== null && latest.response_status !== undefined) {
+    return {
+      label: "Healthy",
+      detail: `Latest recorded attempt was accepted with HTTP ${latest.response_status}.`,
+      className: "border-success/30 bg-success/10 text-success",
+    };
+  }
+  if (latest.attempt_number < 3) {
+    return {
+      label: "Retrying",
+      detail: "The latest attempt failed and may still be retried. Delivery is not confirmed.",
+      className: "border-warning/30 bg-warning/10 text-warning",
+    };
+  }
+  return {
+    label: "Needs attention",
+    detail: "The latest delivery exhausted its recorded attempts. Inspect the receiver and activity.",
+    className: "border-danger/30 bg-danger/10 text-danger",
+  };
 }
 
 interface AdminWebhookDeliveryHistoryTableProps {
@@ -566,6 +700,7 @@ interface AdminWebhookDeliveryHistoryTableProps {
   redeliveringDeliveryId: string | null;
   redeliveryError: string | null;
   onRedeliver: (deliveryId: string) => void;
+  disableRedelivery?: boolean;
 }
 
 export interface AdminWebhookDeliveryResetState {
@@ -592,21 +727,6 @@ interface WebhookFormState {
   secret: string;
   events: string;
   space_id: string;
-}
-
-interface ApiKeyItem {
-  id: string;
-  name: string;
-  key_prefix: string;
-  is_service_account: boolean;
-  scopes: string[];
-  last_used_at?: string;
-  expires_at?: string;
-  created_at: string;
-}
-
-interface ApiKeyCreateResult extends ApiKeyItem {
-  key: string;
 }
 
 interface LocalVaultStats {
@@ -1360,20 +1480,21 @@ function fixtureGoogleDriveApiResponse(
   };
 }
 
-const sections: { id: AdminSection; label: string; icon: React.ReactNode }[] = [
-  { id: "users", label: "Users", icon: <Users size={16} /> },
-  { id: "spaces", label: "Spaces", icon: <Globe size={16} /> },
-  { id: "groups", label: "Groups", icon: <UserRoundPlus size={16} /> },
-  { id: "auth", label: "Authentication", icon: <Shield size={16} /> },
-  { id: "api-keys", label: "API Keys", icon: <Key size={16} /> },
-  { id: "webhooks", label: "Webhooks", icon: <Webhook size={16} /> },
-  { id: "ai", label: "AI Settings", icon: <Sparkles size={16} /> },
-  { id: "audit", label: "Audit Log", icon: <FileText size={16} /> },
-  { id: "notifications", label: "Notifications", icon: <Bell size={16} /> },
-  { id: "storage", label: "Storage", icon: <HardDrive size={16} /> },
-  { id: "search", label: "Search", icon: <Search size={16} /> },
-  { id: "plugins", label: "Plugins", icon: <Puzzle size={16} /> },
-  { id: "system", label: "System", icon: <Settings size={16} /> },
+const sections: { id: AdminSection; label: string; icon: React.ReactNode; group: string }[] = [
+  { id: "users", label: "Users", icon: <Users size={16} />, group: "Access" },
+  { id: "spaces", label: "Spaces", icon: <Globe size={16} />, group: "Access" },
+  { id: "groups", label: "Groups", icon: <UserRoundPlus size={16} />, group: "Access" },
+  { id: "roles", label: "Roles", icon: <Shield size={16} />, group: "Access" },
+  { id: "auth", label: "Authentication", icon: <Shield size={16} />, group: "Security" },
+  { id: "api-keys", label: "API Keys", icon: <Key size={16} />, group: "Security" },
+  { id: "webhooks", label: "Webhooks", icon: <Webhook size={16} />, group: "Integrations" },
+  { id: "ai", label: "AI Settings", icon: <Sparkles size={16} />, group: "Integrations" },
+  { id: "audit", label: "Audit Log", icon: <FileText size={16} />, group: "Operations" },
+  { id: "notifications", label: "Notifications", icon: <Bell size={16} />, group: "Operations" },
+  { id: "storage", label: "Storage", icon: <HardDrive size={16} />, group: "Operations" },
+  { id: "search", label: "Search", icon: <Search size={16} />, group: "Operations" },
+  { id: "plugins", label: "Legacy plugin archive", icon: <FileText size={16} />, group: "System" },
+  { id: "system", label: "System", icon: <Settings size={16} />, group: "System" },
 ];
 
 export const ADMIN_MOBILE_HOME_CLASS = "md:hidden min-w-0 flex-1 overflow-y-auto p-3";
@@ -1382,9 +1503,9 @@ export const ADMIN_MOBILE_SECTION_ROW_CLASS =
   "flex min-h-[52px] w-full items-center gap-3 border-b border-border/70 px-3 py-2 text-left last:border-b-0 active:bg-surface-raised";
 export const ADMIN_MOBILE_SECTION_ICON_CLASS =
   "flex h-8 w-8 shrink-0 items-center justify-center rounded-card bg-surface-raised text-text-muted";
+// Kept exported for existing admin layout tests and downstream consumers.
 export const ADMIN_MOBILE_BACK_BUTTON_CLASS =
   "mb-3 flex h-10 items-center gap-2 rounded-button px-2 text-sm text-primary active:bg-surface-raised";
-
 export function getAdminSectionDescription(section: AdminSection, localMode: boolean): string {
   if (!isAdminSectionAvailable(section, localMode)) return "Unavailable in local standalone mode.";
   switch (section) {
@@ -1394,6 +1515,8 @@ export function getAdminSectionDescription(section: AdminSection, localMode: boo
       return "Manage shared spaces and access.";
     case "groups":
       return "Group membership and permissions.";
+    case "roles":
+      return "Reusable access roles and their capabilities.";
     case "auth":
       return "2FA, signup, OIDC, and login policy.";
     case "api-keys":
@@ -1401,7 +1524,7 @@ export function getAdminSectionDescription(section: AdminSection, localMode: boo
     case "webhooks":
       return "Outbound events and delivery history.";
     case "ai":
-      return "AI provider and model settings.";
+      return "AI provider availability and environment configuration.";
     case "audit":
       return "Administrative event history.";
     case "notifications":
@@ -1411,7 +1534,7 @@ export function getAdminSectionDescription(section: AdminSection, localMode: boo
     case "search":
       return "Indexing and search maintenance.";
     case "plugins":
-      return "Install records and runtime audit.";
+      return "Read-only retained browser records.";
     case "system":
       return "Application configuration.";
   }
@@ -1423,6 +1546,7 @@ const LOCAL_UNAVAILABLE_ADMIN_SECTIONS = new Set<AdminSection>([
   "audit",
   "auth",
   "groups",
+  "roles",
   "notifications",
   "search",
   "users",
@@ -1434,26 +1558,82 @@ export function isAdminSectionAvailable(section: AdminSection, localMode: boolea
 }
 
 export function getAvailableAdminSections(localMode: boolean) {
-  return sections.filter((section) => isAdminSectionAvailable(section.id, localMode));
+  return sections.filter((section) => section.id !== "plugins" && isAdminSectionAvailable(section.id, localMode));
 }
 
 export function AdminPage({ initialSection = "users" }: { initialSection?: AdminSection } = {}) {
   const { user } = useAuth();
+  const desktopLayout = useDesktopSettingsDialog();
   const { open: sidebarOpen } = useContext(AdminSidebarContext);
   const localMode = getCurrentLaunchMode() === "local";
   const [activeSection, setActiveSection] = useState<AdminSection>(() =>
     getInitialAdminSection(initialSection, localMode),
   );
-  const [mobileSectionOpen, setMobileSectionOpen] = useState(false);
+  const [mobileSectionOpen, setMobileSectionOpen] = useState(() =>
+    getInitialAdminSection(initialSection, localMode) === "plugins",
+  );
   const availableSections = getAvailableAdminSections(localMode);
-  const activeSectionMeta = sections.find((section) => section.id === activeSection);
   const showSectionContent = mobileSectionOpen ? "block" : "hidden md:block";
+  const legacyPluginSection = sections.find((section) => section.id === "plugins")!;
+  const workspaceSections = activeSection === "plugins"
+    ? [...availableSections, legacyPluginSection]
+    : availableSections;
+  const openPluginArchive = () => {
+    setActiveSection("plugins");
+    setMobileSectionOpen(true);
+  };
 
-  if (!localMode && user?.role !== "admin") {
+  if (!localMode && !canUseHumanAdministration(user?.role, user?.account_kind)) {
     return (
       <div className="flex h-full items-center justify-center">
         <p className="text-text-muted text-sm">Admin access required</p>
       </div>
+    );
+  }
+
+  const sectionContent = (
+    <>
+      {localMode && (
+        <div className="rounded-card border-border bg-surface text-text-muted mb-4 border px-3 py-2 text-xs">
+          Local mode is active. Server-admin actions are unavailable in this mode.
+        </div>
+      )}
+      {activeSection === "users" && <UsersSection localMode={localMode} />}
+      {activeSection === "spaces" && <SpacesSection localMode={localMode} />}
+      {activeSection === "groups" && <GroupsSection localMode={localMode} />}
+      {activeSection === "roles" && <RolesSection localMode={localMode} />}
+      {activeSection === "auth" && <AuthenticationSection localMode={localMode} />}
+      {activeSection === "api-keys" && <ApiKeysSection localMode={localMode} />}
+      {activeSection === "webhooks" && <WebhooksSection localMode={localMode} />}
+      {activeSection === "ai" && <AiSettingsSection localMode={localMode} />}
+      {activeSection === "notifications" && <NotificationsSection localMode={localMode} />}
+      {activeSection === "audit" && <AuditSection localMode={localMode} />}
+      {activeSection === "storage" && <StorageSection localMode={localMode} user={user} />}
+      {activeSection === "search" && <SearchSection localMode={localMode} />}
+      {activeSection === "plugins" && (
+        <div className="space-y-4">
+          <Button variant="secondary" onClick={() => {
+            setActiveSection("system");
+            setMobileSectionOpen(false);
+          }}>Back to Administration</Button>
+          <PluginArchiveSection />
+        </div>
+      )}
+      {activeSection === "system" && <SystemSection localMode={localMode} onOpenPluginArchive={openPluginArchive} />}
+    </>
+  );
+
+  if (desktopLayout) {
+    return (
+      <SettingsWorkspace
+        title="Site Administration"
+        description="Manage access, authentication, integrations, and server operations."
+        sections={workspaceSections}
+        activeSection={activeSection}
+        onSectionChange={(section) => setActiveSection(section as AdminSection)}
+      >
+        {sectionContent}
+      </SettingsWorkspace>
     );
   }
 
@@ -1462,14 +1642,7 @@ export function AdminPage({ initialSection = "users" }: { initialSection?: Admin
       {/* Admin sidebar */}
       {sidebarOpen && (
         <nav className="border-border bg-surface hidden w-full shrink-0 border-b p-2 md:block md:w-48 md:border-b-0 md:border-r">
-          <a
-            href="/"
-            className="rounded-button text-text-muted hover:bg-surface-raised hover:text-text mb-2 flex items-center gap-2 px-2 py-1.5 text-sm transition-colors duration-100"
-          >
-            <ArrowLeft size={16} />
-            Back to Notes
-          </a>
-          <h2 className="text-text-muted mb-2 px-2 text-xs font-medium uppercase tracking-wide">
+          <h2 className="text-text-muted mb-2 px-2 text-xs font-medium">
             Admin
           </h2>
           {availableSections.map((s) => (
@@ -1527,59 +1700,643 @@ export function AdminPage({ initialSection = "users" }: { initialSection?: Admin
 
       {/* Content */}
       <div className={`${showSectionContent} min-w-0 flex-1 overflow-y-auto p-3 md:p-6`}>
-        <button
-          type="button"
-          className={`${ADMIN_MOBILE_BACK_BUTTON_CLASS} md:hidden`}
-          onClick={() => setMobileSectionOpen(false)}
+        {sectionContent}
+      </div>
+    </div>
+  );
+}
+
+const ADMIN_AI_PROVIDER_DEFAULTS: Record<
+  AdminAiProviderId,
+  { label: string; baseUrl: string; model: string; requiresKey: boolean }
+> = {
+  ollama: {
+    label: "Ollama",
+    baseUrl: "http://localhost:11434",
+    model: "llama3.2",
+    requiresKey: false,
+  },
+  openai: {
+    label: "OpenAI",
+    baseUrl: "https://api.openai.com/v1",
+    model: "gpt-4o",
+    requiresKey: true,
+  },
+  anthropic: {
+    label: "Anthropic",
+    baseUrl: "https://api.anthropic.com/v1",
+    model: "claude-sonnet-4-20250514",
+    requiresKey: true,
+  },
+  xai: {
+    label: "xAI",
+    baseUrl: "https://api.x.ai/v1",
+    model: "grok-2-latest",
+    requiresKey: true,
+  },
+};
+
+export function getAdminAiProviderDraft(
+  provider: AdminAiProvider | AdminAiProviderId,
+): AdminAiProviderDraft {
+  const id = typeof provider === "string" ? provider : provider.id;
+  const defaults = ADMIN_AI_PROVIDER_DEFAULTS[id];
+  return {
+    id,
+    base_url: typeof provider === "string" ? defaults.baseUrl : provider.base_url,
+    api_key: "",
+    model: typeof provider === "string" ? defaults.model : provider.model,
+  };
+}
+
+export function getAdminAiProviderStatus(
+  provider: AdminAiProvider,
+): { label: string; variant: "outline" | "success" | "warning" } {
+  if (!provider.configured) return { label: "Not configured", variant: "outline" };
+  if (provider.is_default) return { label: "Default", variant: "success" };
+  return { label: "Available", variant: "warning" };
+}
+
+function AiSettingsSection({ localMode }: { localMode: boolean }) {
+  const [config, setConfig] = useState<AdminAiConfig | null>(null);
+  const [providers, setProviders] = useState<AdminAiProvider[]>([]);
+  const [providerDraft, setProviderDraft] = useState<AdminAiProviderDraft | null>(null);
+  const [modelProvider, setModelProvider] = useState<AdminAiProvider | null>(null);
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [selectedModel, setSelectedModel] = useState("");
+  const [removeTarget, setRemoveTarget] = useState<AdminAiProvider | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busyProvider, setBusyProvider] = useState<AdminAiProviderId | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const loadConfig = useCallback(async () => {
+    if (localMode) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const [nextConfig, nextProviders] = await Promise.all([
+        api.fetch<AdminAiConfig>("/ai/config"),
+        api.fetch<AdminAiProvider[]>("/ai/providers"),
+      ]);
+      setConfig(nextConfig);
+      setProviders(nextProviders);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to load AI configuration");
+      setConfig(null);
+      setProviders([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [localMode]);
+
+  useEffect(() => {
+    void loadConfig();
+  }, [loadConfig]);
+
+  if (localMode) return null;
+
+  const configuredProviders = providers.filter((provider) => provider.configured);
+  const unconfiguredProviders = providers.filter((provider) => !provider.configured);
+  const defaultProvider = configuredProviders.find((provider) => provider.is_default);
+
+  const saveProvider = async () => {
+    if (!providerDraft) return;
+    setSaving(true);
+    setError(null);
+    setMessage(null);
+    try {
+      await api.fetch(`/ai/providers/${providerDraft.id}`, {
+        method: "PUT",
+        body: {
+          base_url: providerDraft.base_url,
+          api_key: providerDraft.api_key || null,
+          model: providerDraft.model,
+        },
+      });
+      setProviderDraft(null);
+      setMessage(`${ADMIN_AI_PROVIDER_DEFAULTS[providerDraft.id].label} saved.`);
+      await loadConfig();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to save the AI provider");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const testProvider = async (provider: AdminAiProvider) => {
+    setBusyProvider(provider.id);
+    setError(null);
+    setMessage(null);
+    try {
+      const result = await api.fetch<AdminAiProviderTest>(
+        `/ai/providers/${provider.id}/test`,
+        { method: "POST" },
+      );
+      setAvailableModels(result.models);
+      setSelectedModel(provider.model);
+      setModelProvider(provider);
+      setMessage(result.message);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to connect to the AI provider");
+    } finally {
+      setBusyProvider(null);
+    }
+  };
+
+  const saveModel = async () => {
+    if (!modelProvider || !selectedModel.trim()) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await api.fetch(`/ai/providers/${modelProvider.id}`, {
+        method: "PUT",
+        body: {
+          base_url: modelProvider.base_url,
+          api_key: null,
+          model: selectedModel.trim(),
+        },
+      });
+      setModelProvider(null);
+      setMessage(`${modelProvider.label} will use ${selectedModel.trim()}.`);
+      await loadConfig();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to save the selected model");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const setDefaultProvider = async (provider: AdminAiProvider) => {
+    setBusyProvider(provider.id);
+    setError(null);
+    setMessage(null);
+    try {
+      await api.fetch("/ai/settings", {
+        method: "PUT",
+        body: { default_provider: provider.id },
+      });
+      setMessage(`${provider.label} is now the default AI provider.`);
+      await loadConfig();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to change the default provider");
+    } finally {
+      setBusyProvider(null);
+    }
+  };
+
+  const setAiEnabled = async (enabled: boolean) => {
+    setError(null);
+    setMessage(null);
+    try {
+      await api.fetch("/ai/settings", { method: "PUT", body: { enabled } });
+      setMessage(`AI features ${enabled ? "enabled" : "disabled"}.`);
+      await loadConfig();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to change AI availability");
+    }
+  };
+
+  const removeProvider = async () => {
+    if (!removeTarget) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await api.fetch(`/ai/providers/${removeTarget.id}`, { method: "DELETE" });
+      setMessage(`${removeTarget.label} application configuration removed.`);
+      setRemoveTarget(null);
+      await loadConfig();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to remove the AI provider");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section aria-label="AI Settings" className="flex flex-col gap-4">
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <Sparkles size={18} className="text-ai" aria-hidden="true" />
+            <h1 className="hidden text-lg font-semibold text-text md:block">AI Settings</h1>
+          </div>
+          <p className="hidden mt-1 text-sm text-text-muted md:block">
+            Connect providers, verify access, load models, and choose the server default.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => void loadConfig()}
+            disabled={loading}
+          >
+            <RefreshCw size={14} className={loading ? "animate-spin" : undefined} />
+            Refresh
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => {
+              const first = unconfiguredProviders[0];
+              if (first) setProviderDraft(getAdminAiProviderDraft(first.id));
+            }}
+            disabled={loading || unconfiguredProviders.length === 0}
+            className="border-ai bg-ai text-white hover:bg-ai/90"
+          >
+            <Plus size={14} />
+            Add provider
+          </Button>
+        </div>
+      </header>
+
+      {error && (
+        <div
+          className="rounded-card border border-danger/50 bg-danger/5 px-3 py-2 text-sm text-text"
+          role="alert"
         >
-          <ChevronLeft size={17} />
-          Site Administration
-        </button>
-        {activeSectionMeta && (
-          <div className="mb-4 md:hidden">
-            <h1 className="text-text text-lg font-semibold">{activeSectionMeta.label}</h1>
-            <p className="text-text-muted mt-1 text-sm">
-              {getAdminSectionDescription(activeSectionMeta.id, localMode)}
+          <div className="flex items-start gap-2">
+            <CircleAlert size={16} className="mt-0.5 shrink-0 text-danger" aria-hidden="true" />
+            <span>{error}</span>
+          </div>
+        </div>
+      )}
+      {message && (
+        <div
+          className="rounded-card border border-success/40 bg-success/5 px-3 py-2 text-sm text-text"
+          role="status"
+        >
+          <div className="flex items-start gap-2">
+            <CheckCircle2 size={16} className="mt-0.5 shrink-0 text-success" aria-hidden="true" />
+            <span>{message}</span>
+          </div>
+        </div>
+      )}
+
+      <div className="rounded-card border border-border bg-surface shadow-card">
+        <div className="flex flex-col divide-y divide-border">
+          <div className="flex flex-wrap items-center justify-between gap-4 px-4 py-3">
+            <div>
+              <p className="text-sm font-medium text-text">AI availability</p>
+              <p className="mt-0.5 text-xs text-text-muted">
+                Enable document assistance for authenticated users.
+                {config?.enabled_locked ? " Controlled by AI_ENABLED." : ""}
+              </p>
+            </div>
+            <AuthenticationToggle
+              checked={config?.enabled ?? false}
+              disabled={loading || config?.enabled_locked}
+              label="Enable AI features"
+              onChange={(enabled) => void setAiEnabled(enabled)}
+            />
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-4 px-4 py-3">
+            <div>
+              <p className="text-sm font-medium text-text">Default route</p>
+              <p className="mt-0.5 text-xs text-text-muted">
+                {defaultProvider
+                  ? `${defaultProvider.label} · ${defaultProvider.model}`
+                  : "No configured provider is available yet."}
+              </p>
+            </div>
+            {defaultProvider && (
+              <Badge variant="success">
+                <Bot size={12} aria-hidden="true" />
+                {defaultProvider.label}
+              </Badge>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-card border border-border bg-surface shadow-card">
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border px-4 py-3">
+          <div>
+            <h2 className="text-sm font-medium text-text">Providers</h2>
+            <p className="mt-0.5 text-xs text-text-muted">
+              Environment credentials remain masked and locked. Application providers can be
+              edited or removed here.
             </p>
           </div>
-        )}
-        {localMode && (
-          <div className="rounded-card border-border bg-surface text-text-muted mb-4 border px-3 py-2 text-xs">
-            Local mode is active. Server-admin actions are unavailable in this mode.
+          <span className="text-xs text-text-muted">
+            {configuredProviders.length} configured
+          </span>
+        </div>
+
+        {loading ? (
+          <p className="px-4 py-8 text-center text-sm text-text-muted">
+            Loading AI providers...
+          </p>
+        ) : configuredProviders.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
+            <ServerCog size={24} className="text-ai" aria-hidden="true" />
+            <p className="text-sm font-medium text-text">No AI provider configured</p>
+            <p className="max-w-md text-xs text-text-muted">
+              Add Ollama, OpenAI, Anthropic, or xAI, then test the connection and choose a model.
+            </p>
           </div>
-        )}
-        {activeSection === "users" && <UsersSection localMode={localMode} />}
-        {activeSection === "spaces" && <SpacesSection localMode={localMode} />}
-        {activeSection === "groups" && <GroupsSection localMode={localMode} />}
-        {activeSection === "auth" && <AuthenticationSection localMode={localMode} />}
-        {activeSection === "api-keys" && <ApiKeysSection localMode={localMode} />}
-        {activeSection === "webhooks" && <WebhooksSection localMode={localMode} />}
-        {activeSection === "notifications" && <NotificationsSection localMode={localMode} />}
-        {activeSection === "audit" && <AuditSection localMode={localMode} />}
-        {activeSection === "storage" && <StorageSection localMode={localMode} user={user} />}
-        {activeSection === "search" && <SearchSection localMode={localMode} />}
-        {activeSection === "plugins" && <PluginsSection />}
-        {activeSection === "system" && <SystemSection localMode={localMode} />}
-        {![
-          "users",
-          "spaces",
-          "groups",
-          "auth",
-          "api-keys",
-          "webhooks",
-          "notifications",
-          "audit",
-          "storage",
-          "search",
-          "plugins",
-          "system",
-        ].includes(activeSection) && (
-          <div className="text-text-muted text-sm">
-            {sections.find((s) => s.id === activeSection)?.label} settings
+        ) : (
+          <div className="divide-y divide-border">
+            {configuredProviders.map((provider) => {
+              const status = getAdminAiProviderStatus(provider);
+              return (
+                <article
+                  key={provider.id}
+                  className="flex flex-col gap-3 px-4 py-3 lg:flex-row lg:items-center"
+                >
+                  <div className="flex min-w-0 flex-1 items-start gap-3">
+                    <span
+                      className="flex size-9 shrink-0 items-center justify-center rounded-input border border-ai/20 bg-ai/5 text-ai"
+                      aria-hidden="true"
+                    >
+                      <Sparkles size={16} />
+                    </span>
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-sm font-medium text-text">{provider.label}</h3>
+                        <Badge variant={status.variant}>{status.label}</Badge>
+                        <Badge variant="outline">
+                          {provider.source === "environment" ? "Environment" : "Application"}
+                        </Badge>
+                      </div>
+                      <p className="mt-1 truncate text-xs text-text-muted">{provider.base_url}</p>
+                      <p className="mt-0.5 text-xs text-text-muted">
+                        Model: <span className="font-mono text-text">{provider.model}</span>
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      disabled={busyProvider === provider.id}
+                      onClick={() => void testProvider(provider)}
+                    >
+                      <PlugZap size={14} />
+                      {busyProvider === provider.id ? "Testing..." : "Test & load models"}
+                    </Button>
+                    {!provider.is_default && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        disabled={busyProvider === provider.id}
+                        onClick={() => void setDefaultProvider(provider)}
+                      >
+                        Set default
+                      </Button>
+                    )}
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setProviderDraft(getAdminAiProviderDraft(provider))}
+                    >
+                      <Pencil size={14} />
+                      Edit
+                    </Button>
+                    {provider.removable && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="text-danger hover:text-danger"
+                        onClick={() => setRemoveTarget(provider)}
+                      >
+                        <Trash2 size={14} />
+                        Remove
+                      </Button>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
           </div>
         )}
       </div>
-    </div>
+
+      {providerDraft && (
+        <AiProviderDialog
+          draft={providerDraft}
+          providers={providers}
+          saving={saving}
+          onChange={setProviderDraft}
+          onClose={() => setProviderDraft(null)}
+          onSave={() => void saveProvider()}
+        />
+      )}
+
+      {modelProvider && (
+        <DialogShell
+          labelledBy="ai-model-picker-title"
+          maxWidth="md"
+          onClose={() => setModelProvider(null)}
+        >
+          <div className="flex flex-col">
+            <div className="border-b border-border px-4 py-3">
+              <h2 id="ai-model-picker-title" className="text-base font-semibold text-text">
+                Choose {modelProvider.label} model
+              </h2>
+              <p className="mt-0.5 text-xs text-text-muted">
+                The connection succeeded. Select a discovered model or enter an exact model ID.
+              </p>
+            </div>
+            <div className="flex flex-col gap-3 p-4">
+              <label htmlFor="ai-provider-model" className="text-sm font-medium text-text">
+                Model
+              </label>
+              <Select
+                id="ai-provider-model"
+                value={selectedModel}
+                onChange={(event) => setSelectedModel(event.target.value)}
+              >
+                {!availableModels.includes(selectedModel) && selectedModel && (
+                  <option value={selectedModel}>{selectedModel}</option>
+                )}
+                {availableModels.map((model) => (
+                  <option key={model} value={model}>
+                    {model}
+                  </option>
+                ))}
+              </Select>
+              <Input
+                value={selectedModel}
+                onChange={(event) => setSelectedModel(event.target.value)}
+                placeholder="Exact model ID"
+                aria-label="Exact model ID"
+              />
+            </div>
+            <div className="flex justify-end gap-2 border-t border-border px-4 py-3">
+              <Button type="button" variant="ghost" onClick={() => setModelProvider(null)}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                disabled={saving || !selectedModel.trim()}
+                onClick={() => void saveModel()}
+                className="border-ai bg-ai text-white hover:bg-ai/90"
+              >
+                {saving ? "Saving..." : "Use model"}
+              </Button>
+            </div>
+          </div>
+        </DialogShell>
+      )}
+
+      {removeTarget && (
+        <ConfirmDialog
+          labelledBy="remove-ai-provider-title"
+          title={`Remove ${removeTarget.label}?`}
+          message="Application-stored credentials and model selection will be removed. Environment configuration, if present, remains active."
+          confirmLabel={saving ? "Removing..." : "Remove provider"}
+          disabled={saving}
+          destructive
+          onConfirm={() => void removeProvider()}
+          onCancel={() => setRemoveTarget(null)}
+        />
+      )}
+    </section>
+  );
+}
+
+function AiProviderDialog({
+  draft,
+  providers,
+  saving,
+  onChange,
+  onSave,
+  onClose,
+}: {
+  draft: AdminAiProviderDraft;
+  providers: AdminAiProvider[];
+  saving: boolean;
+  onChange: (draft: AdminAiProviderDraft) => void;
+  onSave: () => void;
+  onClose: () => void;
+}) {
+  const existing = providers.find((provider) => provider.id === draft.id);
+  const defaults = ADMIN_AI_PROVIDER_DEFAULTS[draft.id];
+  const creating = !existing?.configured;
+  const selectableProviders = providers.filter(
+    (provider) => !provider.configured || provider.id === draft.id,
+  );
+
+  return (
+    <DialogShell labelledBy="ai-provider-dialog-title" maxWidth="lg" onClose={onClose}>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSave();
+        }}
+        className="flex flex-col"
+      >
+        <div className="border-b border-border px-4 py-3">
+          <h2 id="ai-provider-dialog-title" className="text-base font-semibold text-text">
+            {creating ? "Add AI provider" : `Edit ${existing?.label ?? defaults.label}`}
+          </h2>
+          <p className="mt-0.5 text-xs text-text-muted">
+            Credentials are sent only to the Starlane server and are never returned by the API.
+          </p>
+        </div>
+        <div className="flex max-h-[calc(100dvh-10rem)] flex-col gap-4 overflow-y-auto p-4">
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="ai-provider-kind" className="text-sm font-medium text-text">
+              Provider
+            </label>
+            <Select
+              id="ai-provider-kind"
+              value={draft.id}
+              disabled={!creating}
+              onChange={(event) =>
+                onChange(getAdminAiProviderDraft(event.target.value as AdminAiProviderId))
+              }
+            >
+              {selectableProviders.map((provider) => (
+                <option key={provider.id} value={provider.id}>
+                  {provider.label}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="ai-provider-base-url" className="text-sm font-medium text-text">
+              Base URL
+            </label>
+            <Input
+              id="ai-provider-base-url"
+              type="url"
+              value={draft.base_url}
+              disabled={existing?.base_url_locked}
+              onChange={(event) => onChange({ ...draft, base_url: event.target.value })}
+              required
+            />
+            {existing?.base_url_locked && (
+              <p className="text-xs text-text-muted">The environment controls this endpoint.</p>
+            )}
+          </div>
+          {defaults.requiresKey && (
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="ai-provider-api-key" className="text-sm font-medium text-text">
+                API key
+              </label>
+              <Input
+                id="ai-provider-api-key"
+                type="password"
+                value={draft.api_key}
+                disabled={existing?.api_key_locked}
+                onChange={(event) => onChange({ ...draft, api_key: event.target.value })}
+                placeholder={
+                  existing?.has_api_key ? "Leave blank to keep the saved key" : "Enter API key"
+                }
+                required={!existing?.has_api_key}
+                autoComplete="new-password"
+              />
+              <p className="text-xs text-text-muted">
+                {existing?.api_key_locked
+                  ? "The environment supplies this credential."
+                  : "The saved key is write-only and remains masked after saving."}
+              </p>
+            </div>
+          )}
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="ai-provider-default-model" className="text-sm font-medium text-text">
+              Initial model
+            </label>
+            <Input
+              id="ai-provider-default-model"
+              value={draft.model}
+              onChange={(event) => onChange({ ...draft, model: event.target.value })}
+              required
+              placeholder={defaults.model}
+            />
+            <p className="text-xs text-text-muted">
+              Save first, then use Test &amp; load models to retrieve the provider&apos;s catalog.
+            </p>
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 border-t border-border px-4 py-3">
+          <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            disabled={
+              saving ||
+              !draft.base_url.trim() ||
+              !draft.model.trim() ||
+              (defaults.requiresKey && !existing?.has_api_key && !draft.api_key.trim())
+            }
+            className="border-ai bg-ai text-white hover:bg-ai/90"
+          >
+            {saving ? "Saving..." : creating ? "Add provider" : "Save provider"}
+          </Button>
+        </div>
+      </form>
+    </DialogShell>
   );
 }
 
@@ -1595,9 +2352,7 @@ function getInitialAdminSection(fallback: AdminSection, localMode = false): Admi
 }
 
 function roleLabel(role: string) {
-  if (role === "owner") return "Delete/admin";
-  if (role === "editor") return "Read/write";
-  return "Read";
+  return getSpaceRoleLabel(role);
 }
 
 export function AdminFormSelect({
@@ -1615,7 +2370,7 @@ export function AdminFormSelect({
     <Select
       value={value}
       onChange={(event) => onChange(event.target.value)}
-      className="h-9 bg-surface px-2 text-sm"
+      className="h-9 min-h-11 bg-surface px-2 text-sm sm:min-h-0"
       aria-label={ariaLabel}
     >
       {children}
@@ -1656,7 +2411,7 @@ export function AdminTextInput({
       disabled={disabled}
       placeholder={placeholder}
       spellCheck={spellCheck}
-      className={`min-w-0 px-2 text-sm ${className}`}
+      className={`min-h-11 min-w-0 px-2 text-sm sm:min-h-0 ${className}`}
       aria-label={ariaLabel}
     />
   );
@@ -1679,7 +2434,7 @@ export function AdminInlineSelect({
     <Select
       value={value}
       onChange={(event) => onChange(event.target.value)}
-      className={`h-8 px-2 text-sm ${className}`}
+      className={`h-8 min-h-11 px-2 text-sm sm:min-h-0 ${className}`}
       aria-label={ariaLabel}
     >
       {children}
@@ -1701,12 +2456,13 @@ export function RoleSelect({
       value={value}
       onChange={(event) => onChange(event.target.value)}
       disabled={disabled}
-      className="h-8 px-2 text-sm"
+      className="h-8 min-h-11 px-2 text-sm sm:min-h-0"
       aria-label="Permission role"
     >
-      <option value="viewer">Read</option>
-      <option value="editor">Read/write</option>
-      <option value="owner">Delete/admin</option>
+      <option value="viewer">Viewer</option>
+      <option value="commenter">Commenter</option>
+      <option value="editor">Editor</option>
+      <option value="space_admin">Space admin</option>
     </Select>
   );
 }
@@ -1725,7 +2481,7 @@ export function UserRoleSelect({
       value={value}
       onChange={(event) => onChange(event.target.value)}
       disabled={disabled}
-      className="h-8 px-2 text-sm"
+      className="h-8 min-h-11 px-2 text-sm sm:min-h-0"
       aria-label="User role"
     >
       <option value="member">Member</option>
@@ -1813,6 +2569,8 @@ function UsersSection({ localMode }: { localMode: boolean }) {
   const [sessions, setSessions] = useState<UserSessionItem[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sessionRevokeTarget, setSessionRevokeTarget] = useState<UserSessionItem | null>(null);
+  const [editingUser, setEditingUser] = useState<UserItem | null>(null);
+  const [editingUserRole, setEditingUserRole] = useState<"admin" | "member">("member");
   const importInputRef = useRef<HTMLInputElement | null>(null);
 
   const userLifecycleCounts = useMemo(() => getAdminUserLifecycleCounts(users), [users]);
@@ -1833,31 +2591,40 @@ function UsersSection({ localMode }: { localMode: boolean }) {
   );
   const { selectedVisibleUserIds, allVisibleUsersSelected } = visibleSelectionState;
 
-  const loadUsers = useCallback(() => {
-    if (localMode) {
-      setUsersLoading(false);
-      setUsers([]);
-      return;
-    }
-    setUsersLoading(true);
-    setError("");
-    api
-      .fetch<UserItem[]>("/admin/users")
-      .then(setUsers)
-      .catch((err) => {
-        const failureState = getAdminUserLifecycleFailureState<UserItem, UserSessionItem>();
-        setUsers(failureState.users);
-        setSelectedUserIds(failureState.selectedUserIds);
-        setSessionUser(failureState.sessionUser);
-        setSessions(failureState.sessions);
-        setError(err instanceof Error ? err.message : "Unable to load users");
-      })
-      .finally(() => setUsersLoading(false));
+  const usersMounted=useRef(false),usersGeneration=useRef(0),usersOrigin=useRef<(()=>void)|null>(null);
+  const usersCurrent=useRef(users),actorCurrent=useRef(user?.id);
+  usersCurrent.current=users;actorCurrent.current=user?.id;
+  const [usersContextKey,setUsersContextKey]=useState("");
+  const loadUsers = useCallback(async () => {
+    const request=++usersGeneration.current;
+    usersOrigin.current=null;
+    if (localMode) {setUsersLoading(false);setUsers([]);return;}
+    setUsersLoading(true);setError("");
+    const originalActor=actorCurrent.current,originalBase=getApiBase();
+    const current=()=>{if(!usersMounted.current||request!==usersGeneration.current||actorCurrent.current!==originalActor)throw new Error("Administrator changed. Refresh users.");};
+    let originalVerify=current;
+    try {
+      const transport=captureGuestClassificationTransport(current);
+      originalVerify=transport.verify;
+      const items=await transport.users();transport.verify();
+      usersOrigin.current=transport.verify;setUsers(items);setUsersContextKey(`${originalActor??""}/${originalBase}`);
+    }catch(err) {
+      try {originalVerify();} catch {return;}
+      const failureState=getAdminUserLifecycleFailureState<UserItem,UserSessionItem>();
+      setUsers(failureState.users);setSelectedUserIds(failureState.selectedUserIds);setSessionUser(failureState.sessionUser);setSessions(failureState.sessions);
+      setError(err instanceof Error?err.message:"Unable to load users");
+    }finally {if(usersMounted.current&&request===usersGeneration.current)setUsersLoading(false);}
   }, [localMode]);
+  useEffect(()=>{const lifecycleGeneration=usersGeneration;usersMounted.current=true;return()=>{usersMounted.current=false;lifecycleGeneration.current++;usersOrigin.current=null;};},[]);
 
   useEffect(() => {
     loadUsers();
-  }, [loadUsers]);
+  }, [loadUsers, user?.id, user?.account_kind]);
+
+  let usersSourceCurrent=localMode;
+  try {if(usersOrigin.current){usersOrigin.current();usersSourceCurrent=true;}} catch {/* Suppress stale original-account labels until a fresh load. */}
+  const displayedUsers=usersSourceCurrent?visibleUsers:[];
+  const displayedLifecycleCounts=usersSourceCurrent?userLifecycleCounts:getAdminUserLifecycleCounts([]);
 
   const updateUser = async (target: UserItem, patch: Partial<Pick<UserItem, "role" | "is_active">>) => {
     setBusyUserId(target.id);
@@ -1870,12 +2637,25 @@ function UsersSection({ localMode }: { localMode: boolean }) {
       });
       setUsers((prev) => prev.map((item) => (item.id === target.id ? { ...item, ...patch } : item)));
       setMessage("User updated.");
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to update user");
       await loadUsers();
+      return false;
     } finally {
       setBusyUserId(null);
     }
+  };
+
+  const openUserEditor = (target: UserItem) => {
+    setEditingUser(target);
+    setEditingUserRole(target.role === "admin" ? "admin" : "member");
+  };
+
+  const saveUserEditor = async () => {
+    if (!editingUser) return;
+    const updated = await updateUser(editingUser, { role: editingUserRole });
+    if (updated) setEditingUser(null);
   };
 
   const toggleUserSelection = (userId: string, selected: boolean) => {
@@ -2069,57 +2849,124 @@ function UsersSection({ localMode }: { localMode: boolean }) {
           <Button
             size="sm"
             variant="secondary"
+            className={RESPONSIVE_TOUCH_ACTION_CLASS}
             disabled={localMode}
             onClick={() => importInputRef.current?.click()}
           >
             Import CSV
           </Button>
-          <Button size="sm" disabled={localMode} onClick={() => setInviteOpen((open) => !open)}>
-            Invite user
+          <Button
+            size="sm"
+            className={RESPONSIVE_TOUCH_ACTION_CLASS}
+            disabled={localMode}
+            onClick={() => setInviteOpen(true)}
+          >
+            Create user
           </Button>
         </div>
       </div>
       {inviteOpen && (
-        <form
-          onSubmit={(event) => void submitInvite(event)}
-          className="rounded-card border-border bg-surface mb-4 grid gap-3 border p-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_120px_auto]"
-        >
-          <label className="min-w-0">
-            <span className="text-text-muted mb-1 block text-xs">Email</span>
-            <AdminTextInput
-              value={inviteEmail}
-              onChange={setInviteEmail}
-              type="email"
-              required
-              ariaLabel="Invite user email"
-            />
-          </label>
-          <label className="min-w-0">
-            <span className="text-text-muted mb-1 block text-xs">Display name</span>
-            <AdminTextInput
-              value={inviteName}
-              onChange={setInviteName}
-              required
-              ariaLabel="Invite user display name"
-            />
-          </label>
-          <label>
-            <span className="text-text-muted mb-1 block text-xs">Role</span>
-            <AdminFormSelect
-              value={inviteRole}
-              onChange={(value) => setInviteRole(value as "admin" | "member")}
-              ariaLabel="Invite role"
-            >
-              <option value="member">Member</option>
-              <option value="admin">Admin</option>
-            </AdminFormSelect>
-          </label>
-          <div className="flex items-end">
-            <Button size="sm" type="submit">
-              Create
-            </Button>
-          </div>
-        </form>
+        <DialogShell labelledBy="create-user-title" maxWidth="md" onClose={() => setInviteOpen(false)}>
+          <form onSubmit={(event) => void submitInvite(event)} className="flex flex-col">
+            <div className="border-border border-b px-4 py-3 sm:px-6">
+              <h2 id="create-user-title" className="text-text text-heading-lg font-semibold">
+                Create user
+              </h2>
+              <p className="text-text-muted mt-1 text-sm">
+                Add a user and assign their initial access level.
+              </p>
+            </div>
+            <div className="grid gap-4 p-4 sm:p-6">
+              <label className="min-w-0">
+                <span className="text-text mb-1 block text-sm font-medium">Email</span>
+                <span className="text-text-muted mb-2 block text-xs">Used for sign-in and invitations.</span>
+                <AdminTextInput
+                  value={inviteEmail}
+                  onChange={setInviteEmail}
+                  type="email"
+                  required
+                  ariaLabel="Invite user email"
+                />
+              </label>
+              <label className="min-w-0">
+                <span className="text-text mb-1 block text-sm font-medium">Display name</span>
+                <span className="text-text-muted mb-2 block text-xs">Shown in spaces and activity.</span>
+                <AdminTextInput
+                  value={inviteName}
+                  onChange={setInviteName}
+                  required
+                  ariaLabel="Invite user display name"
+                />
+              </label>
+              <label>
+                <span className="text-text mb-1 block text-sm font-medium">Site role</span>
+                <span className="text-text-muted mb-2 block text-xs">Admins can manage this Starlane instance.</span>
+                <AdminFormSelect
+                  value={inviteRole}
+                  onChange={(value) => setInviteRole(value as "admin" | "member")}
+                  ariaLabel="Invite role"
+                >
+                  <option value="member">Member</option>
+                  <option value="admin">Administrator</option>
+                </AdminFormSelect>
+              </label>
+            </div>
+            <div className="border-border flex flex-wrap justify-end gap-2 border-t px-4 py-3 sm:px-6">
+              <Button type="button" variant="secondary" onClick={() => setInviteOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit">Create user</Button>
+            </div>
+          </form>
+        </DialogShell>
+      )}
+      {editingUser && (
+        <DialogShell labelledBy="edit-user-title" maxWidth="md" onClose={() => setEditingUser(null)}>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void saveUserEditor();
+            }}
+            className="flex flex-col"
+          >
+            <div className="border-border border-b px-4 py-3 sm:px-6">
+              <h2 id="edit-user-title" className="text-text text-heading-lg font-semibold">
+                Edit user
+              </h2>
+              <p className="text-text-muted mt-1 text-sm">
+                Change site access for {editingUser.display_name || editingUser.email}.
+              </p>
+            </div>
+            <div className="grid gap-4 p-4 sm:p-6">
+              <div className="rounded-input border-border bg-surface-raised border px-3 py-2">
+                <p className="text-text text-sm font-medium">{editingUser.display_name || editingUser.email}</p>
+                <p className="text-text-muted mt-0.5 text-xs">{editingUser.email}</p>
+              </div>
+              <label>
+                <span className="text-text mb-1 block text-sm font-medium">Site role</span>
+                <span className="text-text-muted mb-2 block text-xs">
+                  Administrators can manage users, spaces, and site configuration.
+                </span>
+                <AdminFormSelect
+                  value={editingUserRole}
+                  onChange={(value) => setEditingUserRole(value as "admin" | "member")}
+                  ariaLabel={`Site role for ${editingUser.email}`}
+                >
+                  <option value="member">Member</option>
+                  <option value="admin">Administrator</option>
+                </AdminFormSelect>
+              </label>
+            </div>
+            <div className="border-border flex flex-wrap justify-end gap-2 border-t px-4 py-3 sm:px-6">
+              <Button type="button" variant="secondary" onClick={() => setEditingUser(null)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={busyUserId === editingUser.id}>
+                Save changes
+              </Button>
+            </div>
+          </form>
+        </DialogShell>
       )}
       {message && (
         <div className="border-border bg-surface-raised text-text-muted mb-3 rounded-input border px-3 py-2 text-xs">
@@ -2149,11 +2996,11 @@ function UsersSection({ localMode }: { localMode: boolean }) {
 
       <div className="mb-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
         {[
-          ["Total", userLifecycleCounts.total],
-          ["Active", userLifecycleCounts.active],
-          ["Inactive", userLifecycleCounts.inactive],
-          ["Admins", userLifecycleCounts.admins],
-          ["Members", userLifecycleCounts.members],
+          ["Total", displayedLifecycleCounts.total],
+          ["Active", displayedLifecycleCounts.active],
+          ["Inactive", displayedLifecycleCounts.inactive],
+          ["Admins", displayedLifecycleCounts.admins],
+          ["Member role", displayedLifecycleCounts.members],
         ].map(([label, value]) => (
           <div key={label} className="rounded-card border-border bg-surface border px-3 py-2">
             <p className="text-text-muted text-xs">{label}</p>
@@ -2200,14 +3047,15 @@ function UsersSection({ localMode }: { localMode: boolean }) {
 
       <div className="border-border bg-surface mb-3 flex flex-wrap items-center justify-between gap-2 rounded-card border px-3 py-2">
         <span className="text-text-muted text-xs">
-          {selectedUserIds.size} selected
-          {selectedUserIds.size > 0 ? ` · ${selectedVisibleUserIds.length} visible` : ""}
+          {usersSourceCurrent ? selectedUserIds.size : 0} selected
+          {usersSourceCurrent && selectedUserIds.size > 0 ? ` · ${selectedVisibleUserIds.length} visible` : ""}
         </span>
         <div className="flex flex-wrap gap-2">
           <Button
             size="sm"
             variant="secondary"
-            disabled={localMode || selectedUserIds.size === 0 || bulkLifecycleBusy}
+            className={RESPONSIVE_TOUCH_ACTION_CLASS}
+            disabled={localMode || !usersSourceCurrent || selectedUserIds.size === 0 || bulkLifecycleBusy}
             onClick={() => void runBulkLifecycle("activate")}
           >
             Activate selected
@@ -2215,7 +3063,8 @@ function UsersSection({ localMode }: { localMode: boolean }) {
           <Button
             size="sm"
             variant="secondary"
-            disabled={localMode || selectedUserIds.size === 0 || bulkLifecycleBusy}
+            className={RESPONSIVE_TOUCH_ACTION_CLASS}
+            disabled={localMode || !usersSourceCurrent || selectedUserIds.size === 0 || bulkLifecycleBusy}
             onClick={() => void runBulkLifecycle("deactivate")}
           >
             Deactivate selected
@@ -2223,6 +3072,7 @@ function UsersSection({ localMode }: { localMode: boolean }) {
           <Button
             size="sm"
             variant="ghost"
+            className={RESPONSIVE_TOUCH_ACTION_CLASS}
             disabled={selectedUserIds.size === 0 || bulkLifecycleBusy}
             onClick={() => setSelectedUserIds(new Set())}
           >
@@ -2231,6 +3081,8 @@ function UsersSection({ localMode }: { localMode: boolean }) {
         </div>
       </div>
 
+      <p className="text-text-muted mb-2 text-xs">Guest account kind limits effective access even when retained site roles or memberships remain.</p>
+      <Button variant="secondary" size="sm" disabled={localMode || usersLoading} onClick={()=>void loadUsers()}>Refresh users</Button>
       <div className="rounded-card border-border border">
         <table className="w-full text-sm">
           <thead>
@@ -2246,7 +3098,8 @@ function UsersSection({ localMode }: { localMode: boolean }) {
               </th>
               <th className="px-3 py-2 font-medium">Email</th>
               <th className="px-3 py-2 font-medium">Name</th>
-              <th className="px-3 py-2 font-medium">Role</th>
+              <th className="px-3 py-2 font-medium">Site role</th>
+              <th className="px-3 py-2 font-medium">Account kind</th>
               <th className="px-3 py-2 font-medium">Status</th>
               <th className="px-3 py-2 font-medium">Actions</th>
             </tr>
@@ -2254,22 +3107,23 @@ function UsersSection({ localMode }: { localMode: boolean }) {
           <tbody>
             {usersLoading ? (
               <tr>
-                <td colSpan={6} className="text-text-muted px-3 py-8 text-center">
+                <td colSpan={7} className="text-text-muted px-3 py-8 text-center">
                   Loading users...
                 </td>
               </tr>
-            ) : visibleUsers.length === 0 ? (
+            ) : displayedUsers.length === 0 ? (
               <tr>
-                <td colSpan={6} className="text-text-muted px-3 py-8 text-center">
+                <td colSpan={7} className="text-text-muted px-3 py-8 text-center">
                   {users.length === 0
                     ? "No users to display. Use the Invite or Import buttons to add users."
                     : "No users match the current filters."}
                 </td>
               </tr>
             ) : (
-              visibleUsers.map((u) => {
+              displayedUsers.map((u) => {
                 const isSelf = u.id === user?.id;
                 const busy = busyUserId === u.id;
+                const acceptedOrigin=usersOrigin.current;
                 return (
                   <tr key={u.id} className="border-border border-b last:border-0">
                     <td className="px-3 py-2">
@@ -2282,13 +3136,8 @@ function UsersSection({ localMode }: { localMode: boolean }) {
                     </td>
                     <td className="px-3 py-2">{u.email}</td>
                     <td className="px-3 py-2">{u.display_name}</td>
-                    <td className="px-3 py-2">
-                      <UserRoleSelect
-                        value={u.role}
-                        disabled={localMode || busy || isSelf}
-                        onChange={(role) => void updateUser(u, { role })}
-                      />
-                    </td>
+                    <td className="px-3 py-2">{u.role === "admin" ? "Administrator" : u.role === "member" ? "Member" : u.role === "viewer" ? "Viewer" : "Unavailable"}</td>
+                    <td className="px-3 py-2">{accountKindLabel(u.account_kind)}</td>
                     <td className="px-3 py-2">
                       <span
                         className={`inline-block rounded px-1.5 py-0.5 text-xs ${
@@ -2300,9 +3149,30 @@ function UsersSection({ localMode }: { localMode: boolean }) {
                     </td>
                     <td className="px-3 py-2">
                       <div className="flex flex-wrap gap-2">
+                        {!localMode && !isSelf && <GuestAccountControls
+                          target={u} actorId={user?.id} contextKey={usersContextKey}
+                          assertCurrent={()=>{
+                            if(!acceptedOrigin)throw new Error("Refresh users before reviewing this account.");
+                            acceptedOrigin();
+                            const latest=usersCurrent.current.find(item=>item.id===u.id);
+                            if(!latest||latest.role!==u.role||latest.account_kind!==u.account_kind||latest.is_active!==u.is_active||latest.display_name!==u.display_name||latest.email!==u.email)throw new Error("Selected account changed. Refresh users.");
+                          }}
+                          onConfirmed={id=>{setUsers(old=>old.map(item=>item.id===id?{...item,account_kind:"guest"}:item));setMessage("Guest access confirmed. Share a published page separately to grant access.");}}
+                        />}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className={RESPONSIVE_TOUCH_ACTION_CLASS}
+                          disabled={localMode || busy || isSelf || u.account_kind === "guest"}
+                          onClick={() => openUserEditor(u)}
+                        >
+                          <Pencil size={14} aria-hidden="true" />
+                          Edit
+                        </Button>
                         <Button
                           size="sm"
                           variant="secondary"
+                          className={RESPONSIVE_TOUCH_ACTION_CLASS}
                           disabled={localMode || busy || isSelf}
                           onClick={() => void updateUser(u, { is_active: !u.is_active })}
                         >
@@ -2311,6 +3181,7 @@ function UsersSection({ localMode }: { localMode: boolean }) {
                         <Button
                           size="sm"
                           variant="ghost"
+                          className={RESPONSIVE_TOUCH_ACTION_CLASS}
                           disabled={localMode}
                           onClick={() => void loadSessions(u)}
                         >
@@ -2319,6 +3190,7 @@ function UsersSection({ localMode }: { localMode: boolean }) {
                         <Button
                           size="sm"
                           variant="ghost"
+                          className={RESPONSIVE_TOUCH_ACTION_CLASS}
                           disabled={localMode || busy}
                           onClick={() => void resetPassword(u)}
                         >
@@ -2343,48 +3215,30 @@ function UsersSection({ localMode }: { localMode: boolean }) {
                 Revoke stale or suspicious refresh sessions for this user.
               </p>
             </div>
-            <Button size="sm" variant="ghost" onClick={closeSessions}>
+            <Button
+              size="sm"
+              variant="ghost"
+              className={RESPONSIVE_TOUCH_ACTION_CLASS}
+              onClick={closeSessions}
+            >
               Close
             </Button>
           </div>
           {sessionRevokeTarget && (
-            <div
-              role="dialog"
-              aria-labelledby="admin-session-revoke-title"
-              className="rounded-card border-border bg-bg mb-3 border p-3"
-            >
-              <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-                <div className="min-w-0">
-                  <p id="admin-session-revoke-title" className="text-text text-sm font-medium">
-                    Revoke session
-                  </p>
-                  <p className="text-text-muted mt-1 text-xs leading-5">
-                    {getAdminSessionRevokeConfirmationMessage(
-                      sessionUser.email,
-                      getAdminSessionDeviceLabel(sessionRevokeTarget),
-                    )}
-                  </p>
-                </div>
-                <div className="grid grid-cols-2 gap-2 sm:flex">
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => setSessionRevokeTarget(null)}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="danger"
-                    onClick={() => {
-                      void revokeSession(sessionRevokeTarget);
-                    }}
-                  >
-                    Revoke session
-                  </Button>
-                </div>
-              </div>
-            </div>
+            <ConfirmDialog
+              labelledBy="admin-session-revoke-title"
+              title="Revoke session"
+              message={getAdminSessionRevokeConfirmationMessage(
+                sessionUser.email,
+                getAdminSessionDeviceLabel(sessionRevokeTarget),
+              )}
+              confirmLabel="Revoke session"
+              destructive
+              onCancel={() => setSessionRevokeTarget(null)}
+              onConfirm={() => {
+                void revokeSession(sessionRevokeTarget);
+              }}
+            />
           )}
           {sessionsLoading ? (
             <p className="text-text-muted text-sm">Loading sessions...</p>
@@ -2414,6 +3268,7 @@ function UsersSection({ localMode }: { localMode: boolean }) {
                   <Button
                     size="sm"
                     variant="danger"
+                    className={RESPONSIVE_TOUCH_ACTION_CLASS}
                     onClick={() => {
                       setSessionRevokeTarget(session);
                     }}
@@ -2432,24 +3287,26 @@ function UsersSection({ localMode }: { localMode: boolean }) {
 
 function SpacesSection({ localMode }: { localMode: boolean }) {
   const [spaces, setSpaces] = useState<SpaceItem[]>([]);
-  const [users, setUsers] = useState<UserItem[]>([]);
-  const [groups, setGroups] = useState<GroupItem[]>([]);
-  const [members, setMembers] = useState<SpaceMemberItem[]>([]);
-  const [spaceGroups, setSpaceGroups] = useState<SpaceGroupItem[]>([]);
+  const [spaceQuery, setSpaceQuery] = useState("");
   const [selectedSpaceId, setSelectedSpaceId] = useState(() => {
     if (typeof window === "undefined") return "";
     return new URLSearchParams(window.location.search).get("spaceId") ?? "";
   });
   const [spaceNameDraft, setSpaceNameDraft] = useState("");
   const [newSpaceName, setNewSpaceName] = useState("");
-  const [memberUserId, setMemberUserId] = useState("");
-  const [memberRole, setMemberRole] = useState("viewer");
-  const [groupId, setGroupId] = useState("");
-  const [groupRole, setGroupRole] = useState("viewer");
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const selectedSpace = spaces.find((space) => space.id === selectedSpaceId) || spaces[0] || null;
+  const visibleSpaces = useMemo(() => {
+    const query = spaceQuery.trim().toLowerCase();
+    if (!query) return spaces;
+    return spaces.filter((space) =>
+      [space.name, space.slug, space.visibility].some((value) =>
+        value.toLowerCase().includes(query),
+      ),
+    );
+  }, [spaceQuery, spaces]);
 
   const loadLocalSpaces = async () => {
     const spaceList = await dataClient.listSpaces();
@@ -2459,34 +3316,18 @@ function SpacesSection({ localMode }: { localMode: boolean }) {
     );
   };
 
-  const reloadSpaceAccess = async (spaceId: string) => {
-    const [memberList, groupList] = await Promise.all([
-      api.fetch<SpaceMemberItem[]>(`/spaces/${spaceId}/members`),
-      api.fetch<SpaceGroupItem[]>(`/spaces/${spaceId}/groups`),
-    ]);
-    setMembers(memberList);
-    setSpaceGroups(groupList);
-  };
-
   useEffect(() => {
     if (localMode) {
       loadLocalSpaces().catch((err) =>
         setError(err instanceof Error ? err.message : "Failed to load local spaces"),
       );
-      setUsers([]);
-      setGroups([]);
       return;
     }
 
-    Promise.all([
-      api.fetch<SpaceItem[]>("/spaces"),
-      api.fetch<UserItem[]>("/admin/users"),
-      api.fetch<GroupItem[]>("/admin/groups"),
-    ])
-      .then(([spaceList, userList, groupList]) => {
+    api
+      .fetch<SpaceItem[]>("/spaces")
+      .then((spaceList) => {
         setSpaces(spaceList);
-        setUsers(userList);
-        setGroups(groupList);
         setSelectedSpaceId((current) => current || spaceList[0]?.id || "");
       })
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load spaces"));
@@ -2496,29 +3337,17 @@ function SpacesSection({ localMode }: { localMode: boolean }) {
     setSpaceNameDraft(selectedSpace?.name ?? "");
   }, [selectedSpace?.id, selectedSpace?.name]);
 
-  useEffect(() => {
-    if (localMode || !selectedSpace?.id) {
-      setMembers([]);
-      setSpaceGroups([]);
-      return;
-    }
-
-    reloadSpaceAccess(selectedSpace.id).catch((err) => {
-      setError(err instanceof Error ? err.message : "Failed to load permissions");
-    });
-  }, [localMode, selectedSpace?.id]);
-
-  const updateVisibility = async (visibility: string) => {
-    if (!selectedSpace) return;
+  const updateVisibility = async (visibility: string, targetSpace = selectedSpace) => {
+    if (!targetSpace) return;
     setMessage(null);
     setError(null);
     try {
-      await api.fetch(`/spaces/${selectedSpace.id}`, {
+      await api.fetch(`/spaces/${targetSpace.id}`, {
         method: "PUT",
         body: { visibility },
       });
       setSpaces((prev) =>
-        prev.map((space) => (space.id === selectedSpace.id ? { ...space, visibility } : space)),
+        prev.map((space) => (space.id === targetSpace.id ? { ...space, visibility } : space)),
       );
       setMessage("Space visibility updated.");
     } catch (err) {
@@ -2567,74 +3396,6 @@ function SpacesSection({ localMode }: { localMode: boolean }) {
     }
   };
 
-  const addMember = async () => {
-    if (!selectedSpace || !memberUserId) return;
-    setMessage(null);
-    setError(null);
-    try {
-      await api.fetch(`/spaces/${selectedSpace.id}/members`, {
-        method: "POST",
-        body: { user_id: memberUserId, role: memberRole },
-      });
-      await reloadSpaceAccess(selectedSpace.id);
-      setMemberUserId("");
-      setMessage("User permission added.");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to add user");
-    }
-  };
-
-  const updateMemberRole = async (userId: string, role: string) => {
-    if (!selectedSpace) return;
-    await api.fetch(`/spaces/${selectedSpace.id}/members/${userId}`, {
-      method: "PUT",
-      body: { user_id: userId, role },
-    });
-    setMembers((prev) =>
-      prev.map((member) => (member.user_id === userId ? { ...member, role } : member)),
-    );
-  };
-
-  const removeMember = async (userId: string) => {
-    if (!selectedSpace) return;
-    await api.fetch(`/spaces/${selectedSpace.id}/members/${userId}`, { method: "DELETE" });
-    setMembers((prev) => prev.filter((member) => member.user_id !== userId));
-  };
-
-  const grantGroup = async () => {
-    if (!selectedSpace || !groupId) return;
-    setMessage(null);
-    setError(null);
-    try {
-      await api.fetch(`/spaces/${selectedSpace.id}/groups`, {
-        method: "POST",
-        body: { group_id: groupId, role: groupRole },
-      });
-      await reloadSpaceAccess(selectedSpace.id);
-      setGroupId("");
-      setMessage("Group permission added.");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to add group");
-    }
-  };
-
-  const updateGroupRole = async (id: string, role: string) => {
-    if (!selectedSpace) return;
-    await api.fetch(`/spaces/${selectedSpace.id}/groups/${id}`, {
-      method: "PUT",
-      body: { group_id: id, role },
-    });
-    setSpaceGroups((prev) =>
-      prev.map((group) => (group.group_id === id ? { ...group, role } : group)),
-    );
-  };
-
-  const removeGroup = async (id: string) => {
-    if (!selectedSpace) return;
-    await api.fetch(`/spaces/${selectedSpace.id}/groups/${id}`, { method: "DELETE" });
-    setSpaceGroups((prev) => prev.filter((group) => group.group_id !== id));
-  };
-
   return (
     <div>
       <div className="mb-4 flex items-center justify-between">
@@ -2654,7 +3415,7 @@ function SpacesSection({ localMode }: { localMode: boolean }) {
                     key={space.id}
                     type="button"
                     onClick={() => setSelectedSpaceId(space.id)}
-                    className={`rounded-button block w-full px-2 py-1.5 text-left text-sm transition-colors duration-100 ${
+                    className={`rounded-button block w-full min-h-11 px-2 py-1.5 text-left text-sm transition-colors duration-100 sm:min-h-0 ${
                       selectedSpace?.id === space.id
                         ? "bg-surface-raised text-text"
                         : "text-text-muted hover:bg-surface-raised hover:text-text"
@@ -2690,6 +3451,7 @@ function SpacesSection({ localMode }: { localMode: boolean }) {
                       />
                       <Button
                         size="sm"
+                        className={RESPONSIVE_TOUCH_ACTION_CLASS}
                         onClick={() => void renameLocalSpace()}
                         disabled={!spaceNameDraft.trim() || spaceNameDraft.trim() === selectedSpace.name}
                       >
@@ -2716,6 +3478,7 @@ function SpacesSection({ localMode }: { localMode: boolean }) {
                   />
                   <Button
                     size="sm"
+                    className={RESPONSIVE_TOUCH_ACTION_CLASS}
                     onClick={() => void createLocalSpace()}
                     disabled={!newSpaceName.trim()}
                   >
@@ -2739,172 +3502,91 @@ function SpacesSection({ localMode }: { localMode: boolean }) {
         </div>
       ) : (
         <div className="space-y-4">
-          <div className="grid gap-3 lg:grid-cols-[minmax(0,16rem)_minmax(0,1fr)]">
-            <div className="rounded-card border-border border p-2">
-              {spaces.map((space) => (
-                <button
-                  key={space.id}
-                  type="button"
-                  onClick={() => setSelectedSpaceId(space.id)}
-                  className={`rounded-button block w-full px-2 py-1.5 text-left text-sm transition-colors duration-100 ${
-                    selectedSpace?.id === space.id
-                      ? "bg-surface-raised text-text"
-                      : "text-text-muted hover:bg-surface-raised hover:text-text"
-                  }`}
-                >
-                  <span className="block truncate">{space.name}</span>
-                  <span className="text-text-muted block text-xs">{space.visibility}</span>
-                </button>
-              ))}
+          <section className="rounded-card border-border bg-surface overflow-hidden border">
+            <header className="flex flex-wrap items-start justify-between gap-3 px-4 py-3">
+              <div>
+                <h2 className="text-text text-base font-semibold">Spaces</h2>
+                <p className="text-text-muted mt-0.5 text-xs">
+                  Visibility and access use the same settings workspace as Space admins.
+                </p>
+              </div>
+              <span className="text-text-muted text-xs">
+                {visibleSpaces.length} of {spaces.length}
+              </span>
+            </header>
+            <div className="border-border border-t px-4 py-2.5">
+              <AdminTextInput
+                value={spaceQuery}
+                onChange={setSpaceQuery}
+                placeholder="Search spaces, slugs, or visibility"
+                ariaLabel="Search spaces"
+              />
             </div>
-
-            <div className="space-y-4">
-              {selectedSpace && (
-                <div className="rounded-card border-border border p-3">
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-text text-sm font-medium">{selectedSpace.name}</p>
-                      <p className="text-text-muted text-xs">{selectedSpace.slug}</p>
-                    </div>
-                    <AdminInlineSelect
-                      value={selectedSpace.visibility}
-                      onChange={(value) => {
-                        void updateVisibility(value);
-                      }}
-                      ariaLabel="Space visibility"
-                    >
-                      <option value="private">Private</option>
-                      <option value="internal">Signed-in users</option>
-                      <option value="public">Public</option>
-                    </AdminInlineSelect>
-                  </div>
-
-                  <div className="grid gap-4 xl:grid-cols-2">
-                    <div>
-                      <div className="mb-2 flex items-center justify-between">
-                        <h2 className="text-text text-sm font-medium">Users</h2>
-                        <div className="flex gap-2">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[42rem] text-left text-sm">
+                <thead>
+                  <tr className="border-border bg-surface-raised text-text-muted border-y text-xs">
+                    <th className="px-4 py-2.5 font-medium">Space</th>
+                    <th className="px-4 py-2.5 font-medium">Visibility</th>
+                    <th className="px-4 py-2.5 font-medium">Role</th>
+                    <th className="px-4 py-2.5 text-right font-medium">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-border divide-y">
+                  {visibleSpaces.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="text-text-muted px-4 py-10 text-center">
+                        {spaces.length === 0
+                          ? "No spaces to display."
+                          : "No spaces match this search."}
+                      </td>
+                    </tr>
+                  ) : (
+                    visibleSpaces.map((space) => (
+                      <tr key={space.id} className="hover:bg-surface-raised/60">
+                        <td className="px-4 py-3">
+                          <span className="text-text block font-medium">{space.name}</span>
+                          <span className="text-text-muted block text-xs">{space.slug}</span>
+                        </td>
+                        <td className="px-4 py-3">
                           <AdminInlineSelect
-                            value={memberUserId}
-                            onChange={setMemberUserId}
-                            className="max-w-44"
-                            ariaLabel="User to add"
-                          >
-                            <option value="">Select user</option>
-                            {users.map((item) => (
-                              <option key={item.id} value={item.id}>
-                                {item.email}
-                              </option>
-                            ))}
-                          </AdminInlineSelect>
-                          <RoleSelect value={memberRole} onChange={setMemberRole} />
-                          <Button
-                            size="sm"
-                            onClick={() => {
-                              void addMember();
+                            value={space.visibility}
+                            onChange={(value) => {
+                              setSelectedSpaceId(space.id);
+                              void updateVisibility(value, space);
                             }}
+                            ariaLabel={`Visibility for ${space.name}`}
                           >
-                            Add
-                          </Button>
-                        </div>
-                      </div>
-                      <div className="rounded-card border-border border">
-                        {members.map((member) => (
-                          <div
-                            key={member.user_id}
-                            className="border-border flex items-center gap-2 border-b px-3 py-2 last:border-0"
-                          >
-                            <div className="min-w-0 flex-1">
-                              <p className="text-text truncate text-sm">{member.display_name}</p>
-                              <p className="text-text-muted truncate text-xs">{member.email}</p>
-                            </div>
-                            <RoleSelect
-                              value={member.role}
-                              onChange={(role) => {
-                                void updateMemberRole(member.user_id, role);
-                              }}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => {
-                                void removeMember(member.user_id);
-                              }}
-                              className={ADMIN_DANGER_ICON_BUTTON_CLASS}
-                              aria-label={`Remove ${member.email}`}
-                            >
-                              <UserRoundX size={14} />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="mb-2 flex items-center justify-between">
-                        <h2 className="text-text text-sm font-medium">Groups</h2>
-                        <div className="flex gap-2">
-                          <AdminInlineSelect
-                            value={groupId}
-                            onChange={setGroupId}
-                            className="max-w-44"
-                            ariaLabel="Group to add"
-                          >
-                            <option value="">Select group</option>
-                            {groups.map((item) => (
-                              <option key={item.id} value={item.id}>
-                                {item.name}
-                              </option>
-                            ))}
+                            <option value="private">Private</option>
+                            <option value="internal">Everyone signed in</option>
+                            <option value="public">Public web</option>
                           </AdminInlineSelect>
-                          <RoleSelect value={groupRole} onChange={setGroupRole} />
-                          <Button
-                            size="sm"
-                            onClick={() => {
-                              void grantGroup();
-                            }}
-                          >
-                            Add
-                          </Button>
-                        </div>
-                      </div>
-                      <div className="rounded-card border-border border">
-                        {spaceGroups.map((group) => (
-                          <div
-                            key={group.group_id}
-                            className="border-border flex items-center gap-2 border-b px-3 py-2 last:border-0"
-                          >
-                            <div className="min-w-0 flex-1">
-                              <p className="text-text truncate text-sm">{group.name}</p>
-                              <p className="text-text-muted truncate text-xs">
-                                {group.member_count} member{group.member_count === 1 ? "" : "s"} ·{" "}
-                                {roleLabel(group.role)}
-                              </p>
-                            </div>
-                            <RoleSelect
-                              value={group.role}
-                              onChange={(role) => {
-                                void updateGroupRole(group.group_id, role);
-                              }}
-                            />
-                            <button
+                        </td>
+                        <td className="text-text-muted px-4 py-3 text-xs">
+                          {roleLabel(space.member_role ?? "viewer")}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex justify-end">
+                            <Button
                               type="button"
+                              size="sm"
+                              variant="secondary"
                               onClick={() => {
-                                void removeGroup(group.group_id);
+                                window.location.href = `/spaces/${encodeURIComponent(space.id)}/settings`;
                               }}
-                              className={ADMIN_DANGER_ICON_BUTTON_CLASS}
-                              aria-label={`Remove ${group.name}`}
                             >
-                              <UserRoundX size={14} />
-                            </button>
+                              <Settings size={14} />
+                              Manage access
+                            </Button>
                           </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
             </div>
-          </div>
+          </section>
           {message && (
             <div className="rounded-card border-border text-text-muted border px-3 py-2 text-sm">
               {message}
@@ -2921,15 +3603,75 @@ function SpacesSection({ localMode }: { localMode: boolean }) {
   );
 }
 
+function RolesSection({ localMode }: { localMode: boolean }) {
+  const [roles, setRoles] = useState<GlobalRoleItem[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (localMode) return;
+    api.fetch<GlobalRoleItem[]>("/admin/roles")
+      .then(setRoles)
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load roles"));
+  }, [localMode]);
+
+  return (
+    <div>
+      <div className="mb-4 flex items-center justify-between">
+        <div>
+          <h1 className="text-text text-lg font-medium">Roles</h1>
+          <p className="text-text-muted mt-1 text-sm">Reusable roles can be assigned to groups and apply across spaces.</p>
+        </div>
+      </div>
+      {localMode ? (
+        <div className="rounded-card border-border text-text-muted border p-3 text-sm">Roles are unavailable in local mode.</div>
+      ) : error ? (
+        <div className={ADMIN_ERROR_CARD_CLASS}>{error}</div>
+      ) : (
+        <div className="grid gap-3 md:grid-cols-2">
+          {roles.map((role) => (
+            <div key={role.id} className="rounded-card border-border bg-surface border p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-text font-medium">{role.name}</h2>
+                  <p className="text-text-muted mt-1 text-sm">{role.description}</p>
+                </div>
+                {role.built_in && <Badge variant="secondary">Built-in</Badge>}
+              </div>
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {role.permissions.map((permission) => (
+                  <Badge key={permission} variant="outline">{permission.replace(/_/g, " ")}</Badge>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function GroupsSection({ localMode }: { localMode: boolean }) {
   const [groups, setGroups] = useState<GroupItem[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState("");
   const [members, setMembers] = useState<SpaceMemberItem[]>([]);
+  const [spaceGrants, setSpaceGrants] = useState<GroupSpaceGrantItem[]>([]);
+  const [globalRoles, setGlobalRoles] = useState<GlobalRoleItem[]>([]);
+  const [groupRoles, setGroupRoles] = useState<GlobalRoleItem[]>([]);
+  const [assignRoleOpen, setAssignRoleOpen] = useState(false);
   const [users, setUsers] = useState<UserItem[]>([]);
   const [newGroupName, setNewGroupName] = useState("");
   const [newGroupDescription, setNewGroupDescription] = useState("");
+  const [groupNameDraft, setGroupNameDraft] = useState("");
+  const [groupDescriptionDraft, setGroupDescriptionDraft] = useState("");
   const [userId, setUserId] = useState("");
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [createGroupOpen, setCreateGroupOpen] = useState(false);
+  const [addMemberOpen, setAddMemberOpen] = useState(false);
+  const [memberQuery, setMemberQuery] = useState("");
+  const [memberToRemove, setMemberToRemove] = useState<SpaceMemberItem | null>(null);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
 
   const selectedGroup = groups.find((group) => group.id === selectedGroupId) || groups[0] || null;
 
@@ -2953,55 +3695,276 @@ function GroupsSection({ localMode }: { localMode: boolean }) {
   useEffect(() => {
     if (localMode || !selectedGroup?.id) {
       setMembers([]);
+      setSpaceGrants([]);
+      setGroupRoles([]);
       return;
     }
-    api
-      .fetch<SpaceMemberItem[]>(`/admin/groups/${selectedGroup.id}/members`)
-      .then(setMembers)
+    setGroupNameDraft(selectedGroup.name);
+    setGroupDescriptionDraft(selectedGroup.description || "");
+    Promise.all([
+      api.fetch<SpaceMemberItem[]>(`/admin/groups/${selectedGroup.id}/members`),
+      api.fetch<GroupSpaceGrantItem[]>(`/admin/groups/${selectedGroup.id}/spaces`),
+      api.fetch<GlobalRoleItem[]>(`/admin/groups/${selectedGroup.id}/roles`),
+    ])
+      .then(([memberList, grantList, roleList]) => {
+        setMembers(memberList);
+        setSpaceGrants(grantList);
+        setGroupRoles(roleList);
+      })
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load members"));
-  }, [localMode, selectedGroup?.id]);
+  }, [localMode, selectedGroup?.id, selectedGroup?.name, selectedGroup?.description]);
+
+  useEffect(() => {
+    if (localMode) return;
+    api.fetch<GlobalRoleItem[]>("/admin/roles")
+      .then(setGlobalRoles)
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load roles"));
+  }, [localMode]);
+
+  const assignRole = async (roleId: string) => {
+    if (!selectedGroup) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await api.fetch(`/admin/groups/${selectedGroup.id}/roles`, { method: "POST", body: { role_id: roleId } });
+      setGroupRoles(await api.fetch<GlobalRoleItem[]>(`/admin/groups/${selectedGroup.id}/roles`));
+      setAssignRoleOpen(false);
+      setMessage("Role assigned to the group.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to assign role");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeRole = async (role: GlobalRoleItem) => {
+    if (!selectedGroup) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await api.fetch(`/admin/groups/${selectedGroup.id}/roles/${role.id}`, { method: "DELETE" });
+      setGroupRoles((current) => current.filter((item) => item.id !== role.id));
+      setMessage(`${role.name} removed from the group.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to remove role");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const createGroup = async () => {
     if (!newGroupName.trim()) return;
-    await api.fetch<GroupItem>("/admin/groups", {
-      method: "POST",
-      body: {
-        name: newGroupName.trim(),
-        description: newGroupDescription.trim() || null,
-      },
-    });
-    setNewGroupName("");
-    setNewGroupDescription("");
-    await reloadGroups();
+    setSaving(true);
+    setError(null);
+    try {
+      const created = await api.fetch<GroupItem>("/admin/groups", {
+        method: "POST",
+        body: {
+          name: newGroupName.trim(),
+          description: newGroupDescription.trim() || null,
+        },
+      });
+      setNewGroupName("");
+      setNewGroupDescription("");
+      setCreateGroupOpen(false);
+      await reloadGroups();
+      setSelectedGroupId(created.id);
+      setMessage(`Created group “${created.name}”.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to create group");
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const addMember = async () => {
-    if (!selectedGroup || !userId) return;
-    await api.fetch(`/admin/groups/${selectedGroup.id}/members`, {
-      method: "POST",
-      body: { user_id: userId },
-    });
-    setUserId("");
-    const refreshed = await api.fetch<SpaceMemberItem[]>(
-      `/admin/groups/${selectedGroup.id}/members`,
-    );
-    setMembers(refreshed);
-    await reloadGroups();
+  const addMember = async (memberId = userId) => {
+    if (!selectedGroup || !memberId) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await api.fetch(`/admin/groups/${selectedGroup.id}/members`, {
+        method: "POST",
+        body: { user_id: memberId },
+      });
+      setUserId("");
+      const refreshed = await api.fetch<SpaceMemberItem[]>(
+        `/admin/groups/${selectedGroup.id}/members`,
+      );
+      setMembers(refreshed);
+      await reloadGroups();
+      setAddMemberOpen(false);
+      setMemberQuery("");
+      setMessage("Member added to the group.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to add group member");
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const removeMember = async (id: string) => {
-    if (!selectedGroup) return;
-    await api.fetch(`/admin/groups/${selectedGroup.id}/members/${id}`, { method: "DELETE" });
-    setMembers((prev) => prev.filter((member) => member.user_id !== id));
-    await reloadGroups();
+  const confirmRemoveMember = async () => {
+    if (!selectedGroup || !memberToRemove) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await api.fetch(`/admin/groups/${selectedGroup.id}/members/${memberToRemove.user_id}`, { method: "DELETE" });
+      setMembers((prev) => prev.filter((member) => member.user_id !== memberToRemove.user_id));
+      await reloadGroups();
+      setMessage(`${memberToRemove.display_name || memberToRemove.email} removed from the group.`);
+      setMemberToRemove(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to remove group member");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const availableMembers = users.filter((item) =>
+    !members.some((member) => member.user_id === item.id) &&
+    `${item.display_name} ${item.email}`.toLowerCase().includes(memberQuery.trim().toLowerCase()),
+  );
+
+  const saveGroup = async () => {
+    if (
+      !selectedGroup ||
+      selectedGroup.scim_managed ||
+      selectedGroup.managed_space_id ||
+      !groupNameDraft.trim()
+    )
+      return;
+    setSaving(true);
+    setError(null);
+    try {
+      await api.fetch(`/admin/groups/${selectedGroup.id}`, {
+        method: "PUT",
+        body: {
+          name: groupNameDraft.trim(),
+          description: groupDescriptionDraft.trim() || null,
+        },
+      });
+      await reloadGroups();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to update group");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteGroup = async () => {
+    if (!selectedGroup || selectedGroup.scim_managed || selectedGroup.managed_space_id) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await api.fetch(`/admin/groups/${selectedGroup.id}`, { method: "DELETE" });
+      setDeleteConfirmOpen(false);
+      setSelectedGroupId("");
+      setMembers([]);
+      setSpaceGrants([]);
+      await reloadGroups();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to delete group");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
     <div>
+      {deleteConfirmOpen && selectedGroup && (
+        <ConfirmDialog
+          labelledBy="admin-delete-group-title"
+          title="Delete group"
+          message={getAdminGroupDeleteConfirmationMessage(selectedGroup)}
+          confirmLabel={saving ? "Deleting..." : "Delete group"}
+          destructive
+          onCancel={() => setDeleteConfirmOpen(false)}
+          onConfirm={() => void deleteGroup()}
+        />
+      )}
+      {memberToRemove && (
+        <ConfirmDialog
+          labelledBy="admin-remove-group-member-title"
+          title="Remove group member"
+          message={`Remove ${memberToRemove.display_name || memberToRemove.email} from ${selectedGroup?.name ?? "this group"}?`}
+          confirmLabel={saving ? "Removing..." : "Remove member"}
+          destructive
+          onCancel={() => !saving && setMemberToRemove(null)}
+          onConfirm={() => void confirmRemoveMember()}
+        />
+      )}
+      {createGroupOpen && (
+        <DialogShell labelledBy="admin-create-group-title" maxWidth="md" onClose={() => !saving && setCreateGroupOpen(false)}>
+          <form onSubmit={(event) => { event.preventDefault(); void createGroup(); }} className="flex flex-col">
+            <div className="border-border border-b px-4 py-3 sm:px-6">
+              <h2 id="admin-create-group-title" className="text-text text-heading-lg font-semibold">Create group</h2>
+              <p className="text-text-muted mt-1 text-sm">Create a reusable permission group for spaces and users.</p>
+            </div>
+            <div className="grid gap-4 p-4 sm:p-6">
+              <label>
+                <span className="text-text mb-1 block text-sm font-medium">Group name</span>
+                <AdminTextInput value={newGroupName} onChange={setNewGroupName} placeholder="e.g. Product team" ariaLabel="Group name" required />
+              </label>
+              <label>
+                <span className="text-text mb-1 block text-sm font-medium">Description</span>
+                <Textarea value={newGroupDescription} onChange={(event) => setNewGroupDescription(event.target.value)} placeholder="What access does this group represent?" aria-label="Group description" className="min-h-20 text-sm" />
+              </label>
+            </div>
+            <div className="border-border flex justify-end gap-2 border-t px-4 py-3 sm:px-6">
+              <Button type="button" variant="secondary" onClick={() => setCreateGroupOpen(false)}>Cancel</Button>
+              <Button type="submit" disabled={saving || !newGroupName.trim()}>{saving ? "Creating..." : "Create group"}</Button>
+            </div>
+          </form>
+        </DialogShell>
+      )}
+      {addMemberOpen && selectedGroup && (
+        <DialogShell labelledBy="admin-add-group-member-title" maxWidth="md" onClose={() => !saving && setAddMemberOpen(false)}>
+          <div className="flex flex-col">
+            <div className="border-border border-b px-4 py-3 sm:px-6">
+              <h2 id="admin-add-group-member-title" className="text-text text-heading-lg font-semibold">Add member</h2>
+              <p className="text-text-muted mt-1 text-sm">Choose a user to add to {selectedGroup.name}.</p>
+            </div>
+            <div className="grid gap-3 p-4 sm:p-6">
+              <Input value={memberQuery} onChange={(event) => setMemberQuery(event.target.value)} placeholder="Search by name or email" aria-label="Search users to add" autoFocus />
+              <div className="border-border max-h-64 overflow-y-auto rounded-input border">
+                {availableMembers.length === 0 ? (
+                  <p className="text-text-muted px-3 py-4 text-sm">No available users match this search.</p>
+                ) : availableMembers.map((item) => (
+                  <button key={item.id} type="button" className="border-border hover:bg-surface-raised flex w-full items-center justify-between border-b px-3 py-2 text-left last:border-0" onClick={() => { setAddMemberOpen(false); void addMember(item.id); }}>
+                    <span className="min-w-0"><span className="text-text block truncate text-sm">{item.display_name || item.email}</span><span className="text-text-muted block truncate text-xs">{item.email}</span></span>
+                    <span className="text-primary text-xs font-medium">Add</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="border-border flex justify-end border-t px-4 py-3 sm:px-6"><Button type="button" variant="secondary" onClick={() => setAddMemberOpen(false)}>Cancel</Button></div>
+          </div>
+        </DialogShell>
+      )}
+      {assignRoleOpen && selectedGroup && (
+        <DialogShell labelledBy="admin-assign-group-role-title" maxWidth="md" onClose={() => !saving && setAssignRoleOpen(false)}>
+          <div className="flex flex-col">
+            <div className="border-border border-b px-4 py-3 sm:px-6">
+              <h2 id="admin-assign-group-role-title" className="text-text text-heading-lg font-semibold">Assign role</h2>
+              <p className="text-text-muted mt-1 text-sm">Choose a reusable role for {selectedGroup.name}.</p>
+            </div>
+            <div className="grid gap-2 p-4 sm:p-6">
+              {globalRoles.filter((role) => !groupRoles.some((current) => current.id === role.id)).map((role) => (
+                <button key={role.id} type="button" className="border-border hover:bg-surface-raised flex items-center justify-between rounded-input border px-3 py-3 text-left" onClick={() => void assignRole(role.id)}>
+                  <span><span className="text-text block text-sm font-medium">{role.name}</span><span className="text-text-muted block text-xs">{role.description}</span></span>
+                  <span className="text-primary text-xs font-medium">Assign</span>
+                </button>
+              ))}
+            </div>
+            <div className="border-border flex justify-end border-t px-4 py-3 sm:px-6"><Button type="button" variant="secondary" onClick={() => setAssignRoleOpen(false)}>Cancel</Button></div>
+          </div>
+        </DialogShell>
+      )}
       <div className="mb-4 flex items-center justify-between">
         <h1 className="text-text text-lg font-medium">Groups</h1>
-        <span className="text-text-muted text-xs">Reusable permission groups</span>
+        <Button size="sm" className={RESPONSIVE_TOUCH_ACTION_CLASS} disabled={localMode} onClick={() => setCreateGroupOpen(true)}>Create group</Button>
       </div>
+      {message && <div className="border-success/30 bg-success/10 text-success mb-3 rounded-input border px-3 py-2 text-sm">{message}</div>}
+      {error && <div className={ADMIN_ERROR_CARD_CLASS}>{error}</div>}
 
       {localMode ? (
         <div className="rounded-card border-border text-text-muted border p-3 text-sm">
@@ -3010,38 +3973,13 @@ function GroupsSection({ localMode }: { localMode: boolean }) {
       ) : (
         <div className="grid gap-4 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]">
           <div className="space-y-3">
-            <div className="rounded-card border-border border p-3">
-              <h2 className="text-text mb-2 text-sm font-medium">Create group</h2>
-              <div className="space-y-2">
-                <AdminTextInput
-                  value={newGroupName}
-                  onChange={setNewGroupName}
-                  placeholder="Group name"
-                  ariaLabel="Group name"
-                />
-                <AdminTextInput
-                  value={newGroupDescription}
-                  onChange={setNewGroupDescription}
-                  placeholder="Description"
-                  ariaLabel="Group description"
-                />
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    void createGroup();
-                  }}
-                >
-                  Create group
-                </Button>
-              </div>
-            </div>
             <div className="rounded-card border-border border p-2">
               {groups.map((group) => (
                 <button
                   key={group.id}
                   type="button"
                   onClick={() => setSelectedGroupId(group.id)}
-                  className={`rounded-button block w-full px-2 py-1.5 text-left text-sm transition-colors duration-100 ${
+                  className={`rounded-button block w-full min-h-11 px-2 py-1.5 text-left text-sm transition-colors duration-100 sm:min-h-0 ${
                     selectedGroup?.id === group.id
                       ? "bg-surface-raised text-text"
                       : "text-text-muted hover:bg-surface-raised hover:text-text"
@@ -3049,7 +3987,7 @@ function GroupsSection({ localMode }: { localMode: boolean }) {
                 >
                   <span className="block truncate">{group.name}</span>
                   <span className="text-text-muted block text-xs">
-                    {group.member_count} members
+                    {group.member_count} members · {group.space_grant_count} spaces
                   </span>
                 </button>
               ))}
@@ -3066,25 +4004,106 @@ function GroupsSection({ localMode }: { localMode: boolean }) {
                       <p className="text-text-muted text-xs">{selectedGroup.description}</p>
                     )}
                   </div>
+                  {selectedGroup.scim_managed && (
+                    <span className="border-warning/40 bg-warning/10 text-warning rounded-button border px-2 py-1 text-xs">
+                      Managed by SCIM
+                    </span>
+                  )}
+                  {selectedGroup.managed_space_id && (
+                    <span className="border-primary/30 bg-primary/10 text-primary rounded-button border px-2 py-1 text-xs">
+                      Dedicated space group
+                    </span>
+                  )}
+                </div>
+                {selectedGroup.scim_managed || selectedGroup.managed_space_id ? (
+                  <div className="rounded-input border-border bg-surface-raised mb-3 border p-3 text-sm">
+                    <p className="text-text font-medium">
+                      {selectedGroup.scim_managed
+                        ? "Managed by your identity provider"
+                        : "Managed by its space"}
+                    </p>
+                    <p className="text-text-muted mt-1 text-xs">
+                      {selectedGroup.scim_managed
+                        ? "Rename, membership, and deletion are locked here so SCIM remains authoritative."
+                        : "Its identity and space assignment stay fixed. Global admins and that space's admins can still manage membership."}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="rounded-input border-border mb-3 border p-3">
+                    <div className="mb-2 flex items-center justify-between gap-3">
+                      <h2 className="text-text text-sm font-medium">Group details</h2>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className={RESPONSIVE_TOUCH_ACTION_CLASS}
+                        disabled={saving || !groupNameDraft.trim()}
+                        onClick={() => void saveGroup()}
+                      >
+                        {saving ? "Saving..." : "Save changes"}
+                      </Button>
+                    </div>
+                    <div className="space-y-2">
+                      <AdminTextInput
+                        value={groupNameDraft}
+                        onChange={setGroupNameDraft}
+                        placeholder="Group name"
+                        ariaLabel="Edit group name"
+                      />
+                      <Textarea
+                        value={groupDescriptionDraft}
+                        onChange={(event) => setGroupDescriptionDraft(event.target.value)}
+                        placeholder="Description"
+                        aria-label="Edit group description"
+                        className="min-h-20 text-sm"
+                      />
+                    </div>
+                  </div>
+                )}
+                <div className="rounded-input border-border mb-3 border">
+                  <div className="border-border flex items-center justify-between border-b px-3 py-2">
+                    <div>
+                      <h2 className="text-text text-sm font-medium">Space access</h2>
+                      <p className="text-text-muted text-xs">Spaces this group can open.</p>
+                    </div>
+                    <span className="text-text-muted text-xs">{spaceGrants.length}</span>
+                  </div>
+                  {spaceGrants.length ? (
+                    spaceGrants.map((grant) => (
+                      <div
+                        key={grant.space_id}
+                        className="border-border flex items-center justify-between gap-3 border-b px-3 py-2 last:border-0"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-text truncate text-sm">{grant.name}</p>
+                          <p className="text-text-muted truncate text-xs">/{grant.slug}</p>
+                        </div>
+                        <span className="text-text-muted text-xs capitalize">{grant.role}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-text-muted px-3 py-3 text-sm">No space access grants.</p>
+                  )}
+                </div>
+                <div className="rounded-input border-border mb-3 border">
+                  <div className="border-border flex items-center justify-between border-b px-3 py-2">
+                    <div><h2 className="text-text text-sm font-medium">Global roles</h2><p className="text-text-muted text-xs">Reusable access applied wherever this group is assigned.</p></div>
+                    <Button size="sm" variant="secondary" disabled={selectedGroup.scim_managed} onClick={() => setAssignRoleOpen(true)}>Assign role</Button>
+                  </div>
+                  {groupRoles.length ? groupRoles.map((role) => (
+                    <div key={role.id} className="border-border flex items-center justify-between gap-3 border-b px-3 py-2 last:border-0">
+                      <div><p className="text-text text-sm">{role.name}</p><p className="text-text-muted text-xs">{role.description}</p></div>
+                      <button type="button" disabled={saving || selectedGroup.managed_space_id != null} onClick={() => void removeRole(role)} className="text-danger text-xs">Remove</button>
+                    </div>
+                  )) : <p className="text-text-muted px-3 py-3 text-sm">No global roles assigned.</p>}
+                </div>
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <h2 className="text-text text-sm font-medium">Members</h2>
                   <div className="flex gap-2">
-                    <AdminInlineSelect
-                      value={userId}
-                      onChange={setUserId}
-                      className="max-w-56"
-                      ariaLabel="User to add to group"
-                    >
-                      <option value="">Select user</option>
-                      {users.map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.email}
-                        </option>
-                      ))}
-                    </AdminInlineSelect>
                     <Button
                       size="sm"
-                      onClick={() => {
-                        void addMember();
-                      }}
+                      className={RESPONSIVE_TOUCH_ACTION_CLASS}
+                      disabled={selectedGroup.scim_managed}
+                      onClick={() => setAddMemberOpen(true)}
                     >
                       Add member
                     </Button>
@@ -3102,10 +4121,11 @@ function GroupsSection({ localMode }: { localMode: boolean }) {
                       </div>
                       <button
                         type="button"
+                        disabled={selectedGroup.scim_managed}
                         onClick={() => {
-                          void removeMember(member.user_id);
+                          setMemberToRemove(member);
                         }}
-                        className={ADMIN_DANGER_ICON_BUTTON_CLASS}
+                        className={`${ADMIN_DANGER_ICON_BUTTON_CLASS} ${RESPONSIVE_TOUCH_ICON_ACTION_CLASS}`}
                         aria-label={`Remove ${member.email}`}
                       >
                         <UserRoundX size={14} />
@@ -3113,16 +4133,28 @@ function GroupsSection({ localMode }: { localMode: boolean }) {
                     </div>
                   ))}
                 </div>
+                {!selectedGroup.scim_managed && !selectedGroup.managed_space_id && (
+                  <div className="border-danger/30 bg-danger/10 mt-3 flex items-center justify-between gap-3 rounded-input border p-3">
+                    <div>
+                      <p className="text-text text-sm font-medium">Delete group</p>
+                      <p className="text-text-muted text-xs">Users and spaces stay intact.</p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="danger"
+                      className={RESPONSIVE_TOUCH_ACTION_CLASS}
+                      disabled={saving}
+                      onClick={() => setDeleteConfirmOpen(true)}
+                    >
+                      Delete group
+                    </Button>
+                  </div>
+                )}
               </>
             ) : (
               <p className="text-text-muted text-sm">Create a group to add members.</p>
             )}
           </div>
-          {error && (
-            <div className={ADMIN_ERROR_CARD_CLASS}>
-              {error}
-            </div>
-          )}
         </div>
       )}
     </div>
@@ -3144,10 +4176,65 @@ const AUTH_CONFIG_KEYS = new Set([
   "oidc_auto_provision",
 ]);
 
+const OIDC_CONFIG_KEYS = [
+  "oidc_enabled",
+  "oidc_display_name",
+  "oidc_issuer_url",
+  "oidc_client_id",
+  "oidc_client_secret",
+  "oidc_scopes",
+  "oidc_user_claim",
+  "oidc_role_claim",
+  "oidc_role_admin_value",
+  "oidc_auto_provision",
+] as const;
+
+function configValue(entry: ConfigEntry | undefined): string {
+  return entry?.value || entry?.effective_value || "";
+}
+
+function configBoolean(entry: ConfigEntry | undefined): boolean {
+  return configValue(entry).toLowerCase() === "true";
+}
+
+function AuthenticationToggle({
+  checked,
+  disabled,
+  label,
+  onChange,
+}: {
+  checked: boolean;
+  disabled?: boolean;
+  label: string;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={`relative h-6 w-11 shrink-0 rounded-full border transition-colors duration-100 disabled:cursor-not-allowed disabled:opacity-50 ${
+        checked ? "border-primary bg-primary" : "border-border bg-surface-raised"
+      }`}
+    >
+      <span
+        className={`absolute left-0 top-0.5 size-4 rounded-full bg-white transition-transform duration-100 ${
+          checked ? "translate-x-5" : "translate-x-0.5"
+        }`}
+      />
+    </button>
+  );
+}
+
 function AuthenticationSection({ localMode }: { localMode: boolean }) {
   const [entries, setEntries] = useState<ConfigEntry[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [providerDialogOpen, setProviderDialogOpen] = useState(false);
+  const [savingProvider, setSavingProvider] = useState(false);
 
   const loadConfig = useCallback(async () => {
     if (localMode) {
@@ -3164,14 +4251,14 @@ function AuthenticationSection({ localMode }: { localMode: boolean }) {
     });
   }, [loadConfig]);
 
-  const saveConfig = async (entry: ConfigEntry) => {
+  const saveConfig = async (entry: ConfigEntry, value = entry.value) => {
     if (entry.locked) return;
     setMessage(null);
     setError(null);
     try {
       await api.fetch("/admin/config", {
         method: "POST",
-        body: { key: entry.key, value: entry.value },
+        body: { key: entry.key, value },
       });
       setMessage(`${entry.label} saved.`);
       await loadConfig();
@@ -3180,18 +4267,49 @@ function AuthenticationSection({ localMode }: { localMode: boolean }) {
     }
   };
 
-  const removeConfig = async (entry: ConfigEntry) => {
-    if (entry.locked) return;
+  const updateEntry = (key: string, value: string) => {
+    setEntries((current) =>
+      current.map((entry) => (entry.key === key ? { ...entry, value } : entry)),
+    );
+  };
+
+  const entryByKey = useCallback(
+    (key: string) => entries.find((entry) => entry.key === key),
+    [entries],
+  );
+  const oidcEnabled = configBoolean(entryByKey("oidc_enabled"));
+  const oidcName = configValue(entryByKey("oidc_display_name")) || "Single sign-on";
+  const oidcIssuer = configValue(entryByKey("oidc_issuer_url"));
+  const oidcConfigured = Boolean(oidcIssuer && configValue(entryByKey("oidc_client_id")));
+  const oidcLocked = OIDC_CONFIG_KEYS.some((key) => entryByKey(key)?.locked);
+
+  const saveProvider = async () => {
+    setSavingProvider(true);
     setMessage(null);
     setError(null);
     try {
-      await api.fetch(`/admin/config/${encodeURIComponent(entry.key)}`, { method: "DELETE" });
-      setMessage(`${entry.label} reset.`);
+      for (const key of OIDC_CONFIG_KEYS) {
+        const entry = entryByKey(key);
+        if (!entry || entry.locked) continue;
+        if (entry.secret && !entry.value) continue;
+        await api.fetch("/admin/config", {
+          method: "POST",
+          body: { key: entry.key, value: entry.value },
+        });
+      }
+      setProviderDialogOpen(false);
+      setMessage("Single sign-on provider saved.");
       await loadConfig();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to reset authentication setting");
+      setError(err instanceof Error ? err.message : "Unable to save the SSO provider");
+    } finally {
+      setSavingProvider(false);
     }
   };
+
+  const policyEntries = entries.filter((entry) =>
+    ["allow_public_signups", "require_2fa"].includes(entry.key),
+  );
 
   return (
     <div>
@@ -3199,7 +4317,7 @@ function AuthenticationSection({ localMode }: { localMode: boolean }) {
         <div>
           <h1 className="text-text text-lg font-medium">Authentication</h1>
           <p className="text-text-muted text-xs">
-            Configure server authentication requirements and OIDC login behavior.
+            Configure login policy and your organization&apos;s single sign-on provider.
           </p>
         </div>
         <Button
@@ -3222,73 +4340,109 @@ function AuthenticationSection({ localMode }: { localMode: boolean }) {
           </div>
         )}
 
-        <div className="rounded-card border-border border p-3">
-          <div className="mb-3">
-            <p className="text-text text-sm font-medium">Login Policy</p>
-            <p className="text-text-muted text-xs">
-              Environment-backed values are locked here and must be changed on the server.
+        <section className="rounded-card border-border bg-surface border shadow-card">
+          <div className="border-border border-b px-4 py-3">
+            <div className="flex items-center gap-2">
+              <LogIn size={16} className="text-text-muted" />
+              <p className="text-text text-sm font-medium">Login policy</p>
+            </div>
+            <p className="text-text-muted mt-1 text-xs">
+              Control account creation and the minimum sign-in protection for this server.
             </p>
           </div>
-          <div className="space-y-2">
-            {entries.length === 0 ? (
+          <div className="divide-border divide-y">
+            {policyEntries.length === 0 ? (
               <p className="text-text-muted text-sm">
                 {localMode ? "No server settings available." : "Loading authentication settings..."}
               </p>
             ) : (
-              entries.map((entry) => (
+              policyEntries.map((entry) => (
                 <div
                   key={entry.key}
-                  className="rounded-card border-border grid gap-2 border p-2 lg:grid-cols-[minmax(0,13rem)_minmax(0,1fr)_auto_auto]"
+                  className="flex min-h-16 items-center justify-between gap-4 px-4 py-3"
                 >
                   <div className="min-w-0">
-                    <p className="text-text truncate text-sm">{entry.label}</p>
-                    <p className="text-text-muted truncate text-xs">
-                      {entry.key}
-                      {entry.env_var ? ` · ${entry.env_var}` : ""}
+                    <div className="flex items-center gap-2">
+                      <p className="text-text text-sm font-medium">{entry.label}</p>
+                      {entry.locked && (
+                        <span className="border-border bg-surface-raised text-text-muted inline-flex items-center gap-1 rounded-badge border px-1.5 py-0.5 text-[11px]">
+                          <LockKeyhole size={11} />
+                          Environment
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-text-muted mt-0.5 text-xs">
+                      {entry.key === "require_2fa"
+                        ? "Require an authenticator code after password sign-in."
+                        : "Allow visitors to create their own server account."}
                     </p>
                   </div>
-                  <AdminTextInput
-                    value={entry.value}
-                    onChange={(value) => {
-                      setEntries((prev) =>
-                        prev.map((item) => (item.key === entry.key ? { ...item, value } : item)),
-                      );
-                    }}
+                  <AuthenticationToggle
+                    checked={configBoolean(entry)}
                     disabled={localMode || entry.locked}
-                    placeholder={entry.effective_value || "Not set"}
-                    type={entry.secret ? "password" : "text"}
-                    ariaLabel={`${entry.label} value`}
+                    label={entry.label}
+                    onChange={(checked) => void saveConfig(entry, String(checked))}
                   />
-                  <span className="rounded-button border-border text-text-muted flex h-8 items-center border px-2 text-xs">
-                    {entry.locked ? "env locked" : entry.source}
-                  </span>
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      disabled={localMode || entry.locked || (entry.secret && !entry.value)}
-                      onClick={() => {
-                        void saveConfig(entry);
-                      }}
-                    >
-                      Save
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disabled={localMode || entry.locked}
-                      onClick={() => {
-                        void removeConfig(entry);
-                      }}
-                    >
-                      Reset
-                    </Button>
-                  </div>
                 </div>
               ))
             )}
           </div>
-        </div>
+        </section>
+
+        <section className="rounded-card border-border bg-surface border shadow-card">
+          <div className="border-border flex flex-wrap items-start justify-between gap-3 border-b px-4 py-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <Building2 size={16} className="text-text-muted" />
+                <p className="text-text text-sm font-medium">Single sign-on</p>
+              </div>
+              <p className="text-text-muted mt-1 text-xs">
+                Connect one OpenID Connect provider for organization-managed sign-in.
+              </p>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              disabled={localMode || entries.length === 0}
+              onClick={() => setProviderDialogOpen(true)}
+            >
+              {oidcConfigured ? <Pencil size={14} /> : <Plus size={14} />}
+              {oidcConfigured ? "Edit provider" : "Configure provider"}
+            </Button>
+          </div>
+          <div className="grid gap-4 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+            <div className="flex min-w-0 items-start gap-3">
+              <span className="border-border bg-surface-raised text-text flex size-10 shrink-0 items-center justify-center rounded-card border">
+                <Building2 size={18} />
+              </span>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-text truncate text-sm font-medium">{oidcName}</p>
+                  <span
+                    className={`rounded-badge border px-2 py-0.5 text-xs ${
+                      oidcEnabled
+                        ? "border-success/30 bg-success/10 text-success"
+                        : "border-border bg-surface-raised text-text-muted"
+                    }`}
+                  >
+                    {oidcEnabled ? "Enabled" : "Disabled"}
+                  </span>
+                  {oidcLocked && (
+                    <span className="border-border bg-surface-raised text-text-muted inline-flex items-center gap-1 rounded-badge border px-2 py-0.5 text-xs">
+                      <LockKeyhole size={11} />
+                      Partly environment managed
+                    </span>
+                  )}
+                </div>
+                <p className="text-text-muted mt-1 truncate text-xs">
+                  {oidcConfigured ? oidcIssuer : "No provider configured yet."}
+                </p>
+              </div>
+            </div>
+            <span className="text-text-muted text-xs">OpenID Connect</span>
+          </div>
+        </section>
 
         {message && (
           <div className={ADMIN_SUCCESS_CARD_CLASS}>
@@ -3301,21 +4455,180 @@ function AuthenticationSection({ localMode }: { localMode: boolean }) {
           </div>
         )}
       </div>
+
+      {providerDialogOpen && (
+        <DialogShell
+          labelledBy="oidc-provider-dialog-title"
+          maxWidth="lg"
+          onClose={() => setProviderDialogOpen(false)}
+        >
+          <div className="flex max-h-[min(46rem,calc(100dvh-2rem))] flex-col">
+            <header className="border-border flex items-start justify-between gap-4 border-b px-5 py-4">
+              <div>
+                <h2 id="oidc-provider-dialog-title" className="text-text text-base font-semibold">
+                  Configure single sign-on
+                </h2>
+                <p className="text-text-muted mt-1 text-sm">
+                  Connect an OpenID Connect identity provider to this Starlane server.
+                </p>
+              </div>
+              {oidcLocked && (
+                <span className="border-border bg-surface-raised text-text-muted inline-flex shrink-0 items-center gap-1 rounded-badge border px-2 py-1 text-xs">
+                  <LockKeyhole size={12} />
+                  Environment values locked
+                </span>
+              )}
+            </header>
+
+            <div className="min-h-0 space-y-5 overflow-y-auto px-5 py-4">
+              <div className="rounded-card border-border bg-surface-raised/40 flex items-center justify-between gap-4 border p-3">
+                <div>
+                  <p className="text-text text-sm font-medium">Enable provider</p>
+                  <p className="text-text-muted mt-0.5 text-xs">
+                    Show this provider as a sign-in option.
+                  </p>
+                </div>
+                <AuthenticationToggle
+                  checked={oidcEnabled}
+                  disabled={entryByKey("oidc_enabled")?.locked}
+                  label="Enable OIDC provider"
+                  onChange={(checked) => updateEntry("oidc_enabled", String(checked))}
+                />
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="grid gap-1.5">
+                  <span className="text-text text-sm font-medium">Provider name</span>
+                  <Input
+                    value={entryByKey("oidc_display_name")?.value ?? ""}
+                    onChange={(event) => updateEntry("oidc_display_name", event.target.value)}
+                    placeholder="Company SSO"
+                    disabled={entryByKey("oidc_display_name")?.locked}
+                  />
+                </label>
+                <label className="grid gap-1.5">
+                  <span className="text-text text-sm font-medium">Issuer URL</span>
+                  <Input
+                    value={entryByKey("oidc_issuer_url")?.value ?? ""}
+                    onChange={(event) => updateEntry("oidc_issuer_url", event.target.value)}
+                    placeholder="https://identity.example.com"
+                    inputMode="url"
+                    disabled={entryByKey("oidc_issuer_url")?.locked}
+                  />
+                </label>
+                <label className="grid gap-1.5">
+                  <span className="text-text text-sm font-medium">Client ID</span>
+                  <Input
+                    value={entryByKey("oidc_client_id")?.value ?? ""}
+                    onChange={(event) => updateEntry("oidc_client_id", event.target.value)}
+                    placeholder="starlane-notes"
+                    disabled={entryByKey("oidc_client_id")?.locked}
+                  />
+                </label>
+                <label className="grid gap-1.5">
+                  <span className="text-text text-sm font-medium">Client secret</span>
+                  <Input
+                    value={entryByKey("oidc_client_secret")?.value ?? ""}
+                    onChange={(event) => updateEntry("oidc_client_secret", event.target.value)}
+                    placeholder={
+                      entryByKey("oidc_client_secret")?.effective_value
+                        ? "Leave blank to keep the current secret"
+                        : "Enter client secret"
+                    }
+                    type="password"
+                    autoComplete="new-password"
+                    disabled={entryByKey("oidc_client_secret")?.locked}
+                  />
+                </label>
+              </div>
+
+              <div className="border-border border-t pt-4">
+                <h3 className="text-text text-sm font-medium">Claims and provisioning</h3>
+                <p className="text-text-muted mt-1 text-xs">
+                  Map identity claims and choose whether first-time users are created automatically.
+                </p>
+                <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                  <label className="grid gap-1.5 sm:col-span-2">
+                    <span className="text-text text-sm font-medium">Scopes</span>
+                    <Input
+                      value={entryByKey("oidc_scopes")?.value ?? ""}
+                      onChange={(event) => updateEntry("oidc_scopes", event.target.value)}
+                      placeholder="openid profile email"
+                      disabled={entryByKey("oidc_scopes")?.locked}
+                    />
+                  </label>
+                  <label className="grid gap-1.5">
+                    <span className="text-text text-sm font-medium">User claim</span>
+                    <Input
+                      value={entryByKey("oidc_user_claim")?.value ?? ""}
+                      onChange={(event) => updateEntry("oidc_user_claim", event.target.value)}
+                      placeholder="email"
+                      disabled={entryByKey("oidc_user_claim")?.locked}
+                    />
+                  </label>
+                  <label className="grid gap-1.5">
+                    <span className="text-text text-sm font-medium">Role claim</span>
+                    <Input
+                      value={entryByKey("oidc_role_claim")?.value ?? ""}
+                      onChange={(event) => updateEntry("oidc_role_claim", event.target.value)}
+                      placeholder="roles"
+                      disabled={entryByKey("oidc_role_claim")?.locked}
+                    />
+                  </label>
+                  <label className="grid gap-1.5">
+                    <span className="text-text text-sm font-medium">Admin role value</span>
+                    <Input
+                      value={entryByKey("oidc_role_admin_value")?.value ?? ""}
+                      onChange={(event) => updateEntry("oidc_role_admin_value", event.target.value)}
+                      placeholder="admin"
+                      disabled={entryByKey("oidc_role_admin_value")?.locked}
+                    />
+                  </label>
+                  <div className="rounded-card border-border flex items-center justify-between gap-3 border px-3 py-2">
+                    <div>
+                      <p className="text-text text-sm">Just-in-time provisioning</p>
+                      <p className="text-text-muted text-xs">Create users after their first SSO login.</p>
+                    </div>
+                    <AuthenticationToggle
+                      checked={configBoolean(entryByKey("oidc_auto_provision"))}
+                      disabled={entryByKey("oidc_auto_provision")?.locked}
+                      label="Just-in-time provisioning"
+                      onChange={(checked) =>
+                        updateEntry("oidc_auto_provision", String(checked))
+                      }
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <footer className="border-border flex justify-end gap-2 border-t px-5 py-3">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setProviderDialogOpen(false)}
+                disabled={savingProvider}
+              >
+                Cancel
+              </Button>
+              <Button type="button" onClick={() => void saveProvider()} disabled={savingProvider}>
+                {savingProvider ? "Saving..." : "Save provider"}
+              </Button>
+            </footer>
+          </div>
+        </DialogShell>
+      )}
     </div>
   );
 }
 
 function ApiKeysSection({ localMode }: { localMode: boolean }) {
-  const [keys, setKeys] = useState<ApiKeyItem[]>([]);
-  const [serviceKeys, setServiceKeys] = useState<ApiKeyItem[]>([]);
-  const [name, setName] = useState("");
-  const [expiresAt, setExpiresAt] = useState("");
-  const [keyScopes, setKeyScopes] = useState<string[]>(["read", "write"]);
-  const [serviceName, setServiceName] = useState("");
-  const [serviceExpiresAt, setServiceExpiresAt] = useState("");
-  const [serviceScopes, setServiceScopes] = useState<string[]>(["admin"]);
-  const [createdKey, setCreatedKey] = useState<ApiKeyCreateResult | null>(null);
-  const [createdServiceKey, setCreatedServiceKey] = useState<ApiKeyCreateResult | null>(null);
+  const [keys, setKeys] = useState<ApiKeyDisplayItem[]>([]);
+  const [serviceKeys, setServiceKeys] = useState<ApiKeyDisplayItem[]>([]);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [revokeTarget, setRevokeTarget] = useState<ApiKeyDisplayItem | null>(null);
+  const [loadingKeys, setLoadingKeys] = useState(false);
+  const [revoking, setRevoking] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -3325,12 +4638,17 @@ function ApiKeysSection({ localMode }: { localMode: boolean }) {
       setServiceKeys([]);
       return;
     }
-    const [items, serviceItems] = await Promise.all([
-      api.fetch<ApiKeyItem[]>("/auth/api-keys"),
-      api.fetch<ApiKeyItem[]>("/admin/api-keys"),
-    ]);
-    setKeys(items);
-    setServiceKeys(serviceItems);
+    setLoadingKeys(true);
+    try {
+      const [items, serviceItems] = await Promise.all([
+        api.fetch<ApiKeyDisplayItem[]>("/auth/api-keys"),
+        api.fetch<ApiKeyDisplayItem[]>("/admin/api-keys"),
+      ]);
+      setKeys(items);
+      setServiceKeys(serviceItems);
+    } finally {
+      setLoadingKeys(false);
+    }
   }, [localMode]);
 
   useEffect(() => {
@@ -3339,366 +4657,108 @@ function ApiKeysSection({ localMode }: { localMode: boolean }) {
     });
   }, [loadKeys]);
 
-  const createKey = async (event: FormEvent) => {
-    event.preventDefault();
-    if (localMode) return;
-    setMessage(null);
-    setError(null);
-    setCreatedKey(null);
-    setCreatedServiceKey(null);
-    try {
-      const expiry = expiresAt ? new Date(expiresAt).toISOString() : undefined;
-      const result = await api.fetch<ApiKeyCreateResult>("/auth/api-keys", {
-        method: "POST",
-        body: { name, expires_at: expiry, scopes: keyScopes },
-      });
-      setCreatedKey(result);
-      setName("");
-      setExpiresAt("");
-      setKeyScopes(["read", "write"]);
-      setMessage("API key created. Copy it now; it will not be shown again.");
-      await loadKeys();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to create API key");
+  const createKey = async (input: ApiKeyCreateInput): Promise<ApiKeyCreateResult> => {
+    if (localMode) {
+      throw new Error("API keys are unavailable in local standalone mode.");
     }
-  };
-
-  const toggleKeyScope = (scope: string, enabled: boolean) => {
-    setKeyScopes((prev) => {
-      const next = enabled ? [...prev, scope] : prev.filter((item) => item !== scope);
-      return Array.from(new Set(next));
-    });
-  };
-
-  const toggleServiceScope = (scope: string, enabled: boolean) => {
-    setServiceScopes((prev) => {
-      const next = enabled ? [...prev, scope] : prev.filter((item) => item !== scope);
-      return Array.from(new Set(next));
-    });
-  };
-
-  const createServiceKey = async (event: FormEvent) => {
-    event.preventDefault();
-    if (localMode) return;
     setMessage(null);
     setError(null);
-    setCreatedKey(null);
-    setCreatedServiceKey(null);
+    const endpoint = input.kind === "service" ? "/admin/api-keys" : "/auth/api-keys";
+    const result = await api.fetch<ApiKeyCreateResult>(endpoint, {
+      method: "POST",
+      body: {
+        name: input.name,
+        expires_at: input.expiresAt,
+        scopes: input.scopes,
+      },
+    });
+    setMessage(`${result.name} created.`);
     try {
-      const expiry = serviceExpiresAt ? new Date(serviceExpiresAt).toISOString() : undefined;
-      const result = await api.fetch<ApiKeyCreateResult>("/admin/api-keys", {
-        method: "POST",
-        body: { name: serviceName, expires_at: expiry, scopes: serviceScopes },
-      });
-      setCreatedServiceKey(result);
-      setServiceName("");
-      setServiceExpiresAt("");
-      setServiceScopes(["admin"]);
-      setMessage("Service account API key created. Copy it now; it will not be shown again.");
       await loadKeys();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to create service account key");
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : "The key was created, but the key list could not be refreshed.",
+      );
     }
+    return result;
   };
 
-  const revokeKey = async (key: ApiKeyItem) => {
-    if (localMode) return;
+  const revokeKey = async () => {
+    if (localMode || !revokeTarget || revoking) return;
     setMessage(null);
     setError(null);
+    setRevoking(true);
     try {
-      await api.fetch(`/auth/api-keys/${encodeURIComponent(key.id)}`, { method: "DELETE" });
-      setMessage(`${key.name} revoked.`);
-      if (createdKey?.id === key.id) {
-        setCreatedKey(null);
-      }
+      const endpoint = revokeTarget.is_service_account ? "/admin/api-keys" : "/auth/api-keys";
+      await api.fetch(`${endpoint}/${encodeURIComponent(revokeTarget.id)}`, { method: "DELETE" });
+      setMessage(`${revokeTarget.name} revoked.`);
       await loadKeys();
+      setRevokeTarget(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to revoke API key");
+    } finally {
+      setRevoking(false);
     }
   };
 
-  const revokeServiceKey = async (key: ApiKeyItem) => {
-    if (localMode) return;
-    setMessage(null);
-    setError(null);
-    try {
-      await api.fetch(`/admin/api-keys/${encodeURIComponent(key.id)}`, { method: "DELETE" });
-      setMessage(`${key.name} revoked.`);
-      if (createdServiceKey?.id === key.id) {
-        setCreatedServiceKey(null);
-      }
-      await loadKeys();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to revoke service account key");
+  const allKeys = useMemo(() => {
+    const keysById = new Map<string, ApiKeyDisplayItem>();
+    for (const key of [...keys, ...serviceKeys]) {
+      keysById.set(key.id, key);
     }
-  };
+    return Array.from(keysById.values()).sort(
+      (left, right) => Date.parse(right.created_at) - Date.parse(left.created_at),
+    );
+  }, [keys, serviceKeys]);
 
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <div>
-          <h1 className="text-text text-lg font-medium">API Keys</h1>
-          <p className="text-text-muted text-xs">
-            Create and revoke personal API keys for script and integration access.
-          </p>
-        </div>
-        <Button
-          size="sm"
-          variant="secondary"
-          disabled={localMode}
-          onClick={() => {
-            void loadKeys();
+      <AdminApiKeyManagementCard
+        keys={allKeys}
+        localMode={localMode}
+        loading={loadingKeys}
+        onCreate={() => setCreateDialogOpen(true)}
+        onRefresh={() => {
+          setError(null);
+          void loadKeys().catch((err) => {
+            setError(err instanceof Error ? err.message : "Unable to load API keys");
+          });
+        }}
+        onRevoke={setRevokeTarget}
+      />
+
+      {message && <div className={`${ADMIN_SUCCESS_CARD_CLASS} mt-3`}>{message}</div>}
+      {error && <div className={`${ADMIN_ERROR_CARD_CLASS} mt-3`}>{error}</div>}
+
+      {createDialogOpen && (
+        <ApiKeyCreateDialog
+          onCreate={createKey}
+          onClose={() => setCreateDialogOpen(false)}
+        />
+      )}
+
+      {revokeTarget && (
+        <ConfirmDialog
+          labelledBy="revoke-api-key-title"
+          title={`Revoke ${revokeTarget.name}?`}
+          message="This key will stop authenticating immediately. This action cannot be undone."
+          helperText={`Key prefix: ${revokeTarget.key_prefix}`}
+          confirmLabel={revoking ? "Revoking..." : "Revoke key"}
+          destructive
+          disabled={revoking}
+          onConfirm={() => void revokeKey()}
+          onCancel={() => {
+            if (!revoking) setRevokeTarget(null);
           }}
-        >
-          <RefreshCw size={14} className="mr-1" />
-          Refresh
-        </Button>
-      </div>
-
-      <div className="space-y-3">
-        {localMode && (
-          <div className="rounded-card border-border text-text-muted border p-3 text-sm">
-            Server API keys are unavailable in local standalone mode.
-          </div>
-        )}
-
-        <form onSubmit={createKey} className="rounded-card border-border border p-3">
-          <div className="mb-3">
-            <p className="text-text text-sm font-medium">New API Key</p>
-            <p className="text-text-muted text-xs">
-              Keys authenticate with the <code>X-API-Key</code> header and are displayed once.
-            </p>
-          </div>
-          <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_13rem_auto]">
-            <AdminTextInput
-              value={name}
-              onChange={setName}
-              disabled={localMode}
-              placeholder="Key name"
-              ariaLabel="API key name"
-            />
-            <AdminTextInput
-              value={expiresAt}
-              onChange={setExpiresAt}
-              disabled={localMode}
-              type="datetime-local"
-              ariaLabel="Expiration date"
-            />
-            <Button type="submit" disabled={localMode || !name.trim() || keyScopes.length === 0}>
-              Create
-            </Button>
-          </div>
-          <fieldset className="mt-3 flex flex-wrap gap-3">
-            <legend className="text-text-muted mb-2 text-xs">Scopes</legend>
-            {[
-              ["read", "Read"],
-              ["write", "Write"],
-              ["admin", "Admin"],
-            ].map(([scope, label]) => (
-              <label key={scope} className="text-text-muted flex items-center gap-2 text-xs">
-                <input
-                  type="checkbox"
-                  checked={keyScopes.includes(scope)}
-                  disabled={localMode}
-                  onChange={(event) => toggleKeyScope(scope, event.target.checked)}
-                />
-                {label}
-              </label>
-            ))}
-          </fieldset>
-        </form>
-
-        <form onSubmit={createServiceKey} className="rounded-card border-border border p-3">
-          <div className="mb-3">
-            <p className="text-text text-sm font-medium">New Service Account Key</p>
-            <p className="text-text-muted text-xs">
-              Service account keys are admin-managed and require the admin scope.
-            </p>
-          </div>
-          <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_13rem_auto]">
-            <AdminTextInput
-              value={serviceName}
-              onChange={setServiceName}
-              disabled={localMode}
-              placeholder="Service name"
-              ariaLabel="Service account key name"
-            />
-            <AdminTextInput
-              value={serviceExpiresAt}
-              onChange={setServiceExpiresAt}
-              disabled={localMode}
-              type="datetime-local"
-              ariaLabel="Service account expiration date"
-            />
-            <Button
-              type="submit"
-              disabled={localMode || !serviceName.trim() || !serviceScopes.includes("admin")}
-            >
-              Create service key
-            </Button>
-          </div>
-          <fieldset className="mt-3 flex flex-wrap gap-3">
-            <legend className="text-text-muted mb-2 text-xs">Service scopes</legend>
-            {[
-              ["read", "Read"],
-              ["write", "Write"],
-              ["admin", "Admin"],
-            ].map(([scope, label]) => (
-              <label key={scope} className="text-text-muted flex items-center gap-2 text-xs">
-                <input
-                  type="checkbox"
-                  checked={serviceScopes.includes(scope)}
-                  disabled={localMode || scope === "admin"}
-                  onChange={(event) => toggleServiceScope(scope, event.target.checked)}
-                />
-                {label}
-              </label>
-            ))}
-          </fieldset>
-        </form>
-
-        {createdKey && (
-          <div className={ADMIN_SECRET_SUCCESS_CARD_CLASS}>
-            <p className={ADMIN_SECRET_SUCCESS_TITLE_CLASS}>Copy this API key now</p>
-            <code className="border-border bg-surface text-text mt-2 block overflow-x-auto rounded border p-2 text-xs">
-              {createdKey.key}
-            </code>
-          </div>
-        )}
-
-        {createdServiceKey && (
-          <div className={ADMIN_SECRET_SUCCESS_CARD_CLASS}>
-            <p className={ADMIN_SECRET_SUCCESS_TITLE_CLASS}>Copy this service account key now</p>
-            <code className="border-border bg-surface text-text mt-2 block overflow-x-auto rounded border p-2 text-xs">
-              {createdServiceKey.key}
-            </code>
-          </div>
-        )}
-
-        <div className="rounded-card border-border border p-3">
-          <div className="mb-3">
-            <p className="text-text text-sm font-medium">Active Keys</p>
-            <p className="text-text-muted text-xs">Secret values are hashed at rest.</p>
-          </div>
-          {keys.length === 0 ? (
-            <p className="text-text-muted text-sm">
-              {localMode ? "No server keys available." : "No API keys created."}
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {keys.map((key) => (
-                <div
-                  key={key.id}
-                  className="rounded-card border-border grid gap-2 border p-2 lg:grid-cols-[minmax(0,1fr)_9rem_11rem_11rem_auto]"
-                >
-                  <div className="min-w-0">
-                    <p className="text-text truncate text-sm">{key.name}</p>
-                    <p className="text-text-muted truncate text-xs">{key.key_prefix}...</p>
-                    <p className="text-text-muted mt-1 flex flex-wrap gap-1 text-xs">
-                      {key.scopes.map((scope) => (
-                        <span key={scope} className="rounded bg-surface-raised px-1.5 py-0.5">
-                          {scope}
-                        </span>
-                      ))}
-                    </p>
-                  </div>
-                  <p className="text-text-muted text-xs">
-                    {key.is_service_account ? "Service" : "Personal"}
-                  </p>
-                  <p className="text-text-muted text-xs">
-                    Last used: {key.last_used_at ? new Date(key.last_used_at).toLocaleString() : "Never"}
-                  </p>
-                  <p className="text-text-muted text-xs">
-                    Expires: {key.expires_at ? new Date(key.expires_at).toLocaleString() : "Never"}
-                  </p>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    disabled={localMode}
-                    onClick={() => {
-                      void revokeKey(key);
-                    }}
-                  >
-                    Revoke
-                  </Button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="rounded-card border-border border p-3">
-          <div className="mb-3">
-            <p className="text-text text-sm font-medium">Service Account Keys</p>
-            <p className="text-text-muted text-xs">Use for server-to-server automation only.</p>
-          </div>
-          {serviceKeys.length === 0 ? (
-            <p className="text-text-muted text-sm">
-              {localMode ? "No service keys available." : "No service account keys created."}
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {serviceKeys.map((key) => (
-                <div
-                  key={key.id}
-                  className="rounded-card border-border grid gap-2 border p-2 lg:grid-cols-[minmax(0,1fr)_11rem_11rem_auto]"
-                >
-                  <div className="min-w-0">
-                    <p className="text-text truncate text-sm">{key.name}</p>
-                    <p className="text-text-muted truncate text-xs">{key.key_prefix}...</p>
-                    <p className="text-text-muted mt-1 flex flex-wrap gap-1 text-xs">
-                      {key.scopes.map((scope) => (
-                        <span key={scope} className="rounded bg-surface-raised px-1.5 py-0.5">
-                          {scope}
-                        </span>
-                      ))}
-                    </p>
-                  </div>
-                  <p className="text-text-muted text-xs">
-                    Last used: {key.last_used_at ? new Date(key.last_used_at).toLocaleString() : "Never"}
-                  </p>
-                  <p className="text-text-muted text-xs">
-                    Expires: {key.expires_at ? new Date(key.expires_at).toLocaleString() : "Never"}
-                  </p>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    disabled={localMode}
-                    onClick={() => {
-                      void revokeServiceKey(key);
-                    }}
-                  >
-                    Revoke
-                  </Button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {message && (
-          <div className={ADMIN_SUCCESS_CARD_CLASS}>
-            {message}
-          </div>
-        )}
-        {error && (
-          <div className={ADMIN_ERROR_CARD_CLASS}>
-            {error}
-          </div>
-        )}
-      </div>
+        />
+      )}
     </div>
   );
 }
 
-const DEFAULT_WEBHOOK_EVENTS = [
-  "document.created",
-  "document.updated",
-  "document.deleted",
-  "workflow.transitioned",
-  "workflow.delegated",
-  "comment.created",
-];
+const DEFAULT_WEBHOOK_EVENTS = ["public_page.published"];
 
 export function AdminWebhookDeliveryHistoryTable({
   deliveries,
@@ -3706,20 +4766,26 @@ export function AdminWebhookDeliveryHistoryTable({
   redeliveringDeliveryId,
   redeliveryError,
   onRedeliver,
+  disableRedelivery = false,
 }: AdminWebhookDeliveryHistoryTableProps) {
   return (
     <div className="space-y-2">
       {redeliveryError && (
         <div className={ADMIN_COMPACT_ERROR_CLASS}>{redeliveryError}</div>
       )}
-      <div className="rounded-card border-border overflow-hidden border">
-        <table className="w-full text-sm">
+      <div
+        role="region"
+        aria-label="Webhook delivery attempts"
+        tabIndex={0}
+        className="rounded-card border-border overflow-x-auto border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+      >
+        <table className="w-full min-w-[36rem] text-sm">
           <thead>
             <tr className="border-border text-text-muted border-b text-left text-xs">
               <th className="px-3 py-2 font-medium">Time</th>
               <th className="px-3 py-2 font-medium">Event</th>
               <th className="px-3 py-2 font-medium">Status</th>
-              <th className="px-3 py-2 font-medium">Attempts</th>
+              <th className="px-3 py-2 font-medium">Attempt</th>
               <th className="px-3 py-2 font-medium"></th>
             </tr>
           </thead>
@@ -3727,13 +4793,27 @@ export function AdminWebhookDeliveryHistoryTable({
             {deliveries.map((delivery) => {
               const isRedelivering = redeliveringDeliveryId === delivery.id;
               return (
-                <tr key={delivery.id} className="border-border border-b last:border-0">
+                <tr
+                  key={delivery.id}
+                  className="border-border border-b last:border-0"
+                >
                   <td className="text-text-muted px-3 py-2">
                     {new Date(delivery.delivered_at).toLocaleString()}
                   </td>
-                  <td className="px-3 py-2">{delivery.event_type}</td>
                   <td className="px-3 py-2">
-                    <span className={getAdminWebhookDeliveryStatusClass(delivery.success)}>
+                    {delivery.event_type}
+                    {delivery.test_id && (
+                      <span className="text-text-muted mt-1 block break-all text-xs">
+                        Test ID: {delivery.test_id}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2">
+                    <span
+                      className={getAdminWebhookDeliveryStatusClass(
+                        delivery.success,
+                      )}
+                    >
                       {delivery.response_status ?? "No response"}
                     </span>
                   </td>
@@ -3744,7 +4824,12 @@ export function AdminWebhookDeliveryHistoryTable({
                     <Button
                       size="sm"
                       variant="secondary"
-                      disabled={localMode || isRedelivering || redeliveringDeliveryId !== null}
+                      disabled={
+                        localMode ||
+                        disableRedelivery ||
+                        isRedelivering ||
+                        redeliveringDeliveryId !== null
+                      }
                       onClick={() => {
                         onRedeliver(delivery.id);
                       }}
@@ -3762,261 +4847,585 @@ export function AdminWebhookDeliveryHistoryTable({
   );
 }
 
-function WebhooksSection({ localMode }: { localMode: boolean }) {
+export type WebhookTestResult = "waiting" | "retrying" | "succeeded" | "failed";
+
+export function getWebhookTestResult(
+  deliveries: WebhookDeliveryItem[],
+  testId: string,
+): WebhookTestResult {
+  const attempts = deliveries.filter(
+    (delivery) =>
+      delivery.event_type === "webhook.test" && delivery.test_id === testId,
+  );
+  if (
+    attempts.some(
+      (delivery) =>
+        delivery.success &&
+        typeof delivery.response_status === "number" &&
+        delivery.response_status >= 200 &&
+        delivery.response_status < 300,
+    )
+  )
+    return "succeeded";
+  if (attempts.some((delivery) => delivery.attempt_number >= 3))
+    return "failed";
+  return attempts.length ? "retrying" : "waiting";
+}
+
+interface WebhookRequestContext {
+  base: string;
+  token: string | null;
+}
+
+// Administration needs a fresh server observation, not api.fetch's offline GET fallback.
+async function requestWebhook<T>(
+  context: WebhookRequestContext,
+  path: string,
+  method = "GET",
+  body?: unknown,
+  expectedStatus?: number,
+): Promise<T> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const headers: Record<string, string> = {};
+    if (context.token) headers.Authorization = `Bearer ${context.token}`;
+    if (body !== undefined) headers["Content-Type"] = "application/json";
+    const response = await fetch(`${context.base}${path}`, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: controller.signal,
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      const error = await response
+        .json()
+        .catch(() => ({ message: `HTTP ${response.status}` }));
+      throw new Error(
+        typeof error.message === "string"
+          ? error.message
+          : `HTTP ${response.status}`,
+      );
+    }
+    if (expectedStatus !== undefined && response.status !== expectedStatus)
+      throw new Error(
+        "The server did not confirm that this request was queued.",
+      );
+    if (response.status === 204) return undefined as T;
+    const text = await response.text();
+    return (text.trim() ? JSON.parse(text) : undefined) as T;
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError")
+      throw new Error(
+        method === "GET"
+          ? "Fresh history request timed out. Refresh to check recorded deliveries."
+          : "Request timed out. Its outcome is unconfirmed; refresh before retrying.",
+      );
+    if (error instanceof TypeError)
+      throw new Error(
+        method === "GET"
+          ? "Unable to reach the server for a fresh observation."
+          : "Server response unavailable. The outcome is unconfirmed; refresh before retrying.",
+      );
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+const newWebhookForm = (): WebhookFormState => ({
+  name: "",
+  url: "",
+  secret: "",
+  events: DEFAULT_WEBHOOK_EVENTS.join(", "),
+  space_id: "",
+});
+const WEBHOOK_TEST_WAIT_MS = 60_000;
+
+export function WebhooksSection({ localMode }: { localMode: boolean }) {
+  const base = getApiBase();
+  const token = typeof localStorage === "undefined" ? null : api.getToken();
+  const context = useMemo(() => ({ base, token }), [base, token]);
+  const scope = JSON.stringify([base, token, localMode]);
+  const scopeRef = useRef(scope);
+  scopeRef.current = scope;
+  const mounted = useRef(true);
+  const listRequest = useRef(0);
+  const historyRequest = useRef(0);
+  const selectionGeneration = useRef(0);
+  const selectedRef = useRef<string | null>(null);
+  const actionRef = useRef<string | null>(null);
+  const [action, setAction] = useState<string | null>(null);
   const [webhooks, setWebhooks] = useState<WebhookItem[]>([]);
-  const [selectedWebhookId, setSelectedWebhookId] = useState<string | null>(null);
+  const [selectedWebhookId, setSelectedWebhookId] = useState<string | null>(
+    null,
+  );
   const [deliveries, setDeliveries] = useState<WebhookDeliveryItem[]>([]);
   const [deliveriesLoading, setDeliveriesLoading] = useState(false);
   const [deliveriesError, setDeliveriesError] = useState<string | null>(null);
-  const [redeliveringDeliveryId, setRedeliveringDeliveryId] = useState<string | null>(null);
+  const [redeliveringDeliveryId, setRedeliveringDeliveryId] = useState<
+    string | null
+  >(null);
   const [redeliveryError, setRedeliveryError] = useState<string | null>(null);
-  const [form, setForm] = useState<WebhookFormState>({
-    name: "",
-    url: "",
-    secret: "",
-    events: DEFAULT_WEBHOOK_EVENTS.slice(0, 2).join(", "),
-    space_id: "",
-  });
+  const [form, setForm] = useState<WebhookFormState>(newWebhookForm);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [disconnectTarget, setDisconnectTarget] = useState<WebhookItem | null>(
+    null,
+  );
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [testRun, setTestRun] = useState<{
+    webhookId: string;
+    testId: string;
+    startedAt: number;
+  } | null>(null);
+  const [testStatus, setTestStatus] = useState<
+    WebhookTestResult | "unconfirmed" | null
+  >(null);
+  selectedRef.current = selectedWebhookId;
+  const selectedWebhook =
+    webhooks.find((webhook) => webhook.id === selectedWebhookId) ?? null;
+  const selectedWebhookHealth = selectedWebhook
+    ? getAdminWebhookHealth(selectedWebhook.is_active, deliveries)
+    : null;
+  const testPending =
+    testRun !== null && (testStatus === "waiting" || testStatus === "retrying");
 
-  const selectedWebhook = webhooks.find((webhook) => webhook.id === selectedWebhookId) ?? null;
+  const isCurrent = useCallback(
+    () =>
+      mounted.current &&
+      scopeRef.current === scope &&
+      getApiBase() === context.base &&
+      api.getToken() === context.token &&
+      !localMode,
+    [scope, context, localMode],
+  );
+  const selectWebhook = useCallback((id: string | null) => {
+    if (selectedRef.current === id) return;
+    selectedRef.current = id;
+    selectionGeneration.current += 1;
+    historyRequest.current += 1;
+    setSelectedWebhookId(id);
+    setDeliveries([]);
+    setDeliveriesError(null);
+    setDeliveriesLoading(false);
+    setRedeliveryError(null);
+    setMessage(null);
+    setError(null);
+    setTestRun(null);
+    setTestStatus(null);
+    setDisconnectTarget(null);
+  }, []);
+
+  useEffect(() => {
+    mounted.current = true;
+    listRequest.current += 1;
+    historyRequest.current += 1;
+    selectionGeneration.current += 1;
+    selectedRef.current = null;
+    setSelectedWebhookId(null);
+    setWebhooks([]);
+    setDeliveries([]);
+    setDeliveriesError(null);
+    setTestRun(null);
+    setTestStatus(null);
+    setMessage(null);
+    setError(null);
+    setRedeliveryError(null);
+    setDeliveriesLoading(false);
+    setCreateOpen(false);
+    setDisconnectTarget(null);
+    return () => {
+      mounted.current = false;
+      listRequest.current += 1;
+      historyRequest.current += 1;
+      selectionGeneration.current += 1;
+    };
+  }, [scope]);
 
   const loadWebhooks = useCallback(async () => {
-    if (localMode) {
-      setWebhooks([]);
-      setSelectedWebhookId(null);
-      setDeliveries([]);
-      return;
-    }
+    if (!isCurrent()) return null;
+    const request = ++listRequest.current;
     setLoading(true);
     setError(null);
     try {
-      const items = await api.fetch<WebhookItem[]>("/webhooks");
+      const items = await requestWebhook<WebhookItem[]>(context, "/webhooks");
+      if (!isCurrent() || listRequest.current !== request) return null;
       setWebhooks(items);
-      setSelectedWebhookId((current) =>
-        current && items.some((item) => item.id === current) ? current : (items[0]?.id ?? null),
-      );
-      if (items.length === 0) setDeliveries([]);
+      const current = selectedRef.current;
+      if (!current || !items.some((item) => item.id === current))
+        selectWebhook(items[0]?.id ?? null);
+      return items;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load webhooks");
+      if (isCurrent() && listRequest.current === request)
+        setError(
+          err instanceof Error ? err.message : "Unable to load webhooks",
+        );
+      return null;
     } finally {
-      setLoading(false);
+      if (isCurrent() && listRequest.current === request) setLoading(false);
     }
-  }, [localMode]);
+  }, [isCurrent, context, selectWebhook]);
 
   const loadDeliveries = useCallback(
-    async (webhookId: string | null) => {
-      if (localMode || !webhookId) {
-        const resetState = getAdminWebhookDeliveryResetState();
-        setDeliveries(resetState.deliveries);
-        setDeliveriesError(resetState.deliveriesError);
-        setRedeliveryError(resetState.redeliveryError);
-        setRedeliveringDeliveryId(resetState.redeliveringDeliveryId);
-        setDeliveriesLoading(resetState.deliveriesLoading);
-        return;
-      }
-      const resetState = getAdminWebhookDeliveryResetState();
-      setDeliveries(resetState.deliveries);
-      setRedeliveryError(resetState.redeliveryError);
-      setRedeliveringDeliveryId(resetState.redeliveringDeliveryId);
-      setDeliveriesLoading(true);
-      setDeliveriesError(resetState.deliveriesError);
-      try {
-        const items = await api.fetch<WebhookDeliveryItem[]>(
-          `/webhooks/${webhookId}/deliveries`,
-        );
-        setDeliveries(items);
-      } catch (err) {
-        setDeliveriesError(
-          err instanceof Error ? err.message : "Unable to load webhook deliveries",
-        );
+    async (
+      webhookId: string | null,
+      preserve = false,
+    ): Promise<WebhookDeliveryItem[] | null | undefined> => {
+      if (!webhookId || !isCurrent() || selectedRef.current !== webhookId)
+        return undefined;
+      const generation = selectionGeneration.current;
+      const request = ++historyRequest.current;
+      const current = () =>
+        isCurrent() &&
+        generation === selectionGeneration.current &&
+        selectedRef.current === webhookId &&
+        request === historyRequest.current;
+      if (!preserve) {
         setDeliveries([]);
+        setDeliveriesLoading(true);
+      }
+      setDeliveriesError(null);
+      try {
+        const items = await requestWebhook<WebhookDeliveryItem[]>(
+          context,
+          `/webhooks/${encodeURIComponent(webhookId)}/deliveries`,
+        );
+        if (!current()) return undefined;
+        setDeliveries(items);
+        return items;
+      } catch (err) {
+        if (!current()) return undefined;
+        setDeliveriesError(
+          err instanceof Error
+            ? err.message
+            : "Unable to load webhook deliveries",
+        );
+        return null;
       } finally {
-        setDeliveriesLoading(false);
+        if (current()) setDeliveriesLoading(false);
       }
     },
-    [localMode],
+    [context, isCurrent],
   );
 
   useEffect(() => {
     void loadWebhooks();
   }, [loadWebhooks]);
+  useEffect(() => {
+    if (selectedWebhookId) void loadDeliveries(selectedWebhookId);
+  }, [loadDeliveries, selectedWebhookId]);
 
   useEffect(() => {
-    void loadDeliveries(selectedWebhookId);
-  }, [loadDeliveries, selectedWebhookId]);
+    if (!testRun) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const generation = selectionGeneration.current;
+    const current = () =>
+      !cancelled &&
+      isCurrent() &&
+      selectedRef.current === testRun.webhookId &&
+      selectionGeneration.current === generation;
+    const poll = async () => {
+      if (!current()) return;
+      if (Date.now() - testRun.startedAt >= WEBHOOK_TEST_WAIT_MS) {
+        setTestStatus("unconfirmed");
+        return;
+      }
+      const items = await loadDeliveries(testRun.webhookId, true);
+      if (!current()) return;
+      if (items === undefined) {
+        timer = setTimeout(() => void poll(), 1_000);
+        return;
+      }
+      if (items === null) {
+        setTestStatus("unconfirmed");
+        return;
+      }
+      const outcome = getWebhookTestResult(items, testRun.testId);
+      setTestStatus(outcome);
+      if (outcome === "succeeded" || outcome === "failed") return;
+      if (Date.now() - testRun.startedAt >= WEBHOOK_TEST_WAIT_MS) {
+        setTestStatus("unconfirmed");
+        return;
+      }
+      timer = setTimeout(() => void poll(), 1_000);
+    };
+    timer = setTimeout(() => void poll(), 250);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [testRun, isCurrent, loadDeliveries]);
+
+  const beginAction = (name: string): string | null => {
+    if (!isCurrent() || actionRef.current) return null;
+    const lock = `${name}:${Date.now()}:${Math.random()}`;
+    actionRef.current = lock;
+    setAction(name);
+    return lock;
+  };
+  const endAction = (lock: string) => {
+    if (actionRef.current !== lock) return;
+    actionRef.current = null;
+    if (mounted.current) {
+      setAction(null);
+      setRedeliveringDeliveryId(null);
+    }
+  };
 
   const handleCreateWebhook = async (event: FormEvent) => {
     event.preventDefault();
-    if (localMode) {
-      setError("Webhook management is unavailable in local mode.");
-      return;
-    }
-    setSaving(true);
+    const lock = beginAction("creating");
+    if (!lock) return;
     setError(null);
     setMessage(null);
     try {
       const events = parseWebhookEvents(form.events);
-      if (!form.name.trim() || !form.url.trim() || events.length === 0) {
+      if (!form.name.trim() || !form.url.trim() || events.length === 0)
         throw new Error("Name, URL, and at least one event are required.");
-      }
-      const result = await api.fetch<{ id: string }>("/webhooks", {
-        method: "POST",
-        body: {
+      const result = await requestWebhook<{ id: string }>(
+        context,
+        "/webhooks",
+        "POST",
+        {
           name: form.name.trim(),
           url: form.url.trim(),
           secret: form.secret.trim() || undefined,
           events,
           space_id: form.space_id.trim() || undefined,
         },
-      });
-      setForm({
-        name: "",
-        url: "",
-        secret: "",
-        events: DEFAULT_WEBHOOK_EVENTS.slice(0, 2).join(", "),
-        space_id: "",
-      });
-      setMessage("Webhook created.");
-      await loadWebhooks();
-      setSelectedWebhookId(result.id);
+        201,
+      );
+      if (!isCurrent()) return;
+      setForm(newWebhookForm());
+      setCreateOpen(false);
+      const items = await loadWebhooks();
+      if (isCurrent()) {
+        if (items?.some((item) => item.id === result.id))
+          selectWebhook(result.id);
+        setMessage(
+          items
+            ? "Webhook created."
+            : "Webhook created. Refresh connections to confirm the updated list.",
+        );
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to create webhook");
+      if (isCurrent())
+        setError(
+          err instanceof Error ? err.message : "Unable to create webhook",
+        );
     } finally {
-      setSaving(false);
+      endAction(lock);
     }
   };
 
-  const deleteWebhook = async (webhookId: string) => {
-    if (localMode) return;
+  const testWebhook = async () => {
+    if (!selectedWebhook || !selectedWebhook.is_active || testPending) return;
+    const id = selectedWebhook.id;
+    const generation = selectionGeneration.current;
+    const lock = beginAction("testing");
+    if (!lock) return;
+    const current = () =>
+      isCurrent() &&
+      selectedRef.current === id &&
+      selectionGeneration.current === generation;
+    setError(null);
+    setMessage(null);
+    setTestRun(null);
+    setTestStatus(null);
+    try {
+      const result = await requestWebhook<{
+        status: string;
+        delivery_id: string;
+      }>(
+        context,
+        `/webhooks/${encodeURIComponent(id)}/test`,
+        "POST",
+        undefined,
+        202,
+      );
+      if (!current()) return;
+      if (
+        result?.status !== "queued" ||
+        typeof result.delivery_id !== "string" ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          result.delivery_id,
+        )
+      )
+        throw new Error(
+          "The server did not provide a valid test confirmation.",
+        );
+      setTestRun({
+        webhookId: id,
+        testId: result.delivery_id,
+        startedAt: Date.now(),
+      });
+      setTestStatus("waiting");
+    } catch (err) {
+      if (current())
+        setError(
+          err instanceof Error ? err.message : "Unable to queue webhook test",
+        );
+    } finally {
+      endAction(lock);
+    }
+  };
+
+  const disconnect = async () => {
+    const target = disconnectTarget;
+    if (!target || selectedRef.current !== target.id) return;
+    const generation = selectionGeneration.current;
+    const lock = beginAction("disconnecting");
+    if (!lock) return;
+    const current = () =>
+      isCurrent() &&
+      selectedRef.current === target.id &&
+      selectionGeneration.current === generation;
     setError(null);
     setMessage(null);
     try {
-      await api.fetch<void>(`/webhooks/${webhookId}`, { method: "DELETE" });
-      setMessage("Webhook deleted.");
-      setSelectedWebhookId(null);
+      await requestWebhook<void>(
+        context,
+        `/webhooks/${encodeURIComponent(target.id)}`,
+        "DELETE",
+        undefined,
+        204,
+      );
+      if (!isCurrent()) return;
+      if (current()) {
+        setDisconnectTarget(null);
+        selectWebhook(null);
+        setMessage(
+          "Webhook disconnected. Its subscription and delivery history were deleted.",
+        );
+      }
       await loadWebhooks();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to delete webhook");
+      if (current())
+        setError(
+          err instanceof Error ? err.message : "Unable to disconnect webhook",
+        );
+    } finally {
+      endAction(lock);
     }
   };
 
   const redeliver = async (deliveryId: string) => {
-    if (localMode || !selectedWebhookId || redeliveringDeliveryId) return;
-    setError(null);
-    setMessage(null);
+    if (!selectedWebhook || !selectedWebhook.is_active || testPending) return;
+    const id = selectedWebhook.id;
+    const generation = selectionGeneration.current;
+    const lock = beginAction("redelivering");
+    if (!lock) return;
+    const current = () =>
+      isCurrent() &&
+      selectedRef.current === id &&
+      selectionGeneration.current === generation;
     setRedeliveryError(null);
+    setMessage(null);
+    setTestRun(null);
+    setTestStatus(null);
     setRedeliveringDeliveryId(deliveryId);
     try {
-      await postNoBody(`/webhooks/${selectedWebhookId}/deliveries/${deliveryId}/redeliver`);
-      setMessage("Webhook redelivery queued.");
-      await loadDeliveries(selectedWebhookId);
+      await requestWebhook<void>(
+        context,
+        `/webhooks/${encodeURIComponent(id)}/deliveries/${encodeURIComponent(deliveryId)}/redeliver`,
+        "POST",
+        undefined,
+        202,
+      );
+      if (!current()) return;
+      setMessage(
+        "Redelivery queued. Refresh history to inspect new recorded attempts; queueing does not confirm delivery.",
+      );
+      await loadDeliveries(id, true);
     } catch (err) {
-      setRedeliveryError(err instanceof Error ? err.message : "Unable to queue redelivery");
+      if (current())
+        setRedeliveryError(
+          err instanceof Error ? err.message : "Unable to queue redelivery",
+        );
     } finally {
-      setRedeliveringDeliveryId(null);
+      endAction(lock);
     }
   };
 
+  const refreshHistory = async () => {
+    const items = await loadDeliveries(selectedWebhookId, true);
+    if (
+      items &&
+      testRun &&
+      selectedRef.current === testRun.webhookId &&
+      isCurrent()
+    ) {
+      const outcome = getWebhookTestResult(items, testRun.testId);
+      if (outcome === "succeeded" || outcome === "failed")
+        setTestStatus(outcome);
+    }
+  };
+
+  const testText =
+    testStatus === "succeeded"
+      ? "Test delivered: the receiver returned HTTP 2xx for this test."
+      : testStatus === "failed"
+        ? "Test failed after three recorded attempts. Check the receiver and delivery history."
+        : testStatus === "retrying"
+          ? "A test attempt failed. The server may retry; delivery is not confirmed yet."
+          : testStatus === "unconfirmed"
+            ? "Final delivery not confirmed. Refresh history to check recorded attempts."
+            : "Test queued. Waiting for a recorded receiver response.";
+
   return (
-    <div>
-      <div className="mb-4 flex items-center justify-between gap-3">
+    <div className="min-w-0">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-text text-lg font-medium">Webhooks</h1>
           <p className="text-text-muted text-xs">
-            Manage outbound event deliveries and inspect recent delivery attempts.
+            Manage outbound event deliveries and inspect recent delivery
+            attempts.
           </p>
         </div>
-        <Button
-          size="sm"
-          variant="secondary"
-          disabled={localMode || loading}
-          onClick={() => {
-            void loadWebhooks();
-          }}
-        >
-          <RefreshCw size={14} className="mr-1" />
-          Refresh
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={localMode || loading}
+            onClick={() => {
+              void loadWebhooks();
+              void refreshHistory();
+            }}
+          >
+            <RefreshCw size={14} className="mr-1" />
+            Refresh
+          </Button>
+          <Button
+            size="sm"
+            disabled={localMode || action !== null}
+            onClick={() => {
+              setError(null);
+              setCreateOpen(true);
+            }}
+          >
+            <Plus size={14} className="mr-1" />
+            Create webhook
+          </Button>
+        </div>
       </div>
-
       <div className="space-y-3">
         {localMode && (
           <div className="rounded-card border-border text-text-muted border p-3 text-sm">
-            Webhook delivery is a server-mode feature. Local standalone notes do not dispatch
-            outbound webhooks.
+            Webhook delivery is a server-mode feature. Local standalone notes do
+            not dispatch outbound webhooks.
           </div>
         )}
-
-        <form
-          onSubmit={(event) => {
-            void handleCreateWebhook(event);
-          }}
-          className="rounded-card border-border grid gap-3 border p-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"
-        >
-          <label className="block">
-            <span className="text-text-muted mb-1 block text-xs">Name</span>
-            <AdminTextInput
-              value={form.name}
-              onChange={(value) => setForm((current) => ({ ...current, name: value }))}
-              disabled={localMode || saving}
-              placeholder="Release automation"
-              ariaLabel="Webhook name"
-            />
-          </label>
-          <label className="block">
-            <span className="text-text-muted mb-1 block text-xs">URL</span>
-            <AdminTextInput
-              value={form.url}
-              onChange={(value) => setForm((current) => ({ ...current, url: value }))}
-              disabled={localMode || saving}
-              placeholder="https://example.com/starlane/webhook"
-              ariaLabel="Webhook URL"
-            />
-          </label>
-          <label className="block">
-            <span className="text-text-muted mb-1 block text-xs">Events</span>
-            <AdminTextInput
-              value={form.events}
-              onChange={(value) => setForm((current) => ({ ...current, events: value }))}
-              disabled={localMode || saving}
-              placeholder={DEFAULT_WEBHOOK_EVENTS.join(", ")}
-              ariaLabel="Webhook events"
-            />
-          </label>
-          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
-            <label className="block">
-              <span className="text-text-muted mb-1 block text-xs">Secret</span>
-              <AdminTextInput
-                value={form.secret}
-                onChange={(value) => setForm((current) => ({ ...current, secret: value }))}
-                disabled={localMode || saving}
-                placeholder="Optional HMAC secret"
-                type="password"
-                ariaLabel="Webhook secret"
-              />
-            </label>
-            <label className="block">
-              <span className="text-text-muted mb-1 block text-xs">Space ID</span>
-              <AdminTextInput
-                value={form.space_id}
-                onChange={(value) => setForm((current) => ({ ...current, space_id: value }))}
-                disabled={localMode || saving}
-                placeholder="Optional"
-                ariaLabel="Webhook space ID"
-              />
-            </label>
-            <Button size="sm" disabled={localMode || saving} className="self-end">
-              Create
-            </Button>
-          </div>
-        </form>
-
-        <div className="grid gap-3 xl:grid-cols-[minmax(18rem,24rem)_minmax(0,1fr)]">
-          <div className="rounded-card border-border border">
+        <p className="text-text-muted text-xs">
+          Ordinary connections send minimal deliberately public page publication
+          metadata to the stored endpoint. A synthetic test sends no page or
+          draft content.
+        </p>
+        <div className="grid min-w-0 gap-3 xl:grid-cols-[minmax(18rem,24rem)_minmax(0,1fr)]">
+          <div className="rounded-card border-border min-w-0 border">
             {webhooks.length === 0 ? (
               <div className="text-text-muted p-3 text-sm">
                 {loading ? "Loading webhooks..." : "No webhooks configured."}
@@ -4026,91 +5435,195 @@ function WebhooksSection({ localMode }: { localMode: boolean }) {
                 <button
                   key={webhook.id}
                   type="button"
-                  onClick={() => setSelectedWebhookId(webhook.id)}
-                  className={`border-border block w-full border-b px-3 py-2 text-left last:border-0 ${
-                    selectedWebhookId === webhook.id ? "bg-surface-raised" : "hover:bg-surface"
-                  }`}
+                  aria-pressed={selectedWebhookId === webhook.id}
+                  onClick={() => selectWebhook(webhook.id)}
+                  className={`border-border block min-h-11 w-full border-b px-3 py-2 text-left last:border-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${selectedWebhookId === webhook.id ? "bg-surface-raised" : "hover:bg-surface"}`}
                 >
                   <span className="text-text block truncate text-sm font-medium">
                     {webhook.name}
                   </span>
-                  <span className="text-text-muted block truncate text-xs">{webhook.url}</span>
-                  <span className="text-text-muted mt-1 flex items-center gap-2 text-xs">
+                  <span className="text-text-muted block truncate text-xs">
+                    {webhook.url}
+                  </span>
+                  <span className="text-text-muted mt-1 flex flex-wrap gap-2 text-xs">
                     <span>{webhook.events.length} events</span>
-                    <span>{webhook.is_active ? "Active" : "Paused"}</span>
+                    <span>{webhook.is_active ? "Configured" : "Inactive"}</span>
+                    <span>
+                      {webhook.space_id
+                        ? `Space: ${webhook.space_id}`
+                        : "Global scope"}
+                    </span>
                   </span>
                 </button>
               ))
             )}
           </div>
-
-          <div className="rounded-card border-border border p-3">
+          <div className="rounded-card border-border min-w-0 border p-3">
             {selectedWebhook ? (
-              <div className="space-y-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <h2 className="text-text truncate text-sm font-medium">
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0 basis-full sm:basis-auto sm:flex-1">
+                    <h2 className="text-text break-words text-sm font-medium">
                       {selectedWebhook.name}
                     </h2>
-                    <p className="text-text-muted truncate text-xs">{selectedWebhook.url}</p>
+                    <p className="text-text-muted break-all text-xs">
+                      {selectedWebhook.url}
+                    </p>
+                    <dl className="text-text-muted mt-2 grid gap-1 text-xs">
+                      <div className="flex flex-wrap gap-x-2">
+                        <dt>Created by</dt>
+                        <dd className="text-text break-all">
+                          {selectedWebhook.created_by || "Not available"}
+                        </dd>
+                      </div>
+                      <div className="flex flex-wrap gap-x-2">
+                        <dt>Scope</dt>
+                        <dd className="text-text break-all">
+                          {selectedWebhook.space_id
+                            ? `Space ${selectedWebhook.space_id}`
+                            : "Global: matching events from all spaces"}
+                        </dd>
+                      </div>
+                      <div className="flex flex-wrap gap-x-2">
+                        <dt>Configuration</dt>
+                        <dd className="text-text">
+                          {selectedWebhook.is_active
+                            ? "Active subscription"
+                            : "Inactive subscription"}
+                        </dd>
+                      </div>
+                      <div className="flex flex-wrap gap-x-2">
+                        <dt>Data</dt>
+                        <dd className="text-text">
+                          Public page title, IDs, and publication time only
+                        </dd>
+                      </div>
+                    </dl>
                     <div className="mt-2 flex flex-wrap gap-1">
-                      {selectedWebhook.events.map((eventName) => (
+                      {selectedWebhook.events.map((eventName, index) => (
                         <span
-                          key={eventName}
-                          className="rounded-button bg-surface-raised text-text-muted px-2 py-0.5 text-xs"
+                          key={`${eventName}:${index}`}
+                          className="rounded-button bg-surface-raised text-text-muted break-all px-2 py-0.5 text-xs"
                         >
                           {eventName}
                         </span>
                       ))}
                     </div>
                   </div>
-                  <Button
-                    size="sm"
-                    variant="danger"
-                    disabled={localMode}
-                    onClick={() => {
-                      void deleteWebhook(selectedWebhook.id);
-                    }}
-                  >
-                    <Trash2 size={14} className="mr-1" />
-                    Delete
-                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={
+                        localMode ||
+                        !selectedWebhook.is_active ||
+                        action !== null ||
+                        testPending
+                      }
+                      onClick={() => void testWebhook()}
+                    >
+                      {action === "testing"
+                        ? "Queueing test..."
+                        : "Test saved endpoint"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="danger"
+                      disabled={localMode || action !== null}
+                      onClick={() => {
+                        setError(null);
+                        setDisconnectTarget(selectedWebhook);
+                      }}
+                    >
+                      <Trash2 size={14} className="mr-1" />
+                      Disconnect
+                    </Button>
+                  </div>
                 </div>
-
+                {selectedWebhookHealth && (
+                  <div
+                    role="status"
+                    className={`rounded-input border px-3 py-2 text-sm ${selectedWebhookHealth.className}`}
+                  >
+                    <p className="font-medium">{selectedWebhookHealth.label}</p>
+                    <p className="mt-1 text-xs">{selectedWebhookHealth.detail}</p>
+                  </div>
+                )}
+                {testRun && (
+                  <div
+                    role="status"
+                    aria-live="polite"
+                    className={`rounded-input border px-3 py-2 text-sm ${testStatus === "succeeded" ? "border-success/30 bg-success/10 text-success" : testStatus === "failed" ? "border-danger/30 bg-danger/10 text-danger" : "border-border text-text-muted"}`}
+                  >
+                    <p>{testText}</p>
+                    <p className="mt-1 break-all text-xs">
+                      Test ID: {testRun.testId}
+                    </p>
+                    <p className="mt-1 text-xs">
+                      This records one test, not ongoing endpoint health.
+                    </p>
+                  </div>
+                )}
                 <div>
-                  <h3 className="text-text mb-2 text-sm font-medium">Delivery History</h3>
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="text-text text-sm font-medium">
+                      Delivery History
+                    </h3>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={localMode || deliveriesLoading}
+                      onClick={() => void refreshHistory()}
+                    >
+                      Refresh history
+                    </Button>
+                  </div>
                   {deliveriesLoading ? (
-                    <p className="text-text-muted text-sm">Loading deliveries...</p>
+                    <p className="text-text-muted text-sm">
+                      Loading deliveries...
+                    </p>
                   ) : deliveriesError ? (
-                    <div className="grid gap-3 text-sm text-text-muted">
+                    <div className="text-text-muted grid gap-3 text-sm">
                       <p>{deliveriesError}</p>
                       <Button
                         variant="secondary"
                         size="sm"
                         className="justify-self-start"
-                        onClick={() => void loadDeliveries(selectedWebhook.id)}
+                        onClick={() => void refreshHistory()}
                       >
                         Retry deliveries
                       </Button>
                     </div>
                   ) : deliveries.length === 0 ? (
-                    <p className="text-text-muted text-sm">No deliveries recorded yet.</p>
+                    <p className="text-text-muted text-sm">
+                      No deliveries recorded yet.
+                    </p>
                   ) : (
                     <AdminWebhookDeliveryHistoryTable
                       deliveries={deliveries}
                       localMode={localMode}
                       redeliveringDeliveryId={redeliveringDeliveryId}
                       redeliveryError={redeliveryError}
-                      onRedeliver={(deliveryId) => {
-                        void redeliver(deliveryId);
-                      }}
+                      disableRedelivery={
+                        !selectedWebhook.is_active ||
+                        action !== null ||
+                        testPending
+                      }
+                      onRedeliver={(deliveryId) => void redeliver(deliveryId)}
                     />
+                  )}
+                  {redeliveryError && deliveries.length === 0 && (
+                    <div className={ADMIN_COMPACT_ERROR_CLASS}>
+                      {redeliveryError}
+                    </div>
                   )}
                 </div>
               </div>
             ) : (
               <div>
-                <h3 className="text-text mb-2 text-sm font-medium">Delivery History</h3>
+                <h3 className="text-text mb-2 text-sm font-medium">
+                  Delivery History
+                </h3>
                 <p className="text-text-muted text-sm">
                   Select a webhook to inspect delivery history.
                 </p>
@@ -4118,18 +5631,160 @@ function WebhooksSection({ localMode }: { localMode: boolean }) {
             )}
           </div>
         </div>
-
         {message && (
-          <div className={ADMIN_SUCCESS_CARD_CLASS}>
+          <div
+            role="status"
+            className="rounded-input border-border text-text-muted border px-3 py-2 text-sm"
+          >
             {message}
           </div>
         )}
-        {error && (
-          <div className={ADMIN_ERROR_CARD_CLASS}>
+        {error && !createOpen && !disconnectTarget && (
+          <div role="alert" className={ADMIN_ERROR_CARD_CLASS}>
             {error}
           </div>
         )}
       </div>
+      {createOpen && (
+        <DialogShell
+          labelledBy="create-webhook-title"
+          maxWidth="lg"
+          onClose={() => {
+            if (action !== "creating") setCreateOpen(false);
+          }}
+        >
+          <form
+            onSubmit={(event) => void handleCreateWebhook(event)}
+            className="space-y-4 p-4"
+          >
+            <div>
+              <h2
+                id="create-webhook-title"
+                className="text-text text-base font-semibold"
+              >
+                Create webhook
+              </h2>
+              <p className="text-text-muted mt-1 text-sm">
+                Connect a trusted receiver. Test the saved endpoint after
+                creation.
+              </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block">
+                <span className="text-text-muted mb-1 block text-xs">Name</span>
+                <AdminTextInput
+                  value={form.name}
+                  onChange={(value) =>
+                    setForm((current) => ({ ...current, name: value }))
+                  }
+                  disabled={action !== null}
+                  placeholder="Release automation"
+                  ariaLabel="Webhook name"
+                />
+              </label>
+              <label className="block">
+                <span className="text-text-muted mb-1 block text-xs">URL</span>
+                <AdminTextInput
+                  value={form.url}
+                  onChange={(value) =>
+                    setForm((current) => ({ ...current, url: value }))
+                  }
+                  disabled={action !== null}
+                  placeholder="https://example.com/starlane/webhook"
+                  ariaLabel="Webhook URL"
+                />
+              </label>
+              <label className="block sm:col-span-2">
+                <span className="text-text-muted mb-1 block text-xs">
+                  Events
+                </span>
+                <AdminTextInput
+                  value={form.events}
+                  onChange={(value) =>
+                    setForm((current) => ({ ...current, events: value }))
+                  }
+                  disabled={action !== null}
+                  placeholder={DEFAULT_WEBHOOK_EVENTS.join(", ")}
+                  ariaLabel="Webhook events"
+                />
+                <span className="text-text-muted mt-1 block text-xs">
+                  Ordinary connections export only deliberately public page
+                  publication metadata. Private resources and wildcards are refused.
+                </span>
+              </label>
+              <label className="block">
+                <span className="text-text-muted mb-1 block text-xs">
+                  Secret
+                </span>
+                <AdminTextInput
+                  value={form.secret}
+                  onChange={(value) =>
+                    setForm((current) => ({ ...current, secret: value }))
+                  }
+                  disabled={action !== null}
+                  placeholder="Optional HMAC secret"
+                  type="password"
+                  ariaLabel="Webhook secret"
+                />
+              </label>
+              <label className="block">
+                <span className="text-text-muted mb-1 block text-xs">
+                  Space ID
+                </span>
+                <AdminTextInput
+                  value={form.space_id}
+                  onChange={(value) =>
+                    setForm((current) => ({ ...current, space_id: value }))
+                  }
+                  disabled={action !== null}
+                  placeholder="Optional: blank means global"
+                  ariaLabel="Webhook space ID"
+                />
+              </label>
+            </div>
+            {error && (
+              <div role="alert" className={ADMIN_ERROR_CARD_CLASS}>
+                {error}
+              </div>
+            )}
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={action !== null}
+                onClick={() => setCreateOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button disabled={action !== null}>
+                {action === "creating" ? "Creating..." : "Create webhook"}
+              </Button>
+            </div>
+          </form>
+        </DialogShell>
+      )}
+      {disconnectTarget && (
+        <ConfirmDialog
+          labelledBy="disconnect-webhook-title"
+          title={`Disconnect ${disconnectTarget.name}?`}
+          message="This permanently deletes the subscription and its delivery history. Future sends and retries stop; an already in-flight request may still finish."
+          helperText={error || disconnectTarget.url}
+          confirmLabel={
+            action === "disconnecting"
+              ? "Disconnecting..."
+              : "Disconnect webhook"
+          }
+          destructive
+          disabled={action !== null}
+          onConfirm={() => void disconnect()}
+          onCancel={() => {
+            if (action !== "disconnecting") {
+              setDisconnectTarget(null);
+              setError(null);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -4139,17 +5794,6 @@ export function parseWebhookEvents(value: string): string[] {
     .split(",")
     .map((eventName) => eventName.trim())
     .filter(Boolean);
-}
-
-async function postNoBody(path: string): Promise<void> {
-  const headers: Record<string, string> = {};
-  const token = api.getToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
-  const response = await fetch(`${getApiBase()}${path}`, { method: "POST", headers });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: "Request failed" }));
-    throw new Error(error.message || `HTTP ${response.status}`);
-  }
 }
 
 const NOTIFICATION_CONFIG_KEYS = new Set([
@@ -4324,24 +5968,47 @@ function NotificationsSection({ localMode }: { localMode: boolean }) {
 
 function AuditSection({ localMode }: { localMode: boolean }) {
   const [entries, setEntries] = useState<
-    { id: string; user_email?: string; action: string; target_type?: string; created_at: string }[]
+    {
+      id: string;
+      user_email?: string;
+      action: string;
+      target_type?: string;
+      target_id?: string;
+      created_at: string;
+    }[]
   >([]);
+  const [loading, setLoading] = useState(false);
+  const [actionFilter, setActionFilter] = useState("");
 
-  useEffect(() => {
+  const loadEntries = useCallback(() => {
     if (localMode) {
       setEntries([]);
       return;
     }
+    setLoading(true);
     api
-      .fetch<typeof entries>("/admin/audit-log?limit=50")
+      .fetch<typeof entries>(
+        `/admin/audit-log?limit=100${actionFilter.trim() ? `&action=${encodeURIComponent(actionFilter.trim())}` : ""}`,
+      )
       .then(setEntries)
-      .catch(() => {});
-  }, [localMode]);
+      .catch(() => setEntries([]))
+      .finally(() => setLoading(false));
+  }, [actionFilter, localMode]);
+
+  useEffect(() => {
+    loadEntries();
+  }, [loadEntries]);
 
   return (
     <div>
       <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-text text-lg font-medium">Audit Log</h1>
+        <div>
+          <h1 className="text-text text-lg font-medium">Audit Log</h1>
+          <p className="text-text-muted mt-1 text-xs">
+            Page, draft, publish, archive, trash, and security events. Lifecycle JSONL files are
+            retained for 30 days under the vault logging folder for ingestion.
+          </p>
+        </div>
         <Button
           size="sm"
           variant="secondary"
@@ -4351,6 +6018,25 @@ function AuditSection({ localMode }: { localMode: boolean }) {
           }}
         >
           Export CSV
+        </Button>
+        <Button size="sm" variant="ghost" disabled={localMode || loading} onClick={loadEntries}>
+          {loading ? "Refreshing…" : "Refresh"}
+        </Button>
+      </div>
+
+      <div className="mb-3 flex items-center gap-2">
+        <Input
+          value={actionFilter}
+          onChange={(event) => setActionFilter(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") loadEntries();
+          }}
+          placeholder="Filter actions (for example document.draft)"
+          aria-label="Filter audit actions"
+          className="max-w-md"
+        />
+        <Button size="sm" variant="secondary" disabled={localMode || loading} onClick={loadEntries}>
+          Apply filter
         </Button>
       </div>
 
@@ -4372,7 +6058,10 @@ function AuditSection({ localMode }: { localMode: boolean }) {
                 </td>
                 <td className="px-3 py-2">{e.user_email || "—"}</td>
                 <td className="px-3 py-2">{e.action}</td>
-                <td className="text-text-muted px-3 py-2">{e.target_type || "—"}</td>
+                <td className="text-text-muted px-3 py-2">
+                  {e.target_type || "—"}
+                  {e.target_id ? ` · ${e.target_id}` : ""}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -4478,6 +6167,7 @@ function StorageSection({ localMode, user }: { localMode: boolean; user: User | 
     "selected" | "all" | null
   >(null);
   const [archiveImportConfirmOpen, setArchiveImportConfirmOpen] = useState(false);
+  const [archiveRecovery, setArchiveRecovery] = useState<AdminArchiveRecoverySession | null>(null);
   const [pendingSnapshotImport, setPendingSnapshotImport] = useState<{
     snapshot: unknown;
     summary: VaultImportPreflightSummary;
@@ -4737,12 +6427,9 @@ function StorageSection({ localMode, user }: { localMode: boolean; user: User | 
     try {
       const stamp = new Date().toISOString().slice(0, 10);
       if (nativeAvailable) {
-        const selectedPath = await chooseVaultArchiveExportPath(
-          `starlane-vault-${stamp}.starlane-vault`,
-        );
-        if (!selectedPath) return;
-        await dataClient.exportLocalVaultArchive(selectedPath);
-        setMessage("Vault archive exported.");
+        const result = await exportCurrentCompleteNativeVaultArchive();
+        if (result.cancelled) return;
+        setMessage(`Vault archive exported to ${result.path}.`);
       } else {
         const snapshot = await dataClient.exportLocalVaultSnapshot();
         downloadJsonFile(`starlane-vault-${stamp}.json`, snapshot);
@@ -4797,8 +6484,31 @@ function StorageSection({ localMode, user }: { localMode: boolean; user: User | 
     }
   };
 
-  const importVaultArchive = () => {
-    setArchiveImportConfirmOpen(true);
+  const importVaultArchive = async () => {
+    if (busy) return;
+    setBusy(true); setError(null); setMessage(null);
+    const mode=getCurrentLaunchMode(), provider=getSyncProvider(), base=getApiBase(), token=api.getToken();
+    const verifyCurrent=() => {
+      if (getCurrentLaunchMode()!==mode || getSyncProvider()!==provider || getApiBase()!==base || api.getToken()!==token) throw new Error("Original archive recovery workspace changed; keep its evidence for review");
+    };
+    try {
+      const inventory=await dataClient.listLocalVaultArchiveImports();verifyCurrent();
+      const pending=inventory.operations.find(row=>!row.canonical_committed && !row.retained_abandoned);
+      if (pending) {
+        if (!inventory.binding) throw new Error("Original pending archive database is unavailable");
+        const session=await createAdminArchiveRecoverySession(inventory.binding,pending,verifyCurrent);verifyCurrent();setArchiveRecovery(session);
+      } else setArchiveImportConfirmOpen(true);
+    } catch (error) { setError(error instanceof Error ? error.message : "Archive evidence inspection failed"); }
+    finally {setBusy(false);}
+  };
+  const confirmAbandonArchiveImport = async () => {
+    if (busy || !archiveRecovery) return;
+    const original=archiveRecovery;setBusy(true);setError(null);setMessage(null);
+    try {
+      await original.abandon();setArchiveRecovery(null);
+      setMessage("Import attempt retained and abandoned. Its archive, unique asset versions and database evidence remain available. Choose Import again to start a new attempt.");
+    } catch (error) {setError(error instanceof Error ? error.message : "Archive resolution acknowledgement is unknown; inspect the original evidence again");setArchiveRecovery(null);}
+    finally {setBusy(false);}
   };
 
   const confirmImportVaultArchive = async () => {
@@ -5018,6 +6728,18 @@ function StorageSection({ localMode, user }: { localMode: boolean; user: User | 
     }
   };
 
+  const savePortableServerSpace = async (space:SpaceItem) => {
+    setBusy(true);setMessage(null);setError(null);
+    try {await saveBrowserServerSpaceArchive(space.id);setMessage(`${space.name} portable Markdown ZIP saved.`);}
+    catch(error){setError(error instanceof Error?error.message:"Portable archive Save failed.");}
+    finally{setBusy(false);}
+  };
+  const reviewPortableServerSpace = async (space:SpaceItem) => {
+    setMessage(null);setError(null);
+    try{acknowledgeBrowserPortableArchiveReview(space.id);setMessage("Archive destination review recorded.");}
+    catch(error){setError(error instanceof Error?error.message:"Archive destination review refused.");}
+  };
+
   const downloadServerSpace = async (space: SpaceItem) => {
     setBusy(true);
     setMessage(null);
@@ -5074,12 +6796,10 @@ function StorageSection({ localMode, user }: { localMode: boolean; user: User | 
     setMessage(null);
     setError(null);
     try {
-      const snapshot = await dataClient.exportServerSpaceSnapshot(space.id);
-      const bundle = buildStaticSiteBundle(snapshot, getStaticSiteOptions(space.name));
-      downloadBlob(bundle.filename, buildStaticSiteZipBlob(bundle));
-      setMessage(formatStaticSiteBundleSummary(bundle, `${space.name} static ZIP`));
+      await saveBrowserServerSpaceStaticArchive(space.id,getStaticSiteOptions(space.name));
+      setMessage(`${space.name} static ZIP saved.`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to export static ZIP");
+      setError(err instanceof Error ? err.message : "Failed to save static ZIP");
     } finally {
       setBusy(false);
     }
@@ -5162,6 +6882,16 @@ function StorageSection({ localMode, user }: { localMode: boolean; user: User | 
           onConfirm={() => void confirmRunQueuedReplay()}
         />
       )}
+      {archiveRecovery && (
+        <ConfirmDialog
+          labelledBy="admin-retain-archive-attempt-title"
+          title="Retain and abandon import attempt"
+          message={`No canonical import receipt was found for operation ${archiveRecovery.operationId}. Abandon this attempt so another import can begin? The original archive, staged or installed unique assets and database evidence will remain. This does not claim the import succeeded or restore a previous snapshot.`}
+          confirmLabel="Retain and abandon"
+          onCancel={() => setArchiveRecovery(null)}
+          onConfirm={() => void confirmAbandonArchiveImport()}
+        />
+      )}
       {archiveImportConfirmOpen && (
         <ConfirmDialog
           labelledBy="admin-import-vault-archive-title"
@@ -5192,6 +6922,7 @@ function StorageSection({ localMode, user }: { localMode: boolean; user: User | 
       </div>
 
       <div className="space-y-3">
+        {!localMode && canUseHumanAdministration(user?.role, user?.account_kind) && <StorageHealthPanel key={`${getApiBase()}|${user?.id}`} />}
         {!localMode && (
           <div className="rounded-card border-border border p-3">
             <div className="mb-3 flex items-start justify-between gap-3">
@@ -5487,6 +7218,7 @@ function StorageSection({ localMode, user }: { localMode: boolean; user: User | 
             </div>
           )}
 
+          {nativeAvailable && localMode && <NativeArchiveOutcomeReviewControl busy={busy} />}
           <div className="border-border mt-3 flex flex-wrap justify-end gap-2 border-t pt-3">
             <input
               ref={importInputRef}
@@ -5710,6 +7442,7 @@ function StorageSection({ localMode, user }: { localMode: boolean; user: User | 
                 </div>
               )}
             </div>
+            <ReviewedDraftTransferPanel disabled={busy} />
           </div>
         ) : (
           <div className="rounded-card border-border border p-3">
@@ -5746,6 +7479,8 @@ function StorageSection({ localMode, user }: { localMode: boolean; user: User | 
                     onDownload={downloadServerSpace}
                     onExportStatic={exportStaticServerSpace}
                     onExportStaticZip={exportStaticServerSpaceZip}
+                    onSavePortable={savePortableServerSpace}
+                    onReviewPortable={reviewPortableServerSpace}
                   />
                 ))
               )}
@@ -5791,6 +7526,8 @@ function ServerSpaceDownloadRow({
   onDownload,
   onExportStatic,
   onExportStaticZip,
+  onSavePortable,
+  onReviewPortable,
 }: {
   space: SpaceItem;
   checkpoint: SharedSpaceDownloadCheckpoint | null;
@@ -5798,12 +7535,15 @@ function ServerSpaceDownloadRow({
   onDownload: (space: SpaceItem) => Promise<void>;
   onExportStatic: (space: SpaceItem) => Promise<void>;
   onExportStaticZip: (space: SpaceItem) => Promise<void>;
+  onSavePortable: (space: SpaceItem) => Promise<void>;
+  onReviewPortable: (space: SpaceItem) => Promise<void>;
 }) {
+  const archivePending=(()=>{try{return pendingBrowserPortableArchives(space.id);}catch{return [];}})();
   return (
-    <div className="flex items-center gap-3 border-b border-border/70 px-3 py-2 last:border-b-0">
+    <div className="flex flex-wrap items-center gap-3 border-b border-border/70 px-3 py-2 last:border-b-0">
       <Globe size={15} className="shrink-0 text-text-muted" />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm text-text">{space.name}</span>
+        <span className="block truncate text-sm text-text" title={space.name}>{space.name}</span>
         <span className="block truncate text-xs text-text-muted">{space.slug}</span>
         {checkpoint && (
           <span className="block truncate text-xs text-text-muted">
@@ -5811,7 +7551,7 @@ function ServerSpaceDownloadRow({
           </span>
         )}
       </span>
-      <div className="flex shrink-0 gap-2">
+      <div className="flex w-full flex-wrap gap-2 sm:w-auto">
         <Button
           size="sm"
           variant="secondary"
@@ -5834,119 +7574,23 @@ function ServerSpaceDownloadRow({
           size="sm"
           variant="secondary"
           onClick={() => void onExportStaticZip(space)}
-          disabled={busy}
+          disabled={busy || !supportsBrowserPortableArchive() || archivePending.length>0}
         >
           <Download size={14} />
-          ZIP
+          Static ZIP
         </Button>
+        <Button size="sm" variant="secondary" disabled={busy || !supportsBrowserPortableArchive() || archivePending.length>0} onClick={()=>void onSavePortable(space)}>
+          <Download size={14}/> Markdown ZIP
+        </Button>
+
       </div>
+        {archivePending.length>0?<div className="w-full space-y-2 break-words text-sm text-text-muted">
+          <p>Inspect archive destination files: {archivePending.map(record=>record.name).join(", ")}</p>
+          <Button size="sm" variant="secondary" disabled={busy || archivePending.some(record=>!record.id)} onClick={()=>void onReviewPortable(space)}>Reviewed destination files</Button>
+        </div>:null}
+        {!supportsBrowserPortableArchive()?<p className="w-full text-xs text-text-muted">Markdown ZIP and Static ZIP require a browser with direct file streaming. Native archive Save is unavailable.</p>:null}
     </div>
   );
-}
-
-interface PluginInstallRecordCardProps {
-  record: PluginInstallRecord;
-  spaces: SpaceItem[];
-  onToggle: (id: string, enabled: boolean) => void;
-  onRemove: (id: string) => void;
-  onToggleSpace: (id: string, spaceId: string, enabled: boolean) => void;
-}
-
-function PluginInstallRecordCard({
-  record,
-  spaces,
-  onToggle,
-  onRemove,
-  onToggleSpace,
-}: PluginInstallRecordCardProps) {
-  const runtimeStatus = getPluginRuntimeStatus(record);
-  return (
-    <div className="rounded-input border-border grid gap-2 border px-3 py-2 text-xs">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-medium text-text">{record.manifest.name}</p>
-          <p className="truncate font-mono text-text-muted">
-            {record.id} @ {record.manifest.version}
-          </p>
-        </div>
-        <span className="shrink-0 text-text-muted">{record.enabled ? "Enabled" : "Disabled"}</span>
-      </div>
-      <div className="rounded-input border border-border px-2 py-1.5">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <span className="text-text">
-            Runtime: {runtimeStatus.runtime_state === "disabled" ? "Disabled" : "Blocked"}
-          </span>
-          <span className="text-text-muted">
-            {runtimeStatus.permission_review_level} review / {runtimeStatus.enabled_space_count} spaces
-          </span>
-        </div>
-        <p className="mt-1 text-text-muted">{runtimeStatus.reason}</p>
-      </div>
-      <div className="rounded-input border border-border px-2 py-1.5">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <span className="text-text">Source: {formatPluginInstallSourceDetails(record.sourceDetails)}</span>
-          <span className="text-text-muted">{formatPluginAuditDate(record.sourceDetails.capturedAt)}</span>
-        </div>
-        {(record.sourceDetails.manifestUrl || record.sourceDetails.sourceUrl || record.sourceDetails.homepage) && (
-          <p className="mt-1 truncate font-mono text-text-muted">
-            {record.sourceDetails.manifestUrl ?? record.sourceDetails.sourceUrl ?? record.sourceDetails.homepage}
-          </p>
-        )}
-      </div>
-      <div className="flex flex-wrap justify-end gap-2">
-        <Button size="sm" variant="secondary" onClick={() => onToggle(record.id, !record.enabled)}>
-          {record.enabled ? "Disable" : "Enable"}
-        </Button>
-        <Button size="sm" variant="ghost" onClick={() => onRemove(record.id)}>
-          <Trash2 size={14} />
-          Remove
-        </Button>
-      </div>
-      <div className="border-border border-t pt-2">
-        <p className="mb-2 text-text-muted">Enabled spaces</p>
-        {spaces.length === 0 ? (
-          <p className="text-text-muted">No spaces available.</p>
-        ) : (
-          <div className="grid gap-1">
-            {spaces.map((space) => (
-              <label
-                key={space.id}
-                className="flex items-center justify-between gap-3 rounded-input border border-border px-2 py-1.5"
-              >
-                <span className="min-w-0">
-                  <span className="block truncate text-text">{space.name}</span>
-                  <span className="block truncate font-mono text-text-muted">{space.slug}</span>
-                </span>
-                <input
-                  type="checkbox"
-                  checked={record.enabledSpaceIds.includes(space.id)}
-                  onChange={(event) => onToggleSpace(record.id, space.id, event.target.checked)}
-                  aria-label={`Enable ${record.manifest.name} for ${space.name}`}
-                />
-              </label>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function formatPluginAuditDate(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString("en", { month: "short", day: "numeric" });
-}
-
-function formatPluginPermissionReviewLevel(level: PluginPermissionReviewLevel): string {
-  switch (level) {
-    case "high":
-      return "High review";
-    case "medium":
-      return "Medium review";
-    case "low":
-      return "Low review";
-  }
 }
 
 export function getPluginPermissionReviewClass(level: PluginPermissionReviewLevel): string {
@@ -5958,81 +7602,6 @@ export function getPluginPermissionReviewClass(level: PluginPermissionReviewLeve
     case "low":
       return "border-success/30 bg-success/10 text-success";
   }
-}
-
-const PLUGIN_MANIFEST_SAMPLE = JSON.stringify(
-  {
-    id: "com.example.my-plugin",
-    name: "My Plugin",
-    version: "1.0.0",
-    description: "Does something useful",
-    author: "Jane Smith",
-    license: "MIT",
-    homepage: "https://github.com/example/my-plugin",
-    starlane_version: ">=0.1.0",
-    permissions: {
-      server: ["read_docs", "http_fetch"],
-      client: ["editor_commands", "sidebar_panel"],
-    },
-    http_fetch: ["api.example.com"],
-    settings_schema: [
-      {
-        key: "api_key",
-        label: "API Key",
-        type: "secret",
-        required: true,
-      },
-    ],
-  },
-  null,
-  2,
-);
-
-const PLUGIN_REGISTRY_SAMPLE = JSON.stringify(
-  {
-    schema_version: 1,
-    generated_at: "2026-07-07T00:00:00.000Z",
-    plugins: [
-      {
-        id: "com.example.my-plugin",
-        name: "My Plugin",
-        version: "1.0.0",
-        description: "Does something useful",
-        manifest_url: "https://plugins.example.com/my-plugin/plugin.json",
-        source_url: "https://github.com/example/my-plugin",
-        categories: ["editor", "automation"],
-        verified: false,
-      },
-    ],
-  },
-  null,
-  2,
-);
-
-function buildPluginManifestReviewStub(entry: PluginRegistryIndexEntry) {
-  return {
-    id: entry.id,
-    name: entry.name,
-    version: entry.version,
-    description: entry.description,
-    author: entry.author ?? "Unknown",
-    license: entry.license ?? "Unspecified",
-    homepage: entry.homepage ?? entry.source_url,
-    starlane_version: ">=0.1.0",
-    permissions: {
-      server: [],
-      client: [],
-    },
-    settings_schema: [],
-    review_source: {
-      type: "registry-index",
-      manifest_url: entry.manifest_url,
-      source_url: entry.source_url,
-      verified: entry.verified,
-      categories: entry.categories,
-      note: "Review stub generated from registry metadata only; manifest source was not fetched.",
-    },
-  };
 }
 
 export function AdminJsonTextarea({
@@ -6090,650 +7659,13 @@ export function AdminCompactSelect({
   );
 }
 
-function PluginsSection() {
-  const [manifestText, setManifestText] = useState(PLUGIN_MANIFEST_SAMPLE);
-  const [result, setResult] = useState<PluginManifestValidationResult | null>(null);
-  const [registryText, setRegistryText] = useState(PLUGIN_REGISTRY_SAMPLE);
-  const [registryResult, setRegistryResult] =
-    useState<PluginRegistryIndexValidationResult | null>(null);
-  const [registrySearch, setRegistrySearch] = useState("");
-  const [selectedRegistryEntryId, setSelectedRegistryEntryId] = useState<string | null>(null);
-  const [installRecords, setInstallRecords] = useState<PluginInstallRecord[]>(() =>
-    readPluginInstallRecords(),
-  );
-  const [auditEvents, setAuditEvents] = useState<PluginInstallAuditEvent[]>(() =>
-    readPluginInstallAuditEvents(),
-  );
-  const [runtimeAuditEvents, setRuntimeAuditEvents] = useState<PluginRuntimeAuditEvent[]>(() =>
-    readPluginRuntimeAuditEvents(),
-  );
-  const [runtimeAuditActionFilter, setRuntimeAuditActionFilter] = useState<
-    "all" | PluginRuntimeAuditEvent["action"]
-  >("all");
-  const [runtimeAuditExportFormat, setRuntimeAuditExportFormat] = useState<"json" | "csv">("json");
-  const [spaces, setSpaces] = useState<SpaceItem[]>([]);
-
-  useEffect(() => {
-    dataClient
-      .listSpaces()
-      .then((items) => setSpaces(items as SpaceItem[]))
-      .catch(() => setSpaces([]));
-  }, []);
-
-  const validateManifest = () => {
-    try {
-      const parsed = JSON.parse(manifestText) as unknown;
-      setResult(validatePluginManifest(parsed));
-    } catch (err) {
-      setResult({
-        manifest: null,
-        errors: [err instanceof Error ? err.message : "Manifest JSON could not be parsed."],
-        warnings: [],
-      });
-    }
-  };
-
-  const validateRegistry = () => {
-    try {
-      const parsed = JSON.parse(registryText) as unknown;
-      setRegistryResult(validatePluginRegistryIndex(parsed));
-    } catch (err) {
-      setRegistryResult({
-        index: null,
-        errors: [err instanceof Error ? err.message : "Registry index JSON could not be parsed."],
-        warnings: [],
-      });
-    }
-  };
-
-  const manifest = result?.manifest;
-  const registryIndex = registryResult?.index;
-  const registryEntries = useMemo(() => {
-    if (!registryIndex) return [];
-    const query = registrySearch.trim().toLowerCase();
-    if (!query) return registryIndex.plugins;
-    return registryIndex.plugins.filter((plugin) =>
-      [
-        plugin.name,
-        plugin.id,
-        plugin.version,
-        plugin.description,
-        plugin.author,
-        plugin.license,
-        ...(plugin.categories ?? []),
-      ]
-        .filter((value): value is string => Boolean(value))
-        .some((value) => value.toLowerCase().includes(query)),
-    );
-  }, [registryIndex, registrySearch]);
-  const selectedRegistryEntry =
-    registryEntries.find((plugin) => `${plugin.id}@${plugin.version}` === selectedRegistryEntryId) ??
-    registryIndex?.plugins.find((plugin) => `${plugin.id}@${plugin.version}` === selectedRegistryEntryId) ??
-    null;
-  const permissionReview = manifest ? summarizePluginPermissionReview(manifest) : null;
-  const filteredRuntimeAuditEvents = useMemo(
-    () =>
-      filterPluginRuntimeAuditEvents(
-        runtimeAuditEvents,
-        runtimeAuditActionFilter === "all" ? {} : { action: runtimeAuditActionFilter },
-      ),
-    [runtimeAuditActionFilter, runtimeAuditEvents],
-  );
-  const runtimeAuditExportText = useMemo(
-    () =>
-      serializePluginRuntimeAuditEvents(
-        filteredRuntimeAuditEvents,
-        runtimeAuditExportFormat,
-      ),
-    [filteredRuntimeAuditEvents, runtimeAuditExportFormat],
-  );
-
-  const recordAuditEvent = (
-    input: Omit<PluginInstallAuditEvent, "id" | "createdAt">,
-  ) => {
-    const nextEvents = appendPluginInstallAuditEvent(auditEvents, input);
-    setAuditEvents(nextEvents);
-    writePluginInstallAuditEvents(nextEvents);
-  };
-
-  const recordRuntimeAuditEvent = (
-    input: Omit<PluginRuntimeAuditEvent, "id" | "createdAt">,
-  ) => {
-    const nextEvents = appendPluginRuntimeAuditEvent(runtimeAuditEvents, input);
-    setRuntimeAuditEvents(nextEvents);
-    writePluginRuntimeAuditEvents(nextEvents);
-    void api
-      .fetch("/admin/plugin-runtime-audit", {
-        method: "POST",
-        body: {
-          plugin_id: input.pluginId,
-          plugin_name: input.pluginName,
-          action: input.action,
-          runtime_state: input.runtimeState,
-          reason: input.reason,
-          space_id: input.spaceId,
-          space_name: input.spaceName,
-        },
-      })
-      .catch(() => {});
-  };
-
-  const saveInstallRecord = () => {
-    if (!manifest) return;
-    const sourceDetails = getPluginInstallSourceDetailsForManifest(manifest, registryIndex?.plugins);
-    const nextRecords = upsertPluginInstallRecord(installRecords, manifest, sourceDetails);
-    setInstallRecords(nextRecords);
-    writePluginInstallRecords(nextRecords);
-    recordAuditEvent({
-      pluginId: manifest.id,
-      pluginName: manifest.name,
-      action: "install_record_saved",
-    });
-  };
-
-  const prepareRegistryEntryReview = (entry: PluginRegistryIndexEntry) => {
-    const stub = buildPluginManifestReviewStub(entry);
-    setManifestText(JSON.stringify(stub, null, 2));
-    setResult(null);
-  };
-
-  const toggleInstallRecord = (id: string, enabled: boolean) => {
-    const record = installRecords.find((item) => item.id === id);
-    const nextRecords = setPluginInstallRecordEnabled(installRecords, id, enabled);
-    setInstallRecords(nextRecords);
-    writePluginInstallRecords(nextRecords);
-    if (record) {
-      recordAuditEvent({
-        pluginId: record.id,
-        pluginName: record.manifest.name,
-        action: enabled ? "install_record_enabled" : "install_record_disabled",
-      });
-      if (enabled) {
-        const status = getPluginRuntimeStatus({ ...record, enabled: true });
-        recordRuntimeAuditEvent({
-          pluginId: record.id,
-          pluginName: record.manifest.name,
-          action: "runtime_enable_blocked",
-          runtimeState: status.runtime_state,
-          reason: status.reason,
-        });
-      }
-    }
-  };
-
-  const removeInstallRecord = (id: string) => {
-    const record = installRecords.find((item) => item.id === id);
-    const nextRecords = removePluginInstallRecord(installRecords, id);
-    setInstallRecords(nextRecords);
-    writePluginInstallRecords(nextRecords);
-    if (record) {
-      recordAuditEvent({
-        pluginId: record.id,
-        pluginName: record.manifest.name,
-        action: "install_record_removed",
-      });
-    }
-  };
-
-  const toggleInstallRecordSpace = (id: string, spaceId: string, enabled: boolean) => {
-    const record = installRecords.find((item) => item.id === id);
-    const space = spaces.find((item) => item.id === spaceId);
-    const nextRecords = setPluginInstallRecordSpaceEnabled(
-      installRecords,
-      id,
-      spaceId,
-      enabled,
-    );
-    setInstallRecords(nextRecords);
-    writePluginInstallRecords(nextRecords);
-    if (record) {
-      recordAuditEvent({
-        pluginId: record.id,
-        pluginName: record.manifest.name,
-        action: enabled ? "space_enabled" : "space_disabled",
-        spaceId,
-        spaceName: space?.name,
-      });
-      if (enabled) {
-        const status = getPluginRuntimeStatus({
-          ...record,
-          enabled: true,
-          enabledSpaceIds: [...new Set([...record.enabledSpaceIds, spaceId])],
-        });
-        recordRuntimeAuditEvent({
-          pluginId: record.id,
-          pluginName: record.manifest.name,
-          action: "runtime_space_enable_blocked",
-          runtimeState: status.runtime_state,
-          reason: status.reason,
-          spaceId,
-          spaceName: space?.name,
-        });
-      }
-    }
-  };
-
-  return (
-    <div>
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <div>
-          <h1 className="text-text text-lg font-medium">Plugins</h1>
-          <p className="text-text-muted mt-1 text-xs">
-            Validate plugin manifests before install, sandboxing, and runtime execution are enabled.
-          </p>
-        </div>
-        <span className="text-text-muted ring-border shrink-0 rounded px-2 py-1 text-xs ring-1">
-          Contract only
-        </span>
-      </div>
-
-      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
-        <div className="space-y-3">
-          <div className="rounded-card border-border border p-3">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <p className="text-text text-sm font-medium">plugin.json</p>
-              <Button size="sm" onClick={validateManifest}>
-                Validate
-              </Button>
-            </div>
-            <PluginJsonTextarea
-              value={manifestText}
-              onChange={setManifestText}
-              className="h-[32rem]"
-              ariaLabel="Plugin manifest JSON"
-            />
-          </div>
-
-          <div className="rounded-card border-border border p-3">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <p className="text-text text-sm font-medium">registry.json</p>
-              <Button size="sm" onClick={validateRegistry}>
-                Validate Registry
-              </Button>
-            </div>
-            <PluginJsonTextarea
-              value={registryText}
-              onChange={setRegistryText}
-              className="h-72"
-              ariaLabel="Plugin registry index JSON"
-            />
-            {!registryResult ? (
-              <p className="text-text-muted mt-3 text-sm">No registry index validated yet.</p>
-            ) : registryResult.errors.length > 0 ? (
-              <div className="mt-3 space-y-2">
-                {registryResult.errors.map((error) => (
-                  <div key={error} className={ADMIN_PLUGIN_ERROR_CARD_CLASS}>
-                    {error}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="mt-3 space-y-3">
-                <div className={ADMIN_PLUGIN_SUCCESS_CARD_CLASS}>
-                  Registry index contract is valid.
-                </div>
-                {registryIndex && (
-                  <div className="grid gap-2 text-xs">
-                    <div className="rounded-input border-border flex items-center justify-between gap-3 border px-3 py-2">
-                      <span className="text-text-muted">Catalog entries</span>
-                      <span className="text-text">{registryIndex.plugins.length}</span>
-                    </div>
-                    <AdminTextInput
-                      value={registrySearch}
-                      onChange={setRegistrySearch}
-                      placeholder="Filter catalog"
-                      className="h-8 text-xs"
-                      ariaLabel="Filter plugin registry entries"
-                    />
-                    <div className="max-h-56 space-y-2 overflow-auto pr-1">
-                      {registryEntries.length === 0 ? (
-                        <p className="text-text-muted">No registry entries match this filter.</p>
-                      ) : (
-                        registryEntries.map((plugin) => {
-                          const entryKey = `${plugin.id}@${plugin.version}`;
-                          const selected = selectedRegistryEntryId === entryKey;
-                          return (
-                            <button
-                              key={entryKey}
-                              type="button"
-                              onClick={() => setSelectedRegistryEntryId(entryKey)}
-                              className={`rounded-input border px-3 py-2 text-left ${
-                                selected
-                                  ? "border-primary bg-primary/10"
-                                  : "border-border bg-surface"
-                              }`}
-                            >
-                              <div className="flex items-start justify-between gap-3">
-                                <span className="min-w-0">
-                                  <span className="block truncate text-text">{plugin.name}</span>
-                                  <span className="block truncate font-mono text-text-muted">
-                                    {plugin.id} @ {plugin.version}
-                                  </span>
-                                </span>
-                                <span className="shrink-0 text-text-muted">
-                                  {plugin.verified ? "Verified" : "Unverified"}
-                                </span>
-                              </div>
-                              {plugin.categories.length > 0 && (
-                                <span className="mt-2 flex flex-wrap gap-1">
-                                  {plugin.categories.map((category) => (
-                                    <span
-                                      key={category}
-                                      className="rounded bg-surface-raised px-1.5 py-0.5 text-text-muted"
-                                    >
-                                      {category}
-                                    </span>
-                                  ))}
-                                </span>
-                              )}
-                            </button>
-                          );
-                        })
-                      )}
-                    </div>
-                    {selectedRegistryEntry && (
-                      <div className="rounded-input border-border border px-3 py-2">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="truncate text-text">{selectedRegistryEntry.name}</p>
-                            <p className="mt-1 text-text-muted">
-                              {selectedRegistryEntry.description}
-                            </p>
-                            <p className="mt-2 truncate font-mono text-text-muted">
-                              {selectedRegistryEntry.manifest_url}
-                            </p>
-                          </div>
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={() => prepareRegistryEntryReview(selectedRegistryEntry)}
-                          >
-                            Prepare review
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                    <p className="text-text-muted">
-                      Registry browsing uses validated catalog metadata only; manifest fetching,
-                      install sources, and runtime execution remain disabled.
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-            {registryResult && registryResult.warnings.length > 0 && (
-              <div className="mt-3 space-y-2">
-                {registryResult.warnings.map((warning) => (
-                  <div
-                    key={warning}
-                    className="rounded-input border-border border px-3 py-2 text-xs text-text-muted"
-                  >
-                    {warning}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="space-y-3">
-          <div className="rounded-card border-border border p-3">
-            <p className="text-text text-sm font-medium">Validation Result</p>
-            {!result ? (
-              <p className="text-text-muted mt-2 text-sm">No manifest validated yet.</p>
-            ) : result.errors.length > 0 ? (
-              <div className="mt-3 space-y-2">
-                {result.errors.map((error) => (
-                  <div key={error} className={ADMIN_PLUGIN_ERROR_CARD_CLASS}>
-                    {error}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="mt-3 space-y-3">
-                <div className={ADMIN_PLUGIN_SUCCESS_CARD_CLASS}>
-                  Manifest contract is valid.
-                </div>
-                {manifest && (
-                  <>
-                    <dl className="grid gap-2 text-xs">
-                      <div>
-                        <dt className="text-text-muted">Plugin</dt>
-                        <dd className="text-text mt-0.5">{manifest.name}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-text-muted">ID</dt>
-                        <dd className="text-text mt-0.5 font-mono">{manifest.id}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-text-muted">Server permissions</dt>
-                        <dd className="text-text mt-0.5">
-                          {manifest.permissions.server.join(", ") || "None"}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-text-muted">Client permissions</dt>
-                        <dd className="text-text mt-0.5">
-                          {manifest.permissions.client.join(", ") || "None"}
-                        </dd>
-                      </div>
-                    </dl>
-                    {permissionReview && (
-                      <div className="rounded-input border-border border p-3 text-xs">
-                        <div className="mb-2 flex items-center justify-between gap-3">
-                          <p className="text-text font-medium">Permission Review</p>
-                          <span
-                            className={`shrink-0 rounded px-2 py-1 ${getPluginPermissionReviewClass(permissionReview.level)}`}
-                          >
-                            {formatPluginPermissionReviewLevel(permissionReview.level)}
-                          </span>
-                        </div>
-                        <div className="grid gap-2">
-                          {permissionReview.items.map((item) => (
-                            <div
-                              key={item.id}
-                              className="rounded-input border-border border px-2 py-1.5"
-                            >
-                              <div className="flex items-center justify-between gap-3">
-                                <span className="text-text font-medium">{item.label}</span>
-                                <span
-                                  className={`shrink-0 rounded px-1.5 py-0.5 ${getPluginPermissionReviewClass(item.level)}`}
-                                >
-                                  {item.level}
-                                </span>
-                              </div>
-                              <p className="text-text-muted mt-1">{item.description}</p>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    <Button size="sm" onClick={saveInstallRecord}>
-                      <Puzzle size={14} />
-                      Save reviewed install record
-                    </Button>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-
-          <div className="rounded-card border-border border p-3">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <p className="text-text text-sm font-medium">Installed Plugins</p>
-              <span className="text-text-muted text-xs">{installRecords.length} saved</span>
-            </div>
-            {installRecords.length === 0 ? (
-              <p className="text-text-muted text-sm">No plugin install records saved.</p>
-            ) : (
-              <div className="space-y-2">
-                {installRecords.map((record) => (
-                  <PluginInstallRecordCard
-                    key={record.id}
-                    record={record}
-                    spaces={spaces}
-                    onToggle={toggleInstallRecord}
-                    onRemove={removeInstallRecord}
-                    onToggleSpace={toggleInstallRecordSpace}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="rounded-card border-border border p-3">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <p className="text-text text-sm font-medium">Install Audit</p>
-              <span className="text-text-muted text-xs">{auditEvents.length} events</span>
-            </div>
-            {auditEvents.length === 0 ? (
-              <p className="text-text-muted text-sm">No plugin install actions recorded.</p>
-            ) : (
-              <div className="space-y-2">
-                {auditEvents.slice(0, 6).map((event) => (
-                  <div
-                    key={event.id}
-                    className="rounded-input border-border border px-3 py-2 text-xs"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <span className="min-w-0">
-                        <span className="block truncate text-text">
-                          {formatPluginInstallAuditAction(event.action)}
-                        </span>
-                        <span className="block truncate font-mono text-text-muted">
-                          {event.pluginName}
-                          {event.spaceName ? ` / ${event.spaceName}` : ""}
-                        </span>
-                      </span>
-                      <span className="shrink-0 text-text-muted">
-                        {formatPluginAuditDate(event.createdAt)}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="rounded-card border-border border p-3">
-            <p className="text-text text-sm font-medium">Runtime Status</p>
-            <div className="mt-3 grid gap-2 text-xs">
-              {[
-                ["Manifest validation", "Available"],
-                ["Registry index validation", "Available"],
-                ["Admin install records", "Available"],
-                ["Per-space enablement", "Available"],
-                ["Local install audit", "Available"],
-                ["Local runtime audit", "Available"],
-                ["Deno server sandbox", "Planned"],
-                ["Client iframe sandbox", "Planned"],
-              ].map(([label, value]) => (
-                <div
-                  key={label}
-                  className="rounded-input border-border flex items-center justify-between gap-3 border px-3 py-2"
-                >
-                  <span className="text-text-muted">{label}</span>
-                  <span className="text-text">{value}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="rounded-card border-border border p-3">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <p className="text-text text-sm font-medium">Runtime Audit</p>
-              <span className="text-text-muted text-xs">
-                {filteredRuntimeAuditEvents.length} of {runtimeAuditEvents.length} events
-              </span>
-            </div>
-            <div className="mb-3 grid gap-2 sm:grid-cols-2">
-              <AdminCompactSelect
-                value={runtimeAuditActionFilter}
-                onChange={(value) =>
-                  setRuntimeAuditActionFilter(
-                    value as "all" | PluginRuntimeAuditEvent["action"],
-                  )
-                }
-                ariaLabel="Plugin runtime audit action filter"
-              >
-                <option value="all">All runtime events</option>
-                <option value="runtime_enable_blocked">Global enable blocked</option>
-                <option value="runtime_space_enable_blocked">Space enable blocked</option>
-              </AdminCompactSelect>
-              <AdminCompactSelect
-                value={runtimeAuditExportFormat}
-                onChange={(value) => setRuntimeAuditExportFormat(value as "json" | "csv")}
-                ariaLabel="Plugin runtime audit export format"
-              >
-                <option value="json">JSON export</option>
-                <option value="csv">CSV export</option>
-              </AdminCompactSelect>
-            </div>
-            {runtimeAuditEvents.length === 0 ? (
-              <p className="text-text-muted text-sm">No plugin runtime actions recorded.</p>
-            ) : (
-              <div className="space-y-3">
-                {filteredRuntimeAuditEvents.length === 0 ? (
-                  <p className="text-text-muted text-sm">No runtime audit events match the filter.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {filteredRuntimeAuditEvents.slice(0, 6).map((event) => (
-                      <div
-                        key={event.id}
-                        className="rounded-input border-border border px-3 py-2 text-xs"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <span className="min-w-0">
-                            <span className="block truncate text-text">
-                              {formatPluginRuntimeAuditAction(event.action)}
-                            </span>
-                            <span className="block truncate font-mono text-text-muted">
-                              {event.pluginName}
-                              {event.spaceName ? ` / ${event.spaceName}` : ""}
-                            </span>
-                            <span className="block truncate text-text-muted">{event.reason}</span>
-                          </span>
-                          <span className="shrink-0 text-text-muted">
-                            {formatPluginAuditDate(event.createdAt)}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <PluginJsonTextarea
-                  value={runtimeAuditExportText}
-                  readOnly
-                  className="h-32"
-                  ariaLabel="Plugin runtime audit export payload"
-                />
-              </div>
-            )}
-          </div>
-
-          {result && result.warnings.length > 0 && (
-            <div className="rounded-card border-border border p-3">
-              <p className="text-text text-sm font-medium">Warnings</p>
-              <div className="mt-3 space-y-2">
-                {result.warnings.map((warning) => (
-                  <div key={warning} className="rounded-input border-border border px-3 py-2 text-xs text-text-muted">
-                    {warning}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function SystemSection({ localMode }: { localMode: boolean }) {
+function SystemSection({ localMode, onOpenPluginArchive }: { localMode: boolean; onOpenPluginArchive: () => void }) {
   const provider = getSyncProvider();
   const [configEntries, setConfigEntries] = useState<ConfigEntry[]>([]);
-  const [configKey, setConfigKey] = useState("");
-  const [configValue, setConfigValue] = useState("");
+  const [configDialogMode, setConfigDialogMode] = useState<"create" | "edit" | null>(null);
+  const [configDraftKey, setConfigDraftKey] = useState("");
+  const [configDraftValue, setConfigDraftValue] = useState("");
+  const [configDeleteTarget, setConfigDeleteTarget] = useState<ConfigEntry | null>(null);
   const [syncActionBusy, setSyncActionBusy] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -6796,6 +7728,31 @@ function SystemSection({ localMode }: { localMode: boolean }) {
   const [showGoogleDriveFixtureInputs, setShowGoogleDriveFixtureInputs] = useState(false);
   const [googleDriveCompletionSummary, setGoogleDriveCompletionSummary] = useState<string | null>(null);
 
+  useEffect(() => {
+    const applyCallback = (url: string) => {
+      consumePendingNativeCallback("google-drive");
+      setGoogleDriveCallbackUrl(url);
+      setSyncError(null);
+      setSyncMessage("Google Drive OAuth callback received from the system browser.");
+    };
+    const receiveCallback = (event: Event) => {
+      applyCallback((event as CustomEvent<string>).detail);
+    };
+
+    document.addEventListener(
+      NATIVE_GOOGLE_DRIVE_CALLBACK_EVENT,
+      receiveCallback,
+    );
+    const pendingUrl = consumePendingNativeCallback("google-drive");
+    if (pendingUrl) applyCallback(pendingUrl);
+    return () => {
+      document.removeEventListener(
+        NATIVE_GOOGLE_DRIVE_CALLBACK_EVENT,
+        receiveCallback,
+      );
+    };
+  }, []);
+
   const refreshProviderReadiness = useCallback(async () => {
     if (!localMode) return;
     const [status, readiness] = await Promise.all([
@@ -6856,11 +7813,23 @@ function SystemSection({ localMode }: { localMode: boolean }) {
     await loadConfig();
   };
 
-  const addConfig = async () => {
-    if (!configKey.trim()) return;
-    await saveConfig(configKey.trim(), configValue);
-    setConfigKey("");
-    setConfigValue("");
+  const openConfigCreate = () => {
+    setConfigDraftKey("");
+    setConfigDraftValue("");
+    setConfigDialogMode("create");
+  };
+
+  const openConfigEdit = (entry: ConfigEntry) => {
+    setConfigDraftKey(entry.key);
+    setConfigDraftValue(entry.value);
+    setConfigDialogMode("edit");
+  };
+
+  const saveConfigDialog = async () => {
+    const key = configDraftKey.trim();
+    if (!key) return;
+    await saveConfig(key, configDraftValue);
+    setConfigDialogMode(null);
   };
 
   const runSync = async (direction: "pull" | "push") => {
@@ -7296,7 +8265,83 @@ function SystemSection({ localMode }: { localMode: boolean }) {
           onConfirm={() => void confirmRecoverDeletedProviderSpaces()}
         />
       )}
+      {configDeleteTarget && (
+        <ConfirmDialog
+          labelledBy="remove-configuration-title"
+          title="Remove configuration value"
+          message={`Remove the database value for ${configDeleteTarget.label}? Starlane will use its default value unless an environment variable is set.`}
+          confirmLabel="Remove"
+          destructive
+          onCancel={() => setConfigDeleteTarget(null)}
+          onConfirm={() => {
+            void deleteConfig(configDeleteTarget.key).then(() => setConfigDeleteTarget(null));
+          }}
+        />
+      )}
+      {configDialogMode && (
+        <DialogShell
+          labelledBy="configuration-editor-title"
+          maxWidth="md"
+          onClose={() => setConfigDialogMode(null)}
+        >
+          <form
+            className="flex flex-col"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void saveConfigDialog();
+            }}
+          >
+            <div className="border-border border-b px-4 py-3 sm:px-6">
+              <h2 id="configuration-editor-title" className="text-text text-heading-lg font-semibold">
+                {configDialogMode === "create" ? "Add configuration" : "Edit configuration"}
+              </h2>
+              <p className="text-text-muted mt-1 text-sm">
+                Database values apply only when the matching Docker environment variable is not set.
+              </p>
+            </div>
+            <div className="grid gap-4 p-4 sm:p-6">
+              <label>
+                <span className="text-text mb-1 block text-sm font-medium">Configuration key</span>
+                <span className="text-text-muted mb-2 block text-xs">
+                  Use lowercase letters, numbers, dots, dashes, or underscores.
+                </span>
+                <AdminTextInput
+                  value={configDraftKey}
+                  onChange={setConfigDraftKey}
+                  disabled={configDialogMode === "edit"}
+                  placeholder="custom.key"
+                  ariaLabel="Configuration key"
+                />
+              </label>
+              <label>
+                <span className="text-text mb-1 block text-sm font-medium">Value</span>
+                <span className="text-text-muted mb-2 block text-xs">
+                  Secrets are never returned after saving; enter a replacement value to change one.
+                </span>
+                <AdminTextInput
+                  value={configDraftValue}
+                  onChange={setConfigDraftValue}
+                  placeholder="Value"
+                  ariaLabel="Configuration value"
+                />
+              </label>
+            </div>
+            <div className="border-border flex flex-wrap justify-end gap-2 border-t px-4 py-3 sm:px-6">
+              <Button type="button" variant="secondary" onClick={() => setConfigDialogMode(null)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={!configDraftKey.trim()}>
+                {configDialogMode === "create" ? "Add setting" : "Save changes"}
+              </Button>
+            </div>
+          </form>
+        </DialogShell>
+      )}
       <h1 className="text-text mb-4 text-lg font-medium">System</h1>
+      <div className="border-border mb-4 space-y-2 border-b pb-4">
+        <p className="text-text-muted text-sm">Retained plugin records can be inspected without enabling or executing code.</p>
+        <Button variant="secondary" onClick={onOpenPluginArchive}>View legacy plugin archive</Button>
+      </div>
       <div className="space-y-3">
         <div className="rounded-card border-border flex items-center justify-between border p-3">
           <span className="text-text-muted text-sm">Launch Mode</span>
@@ -7308,87 +8353,71 @@ function SystemSection({ localMode }: { localMode: boolean }) {
         </div>
         {!localMode && (
           <div className="rounded-card border-border border p-3">
-            <div className="mb-3 flex items-center justify-between">
+            <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="text-text text-sm font-medium">Application Configuration</p>
                 <p className="text-text-muted text-xs">
-                  Environment-backed values are locked here and must be changed in `.env`.
+                  Docker environment values are locked. Unset values can be managed here and persist in the database.
                 </p>
               </div>
-            </div>
-            <div className="space-y-2">
-              {configEntries.map((entry) => (
-                <div
-                  key={entry.key}
-                  className="rounded-card border-border grid gap-2 border p-2 lg:grid-cols-[minmax(0,12rem)_minmax(0,1fr)_auto_auto]"
-                >
-                  <div className="min-w-0">
-                    <p className="text-text truncate text-sm">{entry.label}</p>
-                    <p className="text-text-muted truncate text-xs">
-                      {entry.key}
-                      {entry.env_var ? ` · ${entry.env_var}` : ""}
-                    </p>
-                  </div>
-                  <AdminTextInput
-                    value={entry.value}
-                    onChange={(value) => {
-                      setConfigEntries((prev) =>
-                        prev.map((item) => (item.key === entry.key ? { ...item, value } : item)),
-                      );
-                    }}
-                    disabled={entry.locked}
-                    placeholder={entry.effective_value || "Not set"}
-                    ariaLabel={`${entry.label} value`}
-                  />
-                  <span className="rounded-button border-border text-text-muted flex h-8 items-center border px-2 text-xs">
-                    {entry.locked ? "env locked" : entry.source}
-                  </span>
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      disabled={entry.locked || (entry.secret && !entry.value)}
-                      onClick={() => {
-                        void saveConfig(entry.key, entry.value);
-                      }}
-                    >
-                      Save
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disabled={entry.locked || entry.key === "setup_completed"}
-                      onClick={() => {
-                        void deleteConfig(entry.key);
-                      }}
-                    >
-                      Remove
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="mt-3 grid gap-2 lg:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_auto]">
-              <AdminTextInput
-                value={configKey}
-                onChange={setConfigKey}
-                placeholder="custom.key"
-                ariaLabel="New config key"
-              />
-              <AdminTextInput
-                value={configValue}
-                onChange={setConfigValue}
-                placeholder="Value"
-                ariaLabel="New config value"
-              />
-              <Button
-                size="sm"
-                onClick={() => {
-                  void addConfig();
-                }}
-              >
+              <Button size="sm" className={RESPONSIVE_TOUCH_ACTION_CLASS} onClick={openConfigCreate}>
                 Add setting
               </Button>
+            </div>
+            <div className="overflow-x-auto rounded-card border-border border">
+              <table className="w-full min-w-[42rem] text-sm">
+                <thead>
+                  <tr className="border-border text-text-muted border-b text-left text-xs">
+                    <th className="px-3 py-2 font-medium">Setting</th>
+                    <th className="px-3 py-2 font-medium">Effective value</th>
+                    <th className="px-3 py-2 font-medium">Source</th>
+                    <th className="px-3 py-2 text-right font-medium">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {configEntries.map((entry) => (
+                    <tr key={entry.key} className="border-border border-b last:border-0">
+                      <td className="px-3 py-2">
+                        <p className="text-text font-medium">{entry.label}</p>
+                        <p className="text-text-muted font-mono text-xs">
+                          {entry.key}{entry.env_var ? ` · ${entry.env_var}` : ""}
+                        </p>
+                      </td>
+                      <td className="text-text-muted max-w-80 truncate px-3 py-2">
+                        {entry.effective_value || "Not set"}
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className="rounded-button border-border text-text-muted inline-flex border px-2 py-1 text-xs">
+                          {entry.locked ? "Docker env · locked" : entry.source}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className={RESPONSIVE_TOUCH_ACTION_CLASS}
+                            disabled={entry.locked}
+                            onClick={() => openConfigEdit(entry)}
+                          >
+                            <Pencil size={14} aria-hidden="true" />
+                            Edit
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className={RESPONSIVE_TOUCH_ACTION_CLASS}
+                            disabled={entry.locked || entry.key === "setup_completed"}
+                            onClick={() => setConfigDeleteTarget(entry)}
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         )}
@@ -7737,7 +8766,7 @@ function SystemSection({ localMode }: { localMode: boolean }) {
                       <li key={step.label} className="rounded-input border-border border px-2 py-1.5">
                         <div className="flex items-center justify-between gap-2">
                           <span className="font-medium text-text">{step.label}</span>
-                          <span className="rounded bg-surface-raised px-1.5 py-0.5 text-[10px] uppercase tracking-wide">
+                          <span className="rounded bg-surface-raised px-1.5 py-0.5 text-xs">
                             {formatGoogleDriveManualSetupStepState(state)}
                           </span>
                         </div>
@@ -8261,11 +9290,11 @@ function SystemSection({ localMode }: { localMode: boolean }) {
         )}
         <div className="rounded-card border-border flex items-center justify-between border p-3">
           <span className="text-text-muted text-sm">Version</span>
-          <span className="text-text text-sm">1.3.0</span>
+          <span className="text-text text-sm">{STARLANE_VERSION}</span>
         </div>
         <div className="rounded-card border-border flex items-center justify-between border p-3">
           <span className="text-text-muted text-sm">Database</span>
-          <span className="text-text text-sm">SQLite</span>
+          <span className="text-text text-sm">{localMode ? "SQLite" : "Server-managed"}</span>
         </div>
         <div className="rounded-card border-border flex items-center justify-between border p-3">
           <div>

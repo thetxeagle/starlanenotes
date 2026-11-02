@@ -60,12 +60,18 @@ pub fn parse_scope_json(scopes: Option<&str>) -> Vec<String> {
             .map(|scope| (*scope).to_string())
             .collect();
     };
-    serde_json::from_str::<Vec<String>>(scopes).unwrap_or_else(|_| {
-        API_KEY_SCOPES
-            .iter()
-            .map(|scope| (*scope).to_string())
-            .collect()
-    })
+    // Malformed or unknown stored policy must not manufacture administrator
+    // scope. NULL remains the documented legacy user-key compatibility case.
+    match serde_json::from_str::<Vec<String>>(scopes) {
+        Ok(scopes)
+            if scopes
+                .iter()
+                .all(|scope| API_KEY_SCOPES.contains(&scope.as_str())) =>
+        {
+            scopes
+        }
+        _ => Vec::new(),
+    }
 }
 
 #[cfg(test)]
@@ -101,5 +107,25 @@ mod tests {
 
         assert_eq!(scopes, vec!["read", "write"]);
         assert!(normalize_scopes(Some(vec!["root".into()])).is_err());
+    }
+    #[test]
+    fn corrupt_scope_policy_fails_closed_and_valid_legacy_policy_is_preserved() {
+        for raw in [
+            "{",
+            "null",
+            "[1]",
+            "\"admin\"",
+            "[\"admin\",\"unknown\"]",
+            "[\"ADMIN\"]",
+        ] {
+            assert!(parse_scope_json(Some(raw)).is_empty(), "{raw}");
+        }
+        assert_eq!(
+            parse_scope_json(Some("[\"read\",\"write\"]")),
+            vec!["read", "write"]
+        );
+        assert_eq!(parse_scope_json(Some("[\"admin\"]")), vec!["admin"]);
+        assert!(parse_scope_json(Some("[]")).is_empty());
+        assert_eq!(parse_scope_json(None), vec!["read", "write", "admin"]);
     }
 }

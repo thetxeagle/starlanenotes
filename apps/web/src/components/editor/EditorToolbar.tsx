@@ -13,6 +13,8 @@ import {
   Minus,
   Link,
   Image,
+  Images,
+  LayoutGrid,
   Table,
   FileCode,
   Undo2,
@@ -287,7 +289,7 @@ export function EditorToolbar({ editor, status, locked }: EditorToolbarProps) {
               value={editor.getAttributes("codeBlock").language || ""}
               onChange={(event) => {
                 const language = event.target.value || null;
-                editor.chain().focus().updateAttributes("codeBlock", { language }).run();
+                editor.commands.updateAttributes("codeBlock", { language });
               }}
               disabled={locked}
               title="Code block language"
@@ -317,6 +319,36 @@ export function EditorToolbar({ editor, status, locked }: EditorToolbarProps) {
         )}
         {btn(<Bookmark size={14} />, "Bookmark", () => openUrlDialog("bookmark"))}
         {btn(<Image size={14} />, "Image", () => openUrlDialog("image"))}
+        {btn(
+          <Images size={14} />,
+          "Carousel",
+          () =>
+            editor
+              .chain()
+              .focus()
+              .insertContent({
+                type: "carousel",
+                attrs: { title: "Carousel", items: [{ src: "", alt: "Image 1" }] },
+              })
+              .run(),
+        )}
+        {btn(
+          <LayoutGrid size={14} />,
+          "Gallery",
+          () =>
+            editor
+              .chain()
+              .focus()
+              .insertContent({
+                type: "gallery",
+                attrs: {
+                  title: "Gallery",
+                  layout: "responsive-columns",
+                  items: [{ src: "", alt: "Image 1" }],
+                },
+              })
+              .run(),
+        )}
 
         {/* Spacer */}
         <div className="flex-1" />

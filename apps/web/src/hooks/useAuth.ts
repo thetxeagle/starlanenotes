@@ -7,6 +7,7 @@ export interface User {
   display_name: string;
   avatar_url?: string;
   role: string;
+  account_kind?: "member" | "guest";
   totp_enabled: boolean;
 }
 

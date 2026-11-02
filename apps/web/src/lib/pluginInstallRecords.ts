@@ -9,6 +9,12 @@ import {
 const PLUGIN_INSTALL_RECORDS_KEY = "starlane.pluginInstallRecords.v1";
 const PLUGIN_INSTALL_AUDIT_EVENTS_KEY = "starlane.pluginInstallAuditEvents.v1";
 const PLUGIN_RUNTIME_AUDIT_EVENTS_KEY = "starlane.pluginRuntimeAuditEvents.v1";
+export const PLUGIN_ARCHIVE_STORAGE_KEYS = [
+  PLUGIN_INSTALL_RECORDS_KEY,
+  PLUGIN_INSTALL_AUDIT_EVENTS_KEY,
+  PLUGIN_RUNTIME_AUDIT_EVENTS_KEY,
+] as const;
+
 const MAX_PLUGIN_INSTALL_AUDIT_EVENTS = 50;
 const MAX_PLUGIN_RUNTIME_AUDIT_EVENTS = 50;
 

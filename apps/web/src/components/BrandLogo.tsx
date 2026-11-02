@@ -4,7 +4,7 @@ interface BrandLogoProps {
   label?: string;
   size?: "sm" | "md" | "lg";
   showText?: boolean;
-  variant?: "default" | "sidebar";
+  variant?: "default" | "sidebar" | "mobile-header";
 }
 
 const sizeClasses = {
@@ -25,6 +25,8 @@ const sizeClasses = {
   },
 };
 
+export const NOTES_BRAND_SUBTITLE = "Source-available notes workspace";
+
 export function BrandLogo({
   label = "Starlane Notes",
   size = "md",
@@ -32,29 +34,26 @@ export function BrandLogo({
   variant = "default",
 }: BrandLogoProps) {
   const classes = sizeClasses[size];
-  const sidebar = variant === "sidebar";
+  const mobileHeader = variant === "mobile-header";
+  const workspaceLockup = variant === "sidebar" || mobileHeader;
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex min-w-0 items-center gap-3">
       <img src={notesIcon} alt="" aria-hidden="true" className={`${classes.icon} shrink-0`} />
       {showText && (
-        <div className="min-w-0">
-          {sidebar ? (
-            <div
-              className="truncate leading-none text-text"
-              style={{ fontFamily: '"Exo 2", Inter, system-ui, sans-serif' }}
-              aria-label={label}
-            >
-              <div className="text-[10px] font-medium uppercase tracking-normal text-text-muted">
-                Starlane
+        <div className="min-w-0 flex-1">
+          {workspaceLockup ? (
+            <div className="min-w-0" aria-label={label}>
+              <div className={`${classes.title} truncate font-semibold leading-tight text-text`}>{label}</div>
+              <div className={`${classes.subtitle} truncate leading-tight text-text-muted`}>
+                {NOTES_BRAND_SUBTITLE}
               </div>
-              <div className="mt-0.5 text-base font-semibold tracking-normal">Notes</div>
             </div>
           ) : (
             <>
               <div className={`${classes.title} truncate font-semibold text-text`}>{label}</div>
               <div className={`${classes.subtitle} truncate text-text-muted`}>
-                Open-source notes workspace
+                {NOTES_BRAND_SUBTITLE}
               </div>
             </>
           )}

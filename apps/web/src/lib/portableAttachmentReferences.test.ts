@@ -1,0 +1,10 @@
+import {describe,it,expect} from "vitest";
+import {portableAttachmentReferences,verifyPortableAttachmentReference} from "./portableAttachmentReferences";
+const id="11111111-1111-4111-8111-111111111111",base="https://original.test/api/v1";
+describe("portable exact attachment references",()=>{
+ it("claims canonical pins and exact same-server relative/absolute legacy UUIDs",()=>{const refs=[`starlane-attachment://${id}`,`/api/v1/files/spaces/original/attachments/page/${id}.bin`,`https://original.test/api/v1/files/spaces/original/attachments/page/${id}.bin`],content=refs.map(r=>`![a](${r})`).join("\n");expect([...portableAttachmentReferences(content,base)]).toEqual(refs.map(r=>[r,id]));});
+ it("refuses foreign-server and query-bearing legacy authority",()=>{for(const r of [`//other.test/api/v1/files/spaces/original/attachments/page/${id}.bin`,`https://other.test/api/v1/files/spaces/original/attachments/page/${id}.bin`,`/api/v1/files/spaces/original/attachments/page/${id}.bin?token=anything`,`/api/v1/files/name.bin`])expect(()=>portableAttachmentReferences(`![a](${r})`,base)).toThrow();});
+ it("binds the complete original storage receipt before legacy byte ownership",()=>{const path=`spaces/original/attachments/page/${id}.bin`,raw=JSON.stringify({version_id:id,original_storage_path:path,original_filename:id+".bin"});expect(()=>verifyPortableAttachmentReference("/api/v1/files/"+path,raw,base)).not.toThrow();expect(()=>verifyPortableAttachmentReference(`/api/v1/files/spaces/other/attachments/page/${id}.bin`,raw,base)).toThrow("receipt");});
+ it("preserves root-relative API authority without guessing a network host",()=>{const path=`spaces/original/attachments/page/${id}.bin`,reference="/api/v1/files/"+path;expect(portableAttachmentReferences(`![a](${reference})`,"/api/v1").get(reference)).toBe(id);expect(()=>verifyPortableAttachmentReference(reference,JSON.stringify({version_id:id,original_storage_path:path,original_filename:id+".bin"}),"/api/v1")).not.toThrow();});
+ it("leaves code examples outside asset ownership",()=>{expect(portableAttachmentReferences('`![a](/api/v1/files/'+id+')`',base).size).toBe(0);});
+});

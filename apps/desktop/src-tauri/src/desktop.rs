@@ -626,12 +626,57 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_haptics::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
+            #[cfg(target_os = "linux")]
+            crate::local_database::attachment_download_owner::native_archive_context::describe_current_native_vault_archive,
+            crate::local_database::attachment_download_owner::native_archive_context::list_original_native_trash_documents,
+            crate::local_database::attachment_download_owner::native_document_delete::delete_original_native_trash_document,
+            #[cfg(target_os = "linux")]
+            crate::local_database::attachment_download_owner::native_archive_context::read_imported_native_attachment_preview,
+            crate::local_database::attachment_download_owner::native_archive_context::cover::open_current_imported_native_cover_image,
+            #[cfg(target_os = "linux")]
+            crate::local_database::attachment_download_owner::native_archive_review::list_native_vault_archive_export_outcomes,
+            #[cfg(target_os = "linux")]
+            crate::local_database::attachment_download_owner::native_archive_review::acknowledge_native_vault_archive_export_review,
+            #[cfg(target_os = "linux")]
+            crate::local_database::attachment_download_owner::native_archive_export::choose_complete_native_vault_archive,
+            crate::local_database::attachment_download_owner::native_archive_capture::local_cover::transport::prepare_original_native_local_cover,
+            crate::local_database::attachment_download_owner::native_archive_capture::local_cover::transport::resume_original_native_local_cover,
+            crate::local_database::attachment_download_owner::native_archive_capture::local_cover::transport::discard_original_native_local_cover,
+            crate::local_database::attachment_download_owner::native_archive_capture::local_cover::transport::inspect_original_native_local_cover_discard,
+            crate::local_database::attachment_download_owner::native_archive_capture::local_cover::transport::append_original_native_local_cover,
+            crate::local_database::attachment_download_owner::native_archive_capture::local_cover::transport::finish_original_native_local_cover,
+            crate::local_database::attachment_download_owner::native_archive_capture::local_cover::transport::inspect_original_native_local_cover,
+            crate::local_database::attachment_download_owner::native_archive_capture::local_cover::image::open_original_native_local_cover_image,
+            #[cfg(target_os = "linux")]
+            crate::local_database::attachment_download_owner::native_archive_export::commit_complete_native_vault_archive,
+            #[cfg(target_os = "linux")]
+            crate::local_database::attachment_download_owner::native_archive_export::discard_complete_native_vault_archive,
+            crate::local_database::get_native_attachment_capabilities,
+            #[cfg(target_os = "linux")]
+            crate::local_database::attachment_download_owner::capture_native_attachment_destination,
+            #[cfg(target_os = "linux")]
+            crate::local_database::attachment_download_owner::prepare_native_attachment_download,
+            #[cfg(target_os = "linux")]
+            crate::local_database::attachment_download_owner::append_native_attachment_download,
+            #[cfg(target_os = "linux")]
+            crate::local_database::attachment_download_owner::finish_native_attachment_download,
+            #[cfg(target_os = "linux")]
+            crate::local_database::attachment_download_owner::delivery::read_native_attachment_preview,
+            #[cfg(target_os = "linux")]
+            crate::local_database::attachment_download_owner::image_stream::open_native_attachment_image,
+            #[cfg(target_os = "linux")]
+            crate::local_database::attachment_download_owner::delivery::choose_native_attachment_export_destination,
+            #[cfg(target_os = "linux")]
+            crate::local_database::attachment_download_owner::delivery::commit_native_attachment_export,
+            #[cfg(target_os = "linux")]
+            crate::local_database::attachment_download_owner::delivery::discard_native_attachment_export_selection,
             get_server_url,
             set_server_url,
             get_window_state,
@@ -659,9 +704,16 @@ pub fn run() {
             vault::reconcile_vault_mirror,
             vault::reset_vault_snapshot,
             vault::export_vault_archive,
-            vault::import_vault_archive,
+            vault::prepare_vault_archive_import,
+            crate::local_database::plan_native_vault_archive_import,
+            crate::local_database::commit_native_vault_archive_import,
+            crate::local_database::inspect_native_vault_archive_import,
+            crate::local_database::list_native_vault_archive_imports,
+            crate::local_database::abandon_native_vault_archive_import,
+            vault::cancel_vault_archive_import,
             vault::import_vault_asset_from_path,
             vault::import_vault_asset_from_data_url,
+            vault::delete_vault_asset,
             vault::pack_native_replay_asset_payload,
             crate::background_replay::describe_native_background_replay_scheduler,
             crate::background_replay::describe_native_background_replay_os_registration_plan,
@@ -673,11 +725,16 @@ pub fn run() {
             crate::local_database::describe_native_local_database,
             crate::local_database::read_native_local_database_snapshot,
             crate::local_database::write_native_local_database_snapshot,
+            crate::local_database::commit_native_local_database_snapshot,
             crate::local_database::upsert_native_local_database_record,
             crate::local_database::delete_native_local_database_record,
+            crate::local_database::sync_native_local_database_mirror,
             crate::local_database::reset_native_local_database,
         ])
         .setup(|app| {
+            #[cfg(target_os = "linux")]
+            app.manage(crate::local_database::attachment_download_owner::native_archive_export::Selections::default());
+            app.manage(crate::local_database::attachment_download_owner::native_archive_capture::local_cover::transport::Producers::default());
             let handle = app.handle();
 
             let menu = build_app_menu(handle)?;

@@ -35,6 +35,10 @@ describe("EditorUrlDialog", () => {
     expect(html).toContain("Link URL");
     expect(html).toContain("https://example.com");
     expect(html).toContain("rounded-input");
+    expect(html).toContain("border-b");
+    expect(html).toContain("border-t");
+    expect(html).toContain("bg-surface");
+    expect(html).toContain(">Cancel<");
     expect(html).not.toContain("prompt");
   });
 });

@@ -1,118 +1,98 @@
+<p align="center">
+  <img src="images/colored/icons/512x512_notes.svg" alt="Starlane Notes" width="64">
+</p>
+
 # Starlane Notes
 
-<p align="center">
-  <img src="images/colored/icons/512x512_notes.svg" alt="Starlane Notes icon" width="120">
-</p>
+**A source-available, self-hosted, offline-first workspace for writing and organizing your documents.**
 
-<p align="center">
-  <img src="images/colored/text/3060x450_notes.svg" alt="Starlane Notes" width="640">
-</p>
+[![License: PolyForm Noncommercial](https://img.shields.io/badge/license-PolyForm_Noncommercial-2563eb)](LICENSE) [![Docker deployment](https://img.shields.io/badge/deploy-Docker-2496ed?logo=docker&logoColor=white)](#quick-start) [![Documentation](https://img.shields.io/badge/read-documentation-2563eb)](https://docs.starlanenotes.com)
 
-<p align="center">
-  <a href="https://github.com/hbftechnologies/starlanenotes/actions/workflows/docker-publish.yml"><img alt="Docker build" src="https://github.com/hbftechnologies/starlanenotes/actions/workflows/docker-publish.yml/badge.svg"></a>
-  <a href="LICENSE"><img alt="License: PolyForm Noncommercial 1.0.0" src="https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-2563eb"></a>
-  <img alt="Docker ready" src="https://img.shields.io/badge/docker-ready-2496ed?logo=docker&logoColor=white">
-  <img alt="Offline-first" src="https://img.shields.io/badge/offline--first-self--hosted-2563eb">
-</p>
+[Quick start](#quick-start) · [Gallery](#gallery) · [Documentation](#documentation) · [Contributing](#contributing) · [License](#license)
 
-<p align="center">
-  <a href="#quick-start">Quick start</a> ·
-  <a href="#screenshots">Screenshots</a> ·
-  <a href="#documentation">Documentation</a> ·
-  <a href="#development">Development</a> ·
-  <a href="#contributing">Contributing</a>
-</p>
+![Starlane Notes editor in dark mode, showing fictional Lighthouse field notes](images/screenshots/document-editor.jpg)
 
-**Starlane Notes is a source-available, self-hosted, offline-first document management platform.** It brings Markdown editing, spaces and folders, full-text search, collaboration foundations, optional AI workflows, and desktop/mobile shells into one deployable app.
+## Why Starlane Notes?
 
-Free forever. No paywalls. No vendor lock-in.
+- **Write with structure.** Edit documents with headings, lists, links, code and attachments.
+- **Keep work organized.** Group pages into spaces and folders, with favorites and recent pages close at hand.
+- **Find your notes.** Search documents without moving your knowledge into another service.
+- **Choose where work lives.** Use local notes on your device or connect to your own server for shared workspaces.
+- **Make AI optional.** Connect a supported provider when you want writing assistance; ordinary notes do not require one.
 
-## Screenshots
-
-| Writing | Search |
-| --- | --- |
-| ![Document editor](images/screenshots/document-editor.png) | ![Search](images/screenshots/search.png) |
-
-| Spaces | Site Administration |
-| --- | --- |
-| ![Spaces and folders](images/screenshots/spaces-and-folders.png) | ![Site Administration](images/screenshots/site-administration.png) |
-
-## Features
-
-- **Markdown-first writing** — Rich editing, live preview, and portable documents.
-- **Organized workspaces** — Spaces, folders, users, groups, permissions, and public pages.
-- **Search and retrieval** — Full-text search with structured SNQL filtering.
-- **Local-first foundation** — Local vaults, queued recovery, and offline-friendly native shells.
-- **Self-hosted deployment** — SQLite by default, PostgreSQL for larger deployments, and Docker images for amd64 and arm64.
+Local storage and connected workspaces have different access and synchronization behavior.
+Collaboration foundations do not imply identical offline behavior on every platform. Desktop and
+mobile shells require platform-specific builds; this README does not claim physical-device coverage.
+PostgreSQL fresh installs, upgrades and core workflows have isolated Linux validation; see the
+[validated scope and recovery limits](https://docs.starlanenotes.com/self-hosting/docker/#postgresql-configuration-and-validation-scope).
 
 ## Quick start
 
-Create a new directory and download the Compose files:
+Use Docker Compose with a named volume. This avoids host-directory ownership setup.
+You need Docker with Compose, `curl` and `openssl`.
+
+The public snapshot uses GHCR. If the package requires authentication, run `docker login ghcr.io` first.
 
 ```bash
 mkdir starlane-notes && cd starlane-notes
-curl -fsSLO https://raw.githubusercontent.com/hbftechnologies/starlanenotes/main/docker/docker-compose.yml
+curl -fsSLo docker-compose.yml https://raw.githubusercontent.com/hbftechnologies/starlanenotes/main/docker/docker-compose.volume.yml
 curl -fsSLo .env https://raw.githubusercontent.com/hbftechnologies/starlanenotes/main/docker/.env.example
 
 JWT_SECRET="$(openssl rand -hex 32)"
 sed -i.bak "s/^JWT_SECRET=.*/JWT_SECRET=${JWT_SECRET}/" .env
 rm -f .env.bak
 
-mkdir -p storage
-sudo chown -R 1000:1000 storage
+# Before public access: set BASE_URL in .env to your HTTPS URL.
+docker compose pull
 docker compose up -d
-curl -fsS http://localhost:9320/api/v1/health
+curl --retry 12 --retry-delay 5 --retry-connrefused -fsS http://localhost:9320/api/v1/health
 ```
 
-Open [http://localhost:9320](http://localhost:9320) and complete setup. The first registered user is the administrator. Before publishing the instance, set `BASE_URL` in `.env` to its public HTTPS URL.
+Open [localhost:9320](http://localhost:9320) and complete setup. The first registered user becomes
+administrator; finish setup before making the instance publicly reachable.
 
-> [!WARNING]
-> Back up `storage/` (or the named Docker volume). It holds the database, document files, attachments, and search index.
+Back up the Compose-managed `starlane-notes-data` volume: it contains SQLite data, document files,
+attachments and the search index. For reproducible upgrades, use a verified image digest;
+version and commit-shaped tags can move.
 
-### Container images
+For a new PostgreSQL deployment, use `docker/docker-compose.postgres.yml` and
+`docker/.env.postgres.example`. Generate both required secrets. Switching Compose files does **not**
+migrate an existing SQLite database. See the [Docker guide](https://docs.starlanenotes.com/self-hosting/docker/).
 
-GitHub Actions publishes both application and documentation images to GHCR:
+## Gallery
 
-```text
-ghcr.io/hbftechnologies/starlanenotes:latest
-ghcr.io/hbftechnologies/starlanenotes-docs:latest
-```
+Real captures from v1.5.6 in local browser mode, using fictional content. They demonstrate the
+interface, not server, collaboration or device acceptance.
 
-Images publish `latest` from `main`, a version tag from `vX.Y.Z`, and an immutable `sha-<commit>` tag. If package visibility is private, authenticate first with `docker login ghcr.io`.
+[Open the full-size gallery and workflow tour](GALLERY.md).
+
+| Light editor | Local workspace |
+| --- | --- |
+| ![Light editor with fictional field notes](images/screenshots/document-editor-light.jpg) | ![Local space with the fictional Coastal survey folder](images/screenshots/spaces-and-folders.jpg) |
 
 ## Documentation
 
-Deployment, authentication, storage, API, privacy, and development guides live in [`docs/docs/`](docs/docs/). The documentation portal can be built locally:
+Read the [documentation](https://docs.starlanenotes.com), including
+[environment variables](https://docs.starlanenotes.com/self-hosting/environment-variables/),
+[upgrades](https://docs.starlanenotes.com/self-hosting/upgrading/),
+[development setup](https://docs.starlanenotes.com/development/setup/) and
+[troubleshooting](https://docs.starlanenotes.com/self-hosting/troubleshooting/).
 
-```bash
-npm install
-npm run docs:build
-```
+For frontend development, run `npm ci` then `npm run dev`. Run `cargo run --package
+starlane-notes-server` in another terminal for the backend. Native builds need their platform toolchains.
 
-## Development
-
-```bash
-npm install
-
-# Frontend
-npm run dev
-
-# Backend, in another terminal
-cd server && cargo run
-
-# Run the complete local container stack
-cp docker/.env.example docker/.env
-docker compose -f docker/docker-compose.dev.yml up --build
-```
+Gitea is canonical. This repository is a curated product snapshot with independent public history.
+Documentation source and operator tooling stay private. See [public release notes](CHANGELOG.md).
+Automatic desktop updates are disabled in this snapshot until a public signed update feed is configured.
 
 ## Contributing
 
-Issues and pull requests are welcome on [GitHub](https://github.com/hbftechnologies/starlanenotes). Please include the deployment method, Starlane Notes version, and relevant redacted logs with bug reports.
-
-## Release lanes
-
-GitHub `main` is the latest promoted release. Development and release candidates live on version branches such as `v1.3.0`; GitHub Actions builds both `main` and every `v*` branch. After a version branch is validated, it is merged into `main` and publishes the rolling `latest` container tag. Version branches publish their matching immutable version tag.
+Read the [contribution guide](CONTRIBUTING.md) before opening an issue
+or pull request. Include your version, deployment method, reproduction steps and redacted logs.
+Use [GitHub](https://github.com/hbftechnologies/starlanenotes) for public reports and contributions.
 
 ## License
 
-Free for noncommercial use under the [PolyForm Noncommercial License 1.0.0](LICENSE). Starlane names and logos are covered by the [trademark and branding policy](TRADEMARKS.md).
+Starlane Notes is **source-available**, not OSI open source. Noncommercial use is covered by the
+[PolyForm Noncommercial License 1.0.0](LICENSE). Names and logos are governed by
+[TRADEMARKS.md](TRADEMARKS.md); modified distributions must use distinct branding.
