@@ -43,7 +43,7 @@ fn fd_stamp(fd:i32)->io::Result<Stamp> {
     if unsafe{libc::fstat(fd,st.as_mut_ptr())}!=0{return Err(io::Error::last_os_error());}
     let m=unsafe{st.assume_init()};
     if m.st_mode&libc::S_IFMT!=libc::S_IFREG{return Err(failure("Native source FD is not regular"));}
-    Ok(Stamp{dev:m.st_dev,ino:m.st_ino,mode:m.st_mode,uid:m.st_uid,gid:m.st_gid,links:m.st_nlink,len:u64::try_from(m.st_size).map_err(|_|failure("Negative source size"))?,mt:m.st_mtime,mtn:m.st_mtime_nsec,ct:m.st_ctime,ctn:m.st_ctime_nsec})
+    Ok(Stamp{dev:m.st_dev,ino:m.st_ino,mode:m.st_mode,uid:m.st_uid,gid:m.st_gid,links:u64::from(m.st_nlink),len:u64::try_from(m.st_size).map_err(|_|failure("Negative source size"))?,mt:m.st_mtime,mtn:m.st_mtime_nsec,ct:m.st_ctime,ctn:m.st_ctime_nsec})
 }
 fn regular_fds()->io::Result<BTreeMap<i32,Stamp>> {
     let mut files=BTreeMap::new();

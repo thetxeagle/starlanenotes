@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix ARM64 server compilation by converting the native file link count to its portable stamp type.
+
 - Update public repository links and Docker registry defaults for the transferred GitHub owner.
 
 - Add a public contributor guide, sanitized agent guidance, optional Starlane interface skills and
