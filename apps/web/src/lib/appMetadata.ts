@@ -5,7 +5,7 @@ export const STARLANE_VERSION =
 
 export const STARLANE_GITHUB_REPOSITORY = "https://github.com/hbftechnologies/starlanenotes";
 export const STARLANE_GITEA_REPOSITORY =
-  "https://github.com/hbftechnologies/starlanenotes";
+  "https://github.com/thetxeagle/starlanenotes";
 
 export function getStarlaneRepositoryUrl(
   locationLike?: Pick<Location, "hostname">,

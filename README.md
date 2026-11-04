@@ -35,8 +35,8 @@ The public snapshot uses GHCR. If the package requires authentication, run `dock
 
 ```bash
 mkdir starlane-notes && cd starlane-notes
-curl -fsSLo docker-compose.yml https://raw.githubusercontent.com/hbftechnologies/starlanenotes/main/docker/docker-compose.volume.yml
-curl -fsSLo .env https://raw.githubusercontent.com/hbftechnologies/starlanenotes/main/docker/.env.example
+curl -fsSLo docker-compose.yml https://raw.githubusercontent.com/thetxeagle/starlanenotes/main/docker/docker-compose.volume.yml
+curl -fsSLo .env https://raw.githubusercontent.com/thetxeagle/starlanenotes/main/docker/.env.example
 
 JWT_SECRET="$(openssl rand -hex 32)"
 sed -i.bak "s/^JWT_SECRET=.*/JWT_SECRET=${JWT_SECRET}/" .env
@@ -89,7 +89,7 @@ Automatic desktop updates are disabled in this snapshot until a public signed up
 
 Read the [contribution guide](CONTRIBUTING.md) before opening an issue
 or pull request. Include your version, deployment method, reproduction steps and redacted logs.
-Use [GitHub](https://github.com/hbftechnologies/starlanenotes) for public reports and contributions.
+Use [GitHub](https://github.com/thetxeagle/starlanenotes) for public reports and contributions.
 
 ## License
 

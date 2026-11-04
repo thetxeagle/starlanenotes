@@ -1,6 +1,6 @@
 services:
   starlane-notes:
-    image: ${STARLANE_IMAGE:-ghcr.io/hbftechnologies/starlanenotes:latest}
+    image: ${STARLANE_IMAGE:-ghcr.io/thetxeagle/starlanenotes:latest}
     container_name: starlane-notes
     restart: unless-stopped
     ports:

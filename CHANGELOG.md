@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Update public repository links and Docker registry defaults for the transferred GitHub owner.
+
 - Add a public contributor guide, sanitized agent guidance, optional Starlane interface skills and
   private-note template; validate their exact export paths and standalone design-check dependency.
 
